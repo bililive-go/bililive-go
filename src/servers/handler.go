@@ -173,6 +173,9 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool) (info *live.
 	liveRoom := configs.LiveRoom{
 		Url:         u.String(),
 		IsListening: isListen,
+		VideoSplitStrategies: configs.VideoSplitStrategies{
+			OnRoomNameChanged: inst.Config.VideoSplitStrategies.OnRoomNameChanged,
+		},
 	}
 	newLive, err := live.New(ctx, &liveRoom, inst.Cache)
 	liveRoom.LiveId = newLive.GetLiveId()

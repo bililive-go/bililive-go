@@ -88,6 +88,9 @@ type LiveRoom struct {
 	LiveId      types.LiveID `yaml:"-"`
 	Quality     int          `yaml:"quality"`
 	AudioOnly   bool         `yaml:"audio_only"`
+	VideoSplitStrategies VideoSplitStrategies{
+		OnRoomNameChanged: false,
+	} `yaml:"video_split_strategies"`
 }
 
 type liveRoomAlias LiveRoom
@@ -118,6 +121,9 @@ func NewLiveRoomsWithStrings(strings []string) []LiveRoom {
 		liveRooms[index].Url = url
 		liveRooms[index].IsListening = true
 		liveRooms[index].Quality = 0
+		liveRooms[index].VideoSplitStrategies = VideoSplitStrategies{
+			OnRoomNameChanged: false,
+		}
 	}
 	return liveRooms
 }

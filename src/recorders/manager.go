@@ -107,7 +107,21 @@ func (m *manager) AddRecorder(ctx context.Context, live live.Live) error {
 	}
 	m.savers[live.GetLiveId()] = recorder
 
-	if maxDur := m.cfg.VideoSplitStrategies.MaxDuration; maxDur != 0 {
+	room, err := m.cfg.GetLiveRoomByUrl(live.GetRawUrl())
+	if err != nil {
+		instance.GetInstance(ctx).Logger.
+			WithError(err).
+			WithField("url", live.GetRawUrl()).
+			Error("failed to get room config")
+		return err
+	}
+
+	maxDur := room.VideoSplitStrategies.MaxDuration
+	if maxDur == 0 {
+		maxDur = m.cfg.VideoSplitStrategies.MaxDuration
+	}
+
+	if maxDur != 0 {
 		go m.cronRestart(ctx, live)
 	}
 	return recorder.Start(ctx)
@@ -118,7 +132,24 @@ func (m *manager) cronRestart(ctx context.Context, live live.Live) {
 	if err != nil {
 		return
 	}
-	if time.Now().Sub(recorder.StartTime()) < m.cfg.VideoSplitStrategies.MaxDuration {
+
+	// 获取当前直播间的配置
+	room, err := m.cfg.GetLiveRoomByUrl(live.GetRawUrl())
+	if err != nil {
+		instance.GetInstance(ctx).Logger.
+			WithError(err).
+			WithField("url", live.GetRawUrl()).
+			Error("failed to get room config")
+		return
+	}
+
+	// 优先使用直播间的配置，如果没有则使用全局配置
+	maxDur := room.VideoSplitStrategies.MaxDuration
+	if maxDur == 0 {
+		maxDur = m.cfg.VideoSplitStrategies.MaxDuration
+	}
+
+	if time.Now().Sub(recorder.StartTime()) < maxDur {
 		time.AfterFunc(time.Minute/4, func() {
 			m.cronRestart(ctx, live)
 		})

@@ -21,6 +21,10 @@ live_rooms:
 - url: https://live.bilibili.com/22603245
   is_listening: true
   quality: 0 
+  video_split_strategies:
+    on_room_name_changed: true
+    max_duration: 1h
+    max_file_size: 0
 # '{{ .Live.GetPlatformCNName }}/{{ .HostName | filenameFilter }}/[{{ now | date "2006-01-02 15-04-05"}}][{{ .HostName | filenameFilter }}][{{ .RoomName | filenameFilter }}].flv'
 # ./平台名称/主播名字/[时间戳][主播名字][房间名字].flv
 # https://github.com/hr3lxphr6j/bililive-go/wiki/More-Tips
