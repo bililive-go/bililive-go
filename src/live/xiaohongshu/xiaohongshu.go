@@ -17,7 +17,7 @@ const (
 	cnName = "小红书"
 
 	roomApiUrl = "https://www.xiaohongshu.com/api/sns/red/live/app/v1/ecology/outside/share_info"
-	streamUrl  = "http://live-play.xhscdn.com/live"
+	streamUrl  = "https://live-source-play-hw.xhscdn.com/live"
 
 	userAgent = "Mozilla/5.0 (Linux; Android 11; SAMSUNG SM-G973U) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/14.2 Chrome/87.0.4280.141 Mobile Safari/537.36"
 )
