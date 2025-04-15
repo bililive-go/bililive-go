@@ -120,6 +120,9 @@ $ cd $GOPATH/src/github.com/hr3lxphr6j/bililive-go
 $ make
 ```
 
+## Windows构建
+请参考[Windows构建指南](docs/Windows_Build_Guide.md)
+
 ## Wiki
 [Wiki](https://github.com/hr3lxphr6j/bililive-go/wiki)
 
