@@ -16,6 +16,7 @@ const (
 	domain = "www.xiaohongshu.com"
 	cnName = "小红书"
 
+	roomUrl = "https://www.xiaohongshu.com/livestream"
 	roomApiUrl = "https://www.xiaohongshu.com/api/sns/red/live/app/v1/ecology/outside/share_info"
 	streamUrl  = "https://live-source-play-hw.xhscdn.com/live"
 
@@ -39,12 +40,6 @@ type Live struct {
 }
 
 func (l *Live) GetInfo() (info *live.Info, err error) {
-	headers := map[string]interface{}{
-		"User-Agent":      userAgent,
-		"Accept":          "application/json, text/plain, */*",
-		"Accept-Language": "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2",
-		"Referer":         "https://www.xiaohongshu.com/hina/livestream/568979931846654360",
-	}
 	cookies := l.Options.Cookies.Cookies(l.Url)
 	cookieKVs := make(map[string]string)
 	for _, item := range cookies {
@@ -53,6 +48,13 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 
 	pathParts := strings.Split(l.Url.Path, "/")
 	roomId := pathParts[len(pathParts)-1]
+
+	headers := map[string]interface{}{
+		"User-Agent":      userAgent,
+		"Accept":          "application/json, text/plain, */*",
+		"Accept-Language": "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2",
+		"Referer":         "https://www.xiaohongshu.com/hina/livestream/" + roomId,
+	}
 
 	resp, err := requests.Get(
 		roomApiUrl,
@@ -75,22 +77,28 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 		return nil, live.ErrRoomNotExist
 	}
 
-	mobileUrl := fmt.Sprintf("%s/%s.flv", streamUrl, roomId)
-	response, err := requests.Head(mobileUrl,
+	homeUrl := fmt.Sprintf("%s/%s", roomUrl, roomId)
+	response, err := requests.Get(homeUrl,
 		requests.Cookies(cookieKVs),
 		requests.Headers(headers),
 	)
 	if err != nil {
 		return nil, err
 	}
-
+	if response.StatusCode != http.StatusOK {
+		return nil, live.ErrRoomNotExist
+	}
+	homeBody, err := response.Text()
+	if err != nil {
+		return nil, err
+	}
 	info = &live.Info{
 		Live:     l,
 		HostName: gjson.GetBytes(body, "data.host_info.nickname").String(),
 		RoomName: gjson.GetBytes(body, "data.room.name").String(),
 		// 小红书直播间开没开播，status都为0
 		//Status:   gjson.GetBytes(body, "data.room.status").Int() == 0
-		Status: response.StatusCode == http.StatusOK,
+		Status: !strings.Contains(homeBody, "直播已结束"),
 	}
 
 	return
