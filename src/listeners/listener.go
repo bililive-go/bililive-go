@@ -98,7 +98,12 @@ func (l *listener) refresh() {
 	case 0:
 		isStatusChanged = false
 	case statusToTrueEvt:
-		l.Live.SetLastStartTime(time.Now())
+		now := time.Now()
+		l.Live.SetLastStartTime(now)
+		info.LastStartTime = now
+		if err := l.config.UpdateLiveRoomLastStartTime(l.Live.GetRawUrl(), now.Unix()); err != nil {
+			l.logger.WithError(err).Error("failed to update last start time in config")
+		}
 		evtTyp = LiveStart
 		logInfo = "Live Start"
 	case statusToFalseEvt:

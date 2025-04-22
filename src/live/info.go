@@ -2,6 +2,7 @@ package live
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/hr3lxphr6j/bililive-go/src/types"
 )
@@ -14,6 +15,7 @@ type Info struct {
 	Initializing         bool
 	CustomLiveId         string
 	AudioOnly            bool
+	LastStartTime        time.Time
 }
 
 type InfoCookie struct {
@@ -48,9 +50,9 @@ func (i *Info) MarshalJSON() ([]byte, error) {
 		Initializing:   i.Initializing,
 		AudioOnly:      i.AudioOnly,
 	}
-	if !i.Live.GetLastStartTime().IsZero() {
-		t.LastStartTime = i.Live.GetLastStartTime().Format("2006-01-02 15:04:05")
-		t.LastStartTimeUnix = i.Live.GetLastStartTime().Unix()
+	if !i.LastStartTime.IsZero() {
+		t.LastStartTime = i.LastStartTime.Format("2006-01-02 15:04:05")
+		t.LastStartTimeUnix = i.LastStartTime.Unix()
 	}
 	return json.Marshal(t)
 }

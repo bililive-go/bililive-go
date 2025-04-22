@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/tidwall/gjson"
@@ -33,6 +34,11 @@ func parseInfo(ctx context.Context, l live.Live) *live.Info {
 	info := obj.(*live.Info)
 	info.Listening = inst.ListenerManager.(listeners.Manager).HasListener(ctx, l.GetLiveId())
 	info.Recording = inst.RecorderManager.(recorders.Manager).HasRecorder(ctx, l.GetLiveId())
+	
+	// 从配置中获取最后开播时间
+	if room, err := inst.Config.GetLiveRoomByUrl(l.GetRawUrl()); err == nil && room.LastStartTime > 0 {
+		info.LastStartTime = time.Unix(room.LastStartTime, 0)
+	}
 	return info
 }
 

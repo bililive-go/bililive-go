@@ -30,8 +30,9 @@ func genLiveIdByString(value string) types.LiveID {
 
 func NewBaseLive(url *url.URL) BaseLive {
 	return BaseLive{
-		Url:    url,
-		LiveId: genLiveId(url),
+		Url:           url,
+		LiveId:        genLiveId(url),
+		LastStartTime: time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 }
 
@@ -48,6 +49,11 @@ func (a *BaseLive) UpdateLiveOptionsbyConfig(ctx context.Context, room *configs.
 	opts = append(opts, live.WithQuality(room.Quality))
 	opts = append(opts, live.WithAudioOnly(room.AudioOnly))
 	a.Options = live.MustNewOptions(opts...)
+	
+	// 从配置中读取最后开播时间
+	if room.LastStartTime > 0 {
+		a.LastStartTime = time.Unix(room.LastStartTime, 0)
+	}
 	return
 }
 

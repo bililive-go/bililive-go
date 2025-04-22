@@ -83,11 +83,12 @@ type Config struct {
 }
 
 type LiveRoom struct {
-	Url         string       `yaml:"url"`
-	IsListening bool         `yaml:"is_listening"`
-	LiveId      types.LiveID `yaml:"-"`
-	Quality     int          `yaml:"quality"`
-	AudioOnly   bool         `yaml:"audio_only"`
+	Url           string       `yaml:"url"`
+	IsListening   bool         `yaml:"is_listening"`
+	LiveId        types.LiveID `yaml:"-"`
+	Quality       int          `yaml:"quality"`
+	AudioOnly     bool         `yaml:"audio_only"`
+	LastStartTime int64        `yaml:"last_start_time"`
 }
 
 type liveRoomAlias LiveRoom
@@ -256,4 +257,15 @@ func (c Config) GetFilePath() (string, error) {
 		return "", errors.New("config path not set")
 	}
 	return c.File, nil
+}
+
+func (c *Config) UpdateLiveRoomLastStartTime(url string, lastStartTime int64) error {
+	c.RefreshLiveRoomIndexCache()
+	if index, ok := c.liveRoomIndexCache[url]; ok {
+		if index >= 0 && index < len(c.LiveRooms) && c.LiveRooms[index].Url == url {
+			c.LiveRooms[index].LastStartTime = lastStartTime
+			return c.Marshal()
+		}
+	}
+	return errors.New("failed to update last start time for room: " + url)
 }
