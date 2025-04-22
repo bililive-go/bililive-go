@@ -50,7 +50,7 @@ func (a *BaseLive) UpdateLiveOptionsbyConfig(ctx context.Context, room *configs.
 	opts = append(opts, live.WithAudioOnly(room.AudioOnly))
 	a.Options = live.MustNewOptions(opts...)
 	
-	// ´ÓÅäÖÃÖÐ¶ÁÈ¡×îºó¿ª²¥Ê±¼ä
+	// ä»Žé…ç½®ä¸­è¯»å–æœ€åŽå¼€æ’­æ—¶é—´
 	if room.LastStartTime > 0 {
 		a.LastStartTime = time.Unix(room.LastStartTime, 0)
 	}
