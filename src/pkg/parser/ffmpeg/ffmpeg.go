@@ -159,12 +159,26 @@ func (p *Parser) ParseLiveStream(ctx context.Context, streamUrlInfo *live.Stream
 	}
 
 	inst := instance.GetInstance(ctx)
-	MaxFileSize := inst.Config.VideoSplitStrategies.MaxFileSize
-	if MaxFileSize < 0 {
-		inst.Logger.Infof("Invalid MaxFileSize: %d", MaxFileSize)
-	} else if MaxFileSize > 0 {
-		args = append(args, "-fs", strconv.Itoa(MaxFileSize))
-	}
+    
+    room, err := inst.Config.GetLiveRoomByUrl(live.GetRawUrl())
+    if err != nil {
+        inst.Logger.
+            WithError(err).
+            WithField("url", live.GetRawUrl()).
+            Error("failed to get room config")
+        return err
+    }
+
+    MaxFileSize := room.VideoSplitStrategies.MaxFileSize
+    if MaxFileSize == 0 {
+        MaxFileSize = inst.Config.VideoSplitStrategies.MaxFileSize
+    }
+
+    if MaxFileSize < 0 {
+        inst.Logger.Infof("Invalid MaxFileSize: %d", MaxFileSize)
+    } else if MaxFileSize > 0 {
+        args = append(args, "-fs", strconv.Itoa(MaxFileSize))
+    }
 
 	args = append(args, file)
 

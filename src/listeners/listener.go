@@ -83,6 +83,15 @@ func (l *listener) refresh() {
 		return
 	}
 
+	room, err := l.config.GetLiveRoomByUrl(l.Live.GetRawUrl())
+	if err != nil {
+		l.logger.
+			WithError(err).
+			WithField("url", l.Live.GetRawUrl()).
+			Error("failed to get room config")
+		return
+	}
+
 	var (
 		latestStatus = status{roomName: info.RoomName, roomStatus: info.Status}
 		evtTyp       events.EventType
@@ -105,7 +114,8 @@ func (l *listener) refresh() {
 		evtTyp = LiveEnd
 		logInfo = "Live end"
 	case roomNameChangedEvt:
-		if !l.config.VideoSplitStrategies.OnRoomNameChanged {
+		// 优先使用直播间的配置，如果没有则使用全局配置
+		if !room.VideoSplitStrategies.OnRoomNameChanged && !l.config.VideoSplitStrategies.OnRoomNameChanged {
 			return
 		}
 		evtTyp = RoomNameChanged
