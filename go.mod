@@ -3,7 +3,7 @@ module github.com/bililive-go/bililive-go
 go 1.16
 
 require (
-	github.com/Masterminds/goutils v1.1.0 // indirect
+	github.com/Masterminds/goutils v1.1.1 // indirect
 	github.com/Masterminds/semver v1.5.0 // indirect
 	github.com/Masterminds/sprig v2.22.0+incompatible
 	github.com/alecthomas/kingpin v2.2.7-0.20180312062423-a39589180ebd+incompatible
