@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"net/url"
 
-	"github.com/hr3lxphr6j/bililive-go/src/pkg/utils"
+	"github.com/bililive-go/bililive-go/src/pkg/utils"
 )
 
 type representation struct {

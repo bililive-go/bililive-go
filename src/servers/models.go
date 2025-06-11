@@ -1,7 +1,7 @@
 package servers
 
 import (
-	"github.com/hr3lxphr6j/bililive-go/src/live"
+	"github.com/bililive-go/bililive-go/src/live"
 )
 
 type commonResp struct {

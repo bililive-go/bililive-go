@@ -3,7 +3,7 @@ package live
 import (
 	"encoding/json"
 
-	"github.com/hr3lxphr6j/bililive-go/src/types"
+	"github.com/bililive-go/bililive-go/src/types"
 )
 
 type Info struct {

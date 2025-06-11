@@ -1,7 +1,7 @@
 # Bililive-go
-[![CI](https://github.com/hr3lxphr6j/bililive-go/actions/workflows/tests.yaml/badge.svg?branch=master)](https://github.com/hr3lxphr6j/bililive-go/actions/workflows/tests.yaml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/hr3lxphr6j/bililive-go)](https://goreportcard.com/report/github.com/hr3lxphr6j/bililive-go)
-[![Github release](https://img.shields.io/github/release/hr3lxphr6j/bililive-go.svg)](https://github.com/hr3lxphr6j/bililive-go/releases/latest)
+[![CI](https://github.com/bililive-go/bililive-go/actions/workflows/tests.yaml/badge.svg?branch=master)](https://github.com/bililive-go/bililive-go/actions/workflows/tests.yaml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/bililive-go/bililive-go)](https://goreportcard.com/report/github.com/bililive-go/bililive-go)
+[![Github release](https://img.shields.io/github/release/bililive-go/bililive-go.svg)](https://github.com/bililive-go/bililive-go/releases/latest)
 [![Docker Pulls](https://img.shields.io/docker/pulls/chigusa/bililive-go.svg)](https://hub.docker.com/r/chigusa/bililive-go/)
 [![Bilibili](https://img.shields.io/badge/%E5%93%94%E5%93%A9%E5%93%94%E5%93%A9-%E6%9C%AA%E6%9D%A5%E7%A7%91%E6%8A%80%E7%8E%8B%E8%80%81%E8%8F%8A%E5%BD%95%E6%92%AD%E7%BB%84-ebb8d0.svg)](https://space.bilibili.com/18578203/)
 
@@ -151,7 +151,7 @@ cookies:
 点击对应直播间行右边的 `文件` 链接可以跳转到对应直播间的录播目录中。  
 当然你点左边的 `文件` 一路找过去也行。
 
-https://github.com/hr3lxphr6j/bililive-go/assets/2352900/6453900c-6321-417b-94f2-d65ec2ab3d7e
+https://github.com/bililive-go/bililive-go/assets/2352900/6453900c-6321-417b-94f2-d65ec2ab3d7e
 
 ## Grafana 面板
 
@@ -161,7 +161,7 @@ docker compose 用户可以取消项目根目录下 `docker-compose.yml` 文件�
 非 docker compose 用户需要自行部署 prometheus 和 grafana。  
 这里是 [一些建议](docs/grafana.md#%E6%89%8B%E5%8A%A8%E5%AE%89%E8%A3%85%E7%AC%94%E8%AE%B0)
 
-![image](https://github.com/hr3lxphr6j/bililive-go/raw/master/docs/dashboard.webp)
+![image](https://github.com/bililive-go/bililive-go/raw/master/docs/dashboard.webp)
 
 
 ## 依赖
@@ -170,13 +170,13 @@ docker compose 用户可以取消项目根目录下 `docker-compose.yml` 文件�
 ## 安装和使用
 
 ### Windows
-https://github.com/hr3lxphr6j/bililive-go/wiki/Install-Windows
+https://github.com/bililive-go/bililive-go/wiki/Install-Windows
 
 ### macOS
-https://github.com/hr3lxphr6j/bililive-go/wiki/Install-macOS
+https://github.com/bililive-go/bililive-go/wiki/Install-macOS
 
 ### Linux
-https://github.com/hr3lxphr6j/bililive-go/wiki/Install-Linux
+https://github.com/bililive-go/bililive-go/wiki/Install-Linux
 
 ### docker
 
@@ -222,7 +222,7 @@ NAS 用户使用系统自带 GUI 创建 docker compose 的情况请参考群晖�
     6) yum repolist
     7) yum install -y ffmpeg
 二、克隆代码并编译(linux环境)    
-   1. git clone https://github.com/hr3lxphr6j/bililive-go.git
+   1. git clone https://github.com/bililive-go/bililive-go.git
    2. cd bililive-go
    3. make build-web
    4. make 
@@ -233,10 +233,10 @@ NAS 用户使用系统自带 GUI 创建 docker compose 的情况请参考群晖�
 ```
 
 ## Wiki
-[Wiki](https://github.com/hr3lxphr6j/bililive-go/wiki)
+[Wiki](https://github.com/bililive-go/bililive-go/wiki)
 
 ## API
-[API doc](https://github.com/hr3lxphr6j/bililive-go/blob/master/docs/API.md)
+[API doc](https://github.com/bililive-go/bililive-go/blob/master/docs/API.md)
 
 ## 参考
 - [you-get](https://github.com/soimort/you-get)

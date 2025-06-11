@@ -18,8 +18,8 @@
 
 目前已知的崩溃方式有两种。
 
-第一种会在直播间录制结束的瞬间崩溃，崩溃log参考 [这里](https://github.com/hr3lxphr6j/bililive-go/issues/383#issuecomment-1424675413)
+第一种会在直播间录制结束的瞬间崩溃，崩溃log参考 [这里](https://github.com/bililive-go/bililive-go/issues/383#issuecomment-1424675413)
 
 
-第二种在录制开始的瞬间崩溃，崩溃 log 参考 [这里](https://github.com/hr3lxphr6j/bililive-go/issues/546)  
+第二种在录制开始的瞬间崩溃，崩溃 log 参考 [这里](https://github.com/bililive-go/bililive-go/issues/546)  
 这种崩溃似乎是因为程序虽然找到了 ffmpeg 程序，但是在启动 ffmpeg 程序的时候发生了错误。有可能是你下载的 ffmpeg 程序不是你的电脑架构的可执行程序。你可以在命令行启动一下程序使用的 ffmpeg 看看有没有什么错误提醒。

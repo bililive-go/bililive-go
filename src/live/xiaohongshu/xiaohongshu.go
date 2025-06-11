@@ -6,8 +6,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/hr3lxphr6j/bililive-go/src/live"
-	"github.com/hr3lxphr6j/bililive-go/src/live/internal"
+	"github.com/bililive-go/bililive-go/src/live"
+	"github.com/bililive-go/bililive-go/src/live/internal"
 	"github.com/hr3lxphr6j/requests"
 	"github.com/tidwall/gjson"
 )
@@ -16,7 +16,7 @@ const (
 	domain = "www.xiaohongshu.com"
 	cnName = "小红书"
 
-	roomUrl = "https://www.xiaohongshu.com/livestream"
+	roomUrl    = "https://www.xiaohongshu.com/livestream"
 	roomApiUrl = "https://www.xiaohongshu.com/api/sns/red/live/app/v1/ecology/outside/share_info"
 	streamUrl  = "https://live-source-play-hw.xhscdn.com/live"
 

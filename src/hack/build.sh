@@ -4,7 +4,7 @@ set -o errexit
 set -o nounset
 
 readonly OUTPUT_PATH=bin
-readonly CONSTS_PATH="github.com/hr3lxphr6j/bililive-go/src/consts"
+readonly CONSTS_PATH="github.com/bililive-go/bililive-go/src/consts"
 
 _build() {
   target=$1

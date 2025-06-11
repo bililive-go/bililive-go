@@ -4,11 +4,11 @@ import (
 	"context"
 	"sync"
 
-	"github.com/hr3lxphr6j/bililive-go/src/instance"
-	"github.com/hr3lxphr6j/bililive-go/src/interfaces"
-	"github.com/hr3lxphr6j/bililive-go/src/live"
-	"github.com/hr3lxphr6j/bililive-go/src/pkg/events"
-	"github.com/hr3lxphr6j/bililive-go/src/types"
+	"github.com/bililive-go/bililive-go/src/instance"
+	"github.com/bililive-go/bililive-go/src/interfaces"
+	"github.com/bililive-go/bililive-go/src/live"
+	"github.com/bililive-go/bililive-go/src/pkg/events"
+	"github.com/bililive-go/bililive-go/src/types"
 )
 
 // for test

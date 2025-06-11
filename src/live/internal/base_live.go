@@ -6,11 +6,11 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/hr3lxphr6j/bililive-go/src/configs"
-	"github.com/hr3lxphr6j/bililive-go/src/instance"
-	"github.com/hr3lxphr6j/bililive-go/src/live"
-	"github.com/hr3lxphr6j/bililive-go/src/pkg/utils"
-	"github.com/hr3lxphr6j/bililive-go/src/types"
+	"github.com/bililive-go/bililive-go/src/configs"
+	"github.com/bililive-go/bililive-go/src/instance"
+	"github.com/bililive-go/bililive-go/src/live"
+	"github.com/bililive-go/bililive-go/src/pkg/utils"
+	"github.com/bililive-go/bililive-go/src/types"
 )
 
 type BaseLive struct {

@@ -1,4 +1,4 @@
-//go:generate mockgen -package listeners -destination mock_test.go github.com/hr3lxphr6j/bililive-go/src/listeners Listener,Manager
+//go:generate mockgen -package listeners -destination mock_test.go github.com/bililive-go/bililive-go/src/listeners Listener,Manager
 package listeners
 
 import (
@@ -8,12 +8,12 @@ import (
 
 	"github.com/lthibault/jitterbug"
 
-	"github.com/hr3lxphr6j/bililive-go/src/configs"
-	"github.com/hr3lxphr6j/bililive-go/src/instance"
-	"github.com/hr3lxphr6j/bililive-go/src/interfaces"
-	"github.com/hr3lxphr6j/bililive-go/src/live"
-	"github.com/hr3lxphr6j/bililive-go/src/live/system"
-	"github.com/hr3lxphr6j/bililive-go/src/pkg/events"
+	"github.com/bililive-go/bililive-go/src/configs"
+	"github.com/bililive-go/bililive-go/src/instance"
+	"github.com/bililive-go/bililive-go/src/interfaces"
+	"github.com/bililive-go/bililive-go/src/live"
+	"github.com/bililive-go/bililive-go/src/live/system"
+	"github.com/bililive-go/bililive-go/src/pkg/events"
 )
 
 const (

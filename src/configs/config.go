@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/hr3lxphr6j/bililive-go/src/types"
+	"github.com/bililive-go/bililive-go/src/types"
 	"gopkg.in/yaml.v2"
 )
 

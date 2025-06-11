@@ -6,9 +6,9 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/hr3lxphr6j/bililive-go/src/live"
-	"github.com/hr3lxphr6j/bililive-go/src/live/internal"
-	"github.com/hr3lxphr6j/bililive-go/src/pkg/utils"
+	"github.com/bililive-go/bililive-go/src/live"
+	"github.com/bililive-go/bililive-go/src/live/internal"
+	"github.com/bililive-go/bililive-go/src/pkg/utils"
 	"github.com/hr3lxphr6j/requests"
 )
 

@@ -1,4 +1,4 @@
-//go:generate mockgen -package mock -destination mock/mock.go github.com/hr3lxphr6j/bililive-go/src/pkg/events Dispatcher
+//go:generate mockgen -package mock -destination mock/mock.go github.com/bililive-go/bililive-go/src/pkg/events Dispatcher
 package events
 
 import (
@@ -6,8 +6,8 @@ import (
 	"context"
 	"sync"
 
-	"github.com/hr3lxphr6j/bililive-go/src/instance"
-	"github.com/hr3lxphr6j/bililive-go/src/interfaces"
+	"github.com/bililive-go/bililive-go/src/instance"
+	"github.com/bililive-go/bililive-go/src/interfaces"
 )
 
 func NewDispatcher(ctx context.Context) Dispatcher {

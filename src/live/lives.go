@@ -1,4 +1,4 @@
-//go:generate mockgen -package mock -destination mock/mock.go github.com/hr3lxphr6j/bililive-go/src/live Live
+//go:generate mockgen -package mock -destination mock/mock.go github.com/bililive-go/bililive-go/src/live Live
 package live
 
 import (
@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/bluele/gcache"
-	"github.com/hr3lxphr6j/bililive-go/src/configs"
-	"github.com/hr3lxphr6j/bililive-go/src/types"
+	"github.com/bililive-go/bililive-go/src/configs"
+	"github.com/bililive-go/bililive-go/src/types"
 )
 
 var (

@@ -9,12 +9,12 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/hr3lxphr6j/bililive-go/src/instance"
-	"github.com/hr3lxphr6j/bililive-go/src/interfaces"
-	"github.com/hr3lxphr6j/bililive-go/src/listeners"
-	"github.com/hr3lxphr6j/bililive-go/src/live"
-	"github.com/hr3lxphr6j/bililive-go/src/recorders"
-	"github.com/hr3lxphr6j/bililive-go/src/types"
+	"github.com/bililive-go/bililive-go/src/instance"
+	"github.com/bililive-go/bililive-go/src/interfaces"
+	"github.com/bililive-go/bililive-go/src/listeners"
+	"github.com/bililive-go/bililive-go/src/live"
+	"github.com/bililive-go/bililive-go/src/recorders"
+	"github.com/bililive-go/bililive-go/src/types"
 )
 
 var (

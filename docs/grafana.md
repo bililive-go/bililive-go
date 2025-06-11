@@ -2,7 +2,7 @@
 
 ## 安装
 1. clone repo
->$ git clone https://github.com/hr3lxphr6j/bililive-go.git
+>$ git clone https://github.com/bililive-go/bililive-go.git
 
 2. 编辑 .env
 自定义账户密码，将example.env保存为.env

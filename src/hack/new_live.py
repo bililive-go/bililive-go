@@ -9,8 +9,8 @@ t = string.Template('''package ${package}
 import (
     "net/url"
     
-    "github.com/hr3lxphr6j/bililive-go/src/live"
-    "github.com/hr3lxphr6j/bililive-go/src/live/internal"
+    "github.com/bililive-go/bililive-go/src/live"
+    "github.com/bililive-go/bililive-go/src/live/internal"
 )
 
 const (

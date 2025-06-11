@@ -3,7 +3,7 @@ package servers
 import (
 	"net/http"
 
-	"github.com/hr3lxphr6j/bililive-go/src/instance"
+	"github.com/bililive-go/bililive-go/src/instance"
 )
 
 func log(handler http.Handler) http.Handler {
