@@ -149,7 +149,11 @@ func (p *Parser) ParseLiveStream(ctx context.Context, streamUrlInfo *live.Stream
 		"-rw_timeout", p.timeoutInUs,
 		"-i", url.String(),
 		"-c", "copy",
-		"-bsf:a", "aac_adtstoasc",
+		// No need for `.ts` output: will cause audio error
+		// No need for `.mp4` output:
+		// 	-	view log via `-v verbose`
+		// 	-	Automatically inserted bitstream filter 'aac_adtstoasc'; args=''
+		// "-bsf:a", "aac_adtstoasc",
 	}
 	for k, v := range headers {
 		if k == "User-Agent" || k == "Referer" {
