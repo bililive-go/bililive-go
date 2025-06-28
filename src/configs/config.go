@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/bililive-go/bililive-go/src/types"
@@ -88,6 +89,7 @@ type LiveRoom struct {
 	LiveId      types.LiveID `yaml:"-"`
 	Quality     int          `yaml:"quality"`
 	AudioOnly   bool         `yaml:"audio_only"`
+	LastStartTime int64        `yaml:"last_start_time"`
 }
 
 type liveRoomAlias LiveRoom
@@ -222,6 +224,30 @@ func NewConfigWithBytes(b []byte) (*Config, error) {
 	config := defaultConfig
 	if err := yaml.Unmarshal(b, &config); err != nil {
 		return nil, err
+	}
+	// Compatible with last_start_time as float64/string
+	for i := range config.LiveRooms {
+		room := &config.LiveRooms[i]
+		if room.LastStartTime == 0 {
+			// Re-parse single room as map to handle type compatibility
+			var raw map[string]interface{}
+			if err := yaml.Unmarshal(b, &raw); err == nil {
+				if rooms, ok := raw["live_rooms"].([]interface{}); ok && i < len(rooms) {
+					if m, ok := rooms[i].(map[interface{}]interface{}); ok {
+						if v, ok := m["last_start_time"]; ok {
+							switch vv := v.(type) {
+							case float64:
+								room.LastStartTime = int64(vv)
+							case string:
+								if n, err := strconv.ParseInt(vv, 10, 64); err == nil {
+									room.LastStartTime = n
+								}
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 	config.RefreshLiveRoomIndexCache()
 	return &config, nil

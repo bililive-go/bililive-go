@@ -162,6 +162,9 @@ func New(ctx context.Context, room *configs.LiveRoom, cache gcache.Cache) (live 
 	if err != nil {
 		return
 	}
+	if room.LastStartTime > 0 {
+		live.SetLastStartTime(time.Unix(room.LastStartTime, 0))
+	}
 	live.UpdateLiveOptionsbyConfig(ctx, room)
 	live = newWrappedLive(live, cache)
 	for i := 0; i < 3; i++ {
@@ -179,6 +182,9 @@ func New(ctx context.Context, room *configs.LiveRoom, cache gcache.Cache) (live 
 	live, err = InitializingLiveBuilderInstance.Build(live, url)
 	if err != nil {
 		return nil, err
+	}
+	if room.LastStartTime > 0 {
+		live.SetLastStartTime(time.Unix(room.LastStartTime, 0))
 	}
 	live.UpdateLiveOptionsbyConfig(ctx, room)
 	live = newWrappedLive(live, cache)
