@@ -1,29 +1,16 @@
-UPX_ENABLE ?= 0
-PLATFORM ?= $(shell go env GOHOSTOS)
-ARCH ?= $(shell go env GOHOSTARCH)
-local_go_version := $(shell go version | cut -d' ' -f3 | sed -e 's/go//g')
-tags := "release"
 
-build: $(notdir $(abspath $(wildcard src/cmd/*/)))
+build: bilive-go
 .PHONY: build
 
-$(notdir $(abspath $(wildcard src/cmd/*/))):
-	@echo "building $@ (Platform: $(PLATFORM), Arch: $(ARCH), GoVersion: $(local_go_version))"
-	@GOOS=$(PLATFORM) \
-		GOARCH=$(ARCH) \
-		CGO_ENABLED=0 \
-		UPX_ENABLE=$(UPX_ENABLE) \
-		TAGS=$(tags) \
-		GCFLAGS=$(gcflags) \
-		./src/hack/build.sh $@
+bilive-go:
+	@go run build.go release
 
 .PHONY: dev
-dev: tags := "dev"
-dev: gcflags := "all=-N -l"
-dev: build
+dev:
+	@go run build.go dev
 
 .PHONY: release
-release: build-web generate
+release:
 	@./src/hack/release.sh
 
 .PHONY: release-docker
@@ -32,7 +19,7 @@ release-docker:
 
 .PHONY: test
 test:
-	@go test -tags release --cover -coverprofile=coverage.txt ./src/...
+	@go run build.go test
 
 .PHONY: clean
 clean:
@@ -41,11 +28,11 @@ clean:
 
 .PHONY: generate
 generate:
-	go generate ./...
+	go run build.go generate
 
 .PHONY: build-web
 build-web:
-	cd ./src/webapp && yarn install && yarn build && cd ../../
+	go run build.go build-web
 
 .PHONY: run
 run:

@@ -15,6 +15,7 @@ import (
 
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/live"
+	log "github.com/sirupsen/logrus"
 )
 
 func GetFFmpegPath(ctx context.Context) (string, error) {
@@ -115,4 +116,46 @@ func PrintStack(ctx context.Context) {
 	inst := instance.GetInstance(ctx)
 	logger := inst.Logger
 	logger.Debugf(string(debug.Stack()))
+}
+
+func ExecCommands(commands [][]string) error {
+	pwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	for _, command := range commands {
+		err := ExecCommandInDir(command, pwd)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ExecCommand(command []string) error {
+	pwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	return ExecCommandInDir(command, pwd)
+}
+
+func ExecCommandsInDir(commands [][]string, dir string) error {
+	for _, command := range commands {
+		err := ExecCommandInDir(command, dir)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ExecCommandInDir(args []string, dir string) error {
+	name := args[0]
+	cmd := exec.Command(name, args[1:]...)
+	cmd.Dir = dir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	log.Info(cmd.String())
+	return cmd.Run()
 }
