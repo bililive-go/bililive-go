@@ -1,8 +1,8 @@
 
-build: bilive-go
+build: bililive
 .PHONY: build
 
-bilive-go:
+bililive:
 	@go run build.go release
 
 .PHONY: dev
