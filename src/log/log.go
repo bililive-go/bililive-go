@@ -46,18 +46,17 @@ func New(ctx context.Context) *interfaces.Logger {
 			}
 		}
 	}
-	logger := &interfaces.Logger{Logger: &logrus.Logger{
-		Out: io.MultiWriter(writers...),
-		Formatter: &logrus.TextFormatter{
-			DisableColors:   true,
-			FullTimestamp:   true,
-			TimestampFormat: "2006-01-02 15:04:05",
-		},
-		Hooks: make(logrus.LevelHooks),
-		Level: logLevel,
-	}}
 
-	inst.Logger = logger
+	logrus.SetOutput(io.MultiWriter(writers...))
+	logrus.SetFormatter(&logrus.TextFormatter{
+		DisableColors:   true,
+		FullTimestamp:   true,
+		TimestampFormat: "2006-01-02 15:04:05",
+	})
 
-	return logger
+	// logrus.AddHook(make(logrus.LevelHooks)) // 添加自定义 hook
+	inst.Logger = &interfaces.Logger{Logger: logrus.StandardLogger()}
+	logrus.SetLevel(logLevel)
+
+	return inst.Logger
 }
