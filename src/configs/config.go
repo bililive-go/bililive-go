@@ -3,7 +3,6 @@ package configs
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
 	"time"
@@ -93,7 +92,7 @@ type LiveRoom struct {
 type liveRoomAlias LiveRoom
 
 // allow both string and LiveRoom format in config
-func (l *LiveRoom) UnmarshalYAML(unmarshal func(interface{}) error) error {
+func (l *LiveRoom) UnmarshalYAML(unmarshal func(any) error) error {
 	liveRoomAlias := liveRoomAlias{
 		IsListening: true,
 	}
@@ -228,7 +227,7 @@ func NewConfigWithBytes(b []byte) (*Config, error) {
 }
 
 func NewConfigWithFile(file string) (*Config, error) {
-	b, err := ioutil.ReadFile(file)
+	b, err := os.ReadFile(file)
 	if err != nil {
 		return nil, fmt.Errorf("can`t open file: %s", file)
 	}
@@ -248,7 +247,7 @@ func (c *Config) Marshal() error {
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(c.File, b, os.ModeAppend)
+	return os.WriteFile(c.File, b, os.ModeAppend)
 }
 
 func (c Config) GetFilePath() (string, error) {

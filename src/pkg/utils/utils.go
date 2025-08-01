@@ -79,7 +79,7 @@ func Match1(re, str string) string {
 		return ""
 	}
 	match := reg.FindStringSubmatch(str)
-	if match == nil || len(match) < 2 {
+	if len(match) < 2 {
 		return ""
 	}
 	return match[1]

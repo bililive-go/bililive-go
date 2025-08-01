@@ -13,7 +13,7 @@ const (
 var (
 	ErrOutOfBuffer = errors.New("n is bigger than len of buffer")
 
-	pool = sync.Pool{New: func() interface{} { return make([]byte, defaultBufferSize) }}
+	pool = sync.Pool{New: func() any { return make([]byte, defaultBufferSize) }}
 )
 
 type BufferedReader struct {
@@ -76,6 +76,7 @@ func (b *BufferedReader) LastBytes() []byte {
 
 func (b *BufferedReader) Free() {
 	b.Reset()
+	//nolint:staticcheck
 	pool.Put(b.buf)
 	b.buf = nil
 }

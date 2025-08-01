@@ -94,10 +94,8 @@ func main() {
 	events.NewDispatcher(ctx)
 
 	inst.Lives = make(map[types.LiveID]live.Live)
-	for index, _ := range inst.Config.LiveRooms {
-		room := &inst.Config.LiveRooms[index]
-
-		l, err := live.New(ctx, room, inst.Cache)
+	for _, room := range inst.Config.LiveRooms {
+		l, err := live.New(ctx, &room, inst.Cache)
 		if err != nil {
 			logger.WithField("url", room).Error(err.Error())
 			continue
@@ -131,18 +129,18 @@ func main() {
 	for _, _live := range inst.Lives {
 		room, err := inst.Config.GetLiveRoomByUrl(_live.GetRawUrl())
 		if err != nil {
-			logger.WithFields(map[string]interface{}{"room": _live.GetRawUrl()}).Error(err)
+			logger.WithFields(map[string]any{"room": _live.GetRawUrl()}).Error(err)
 			panic(err)
 		}
 		if room.IsListening {
 			if err := lm.AddListener(ctx, _live); err != nil {
-				logger.WithFields(map[string]interface{}{"url": _live.GetRawUrl()}).Error(err)
+				logger.WithFields(map[string]any{"url": _live.GetRawUrl()}).Error(err)
 			}
 		}
 		time.Sleep(time.Second * 5)
 	}
 
-	c := make(chan os.Signal)
+	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-c

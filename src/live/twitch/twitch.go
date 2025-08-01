@@ -40,8 +40,6 @@ func (b *builder) Build(url *url.URL) (live.Live, error) {
 	}, nil
 }
 
-var headers = map[string]string{"client-id": clientId}
-
 type Live struct {
 	internal.BaseLive
 	userId, hostName, roomName string

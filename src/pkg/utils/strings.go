@@ -45,7 +45,7 @@ var ParseUnicode = StringFilterFunc(func(str string) string {
 	for i := 0; i < len(str); {
 		if chars[i] == 92 && chars[i+1] == 117 {
 			t, _ := strconv.ParseInt(string(chars[i+2:i+6]), 16, 32)
-			buf.WriteString(fmt.Sprintf("%c", t))
+			fmt.Fprintf(buf, "%c", t)
 			i += 6
 		} else {
 			buf.WriteByte(chars[i])

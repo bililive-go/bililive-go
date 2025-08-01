@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/bluele/gcache"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/bililive-go/bililive-go/src/configs"
@@ -16,6 +15,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
 	evtmock "github.com/bililive-go/bililive-go/src/pkg/events/mock"
+	gomock "go.uber.org/mock/gomock"
 )
 
 func TestRefresh(t *testing.T) {

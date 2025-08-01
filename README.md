@@ -43,18 +43,6 @@ Bililive-go是一个支持多种直播平台的直播录制工具
         <td></td>
     </tr>
     <tr align="center">
-        <td>火猫直播</td>
-        <td>www.huomao.com</td>
-        <td>滋瓷</td>
-        <td></td>
-    </tr>
-    <tr align="center">
-        <td>龙珠直播</td>
-        <td>longzhu.com</td>
-        <td>滋瓷</td>
-        <td></td>
-    </tr>
-    <tr align="center">
         <td>虎牙直播</td>
         <td>www.huya.com</td>
         <td>滋瓷</td>

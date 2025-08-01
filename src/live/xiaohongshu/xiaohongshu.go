@@ -49,7 +49,7 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 	pathParts := strings.Split(l.Url.Path, "/")
 	roomId := pathParts[len(pathParts)-1]
 
-	headers := map[string]interface{}{
+	headers := map[string]any{
 		"User-Agent":      userAgent,
 		"Accept":          "application/json, text/plain, */*",
 		"Accept-Language": "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2",

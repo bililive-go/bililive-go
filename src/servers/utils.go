@@ -15,7 +15,7 @@ func writeMsg(w http.ResponseWriter, code int, msg string) {
 	_, _ = w.Write([]byte(msg))
 }
 
-func writeJSON(w http.ResponseWriter, obj interface{}) {
+func writeJSON(w http.ResponseWriter, obj any) {
 	b, err := json.Marshal(obj)
 	if err != nil {
 		writeMsg(w, http.StatusInternalServerError, err.Error())
@@ -25,7 +25,7 @@ func writeJSON(w http.ResponseWriter, obj interface{}) {
 	_, _ = w.Write(b)
 }
 
-func writeJsonWithStatusCode(w http.ResponseWriter, code int, obj interface{}) {
+func writeJsonWithStatusCode(w http.ResponseWriter, code int, obj any) {
 	b, err := json.Marshal(obj)
 	if err != nil {
 		writeMsg(w, http.StatusInternalServerError, err.Error())

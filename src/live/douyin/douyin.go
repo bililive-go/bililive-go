@@ -422,6 +422,8 @@ func (l *Live) createStreamUrlInfos(streamUrlInfo, originUrlList map[string]inte
 			return streamUrlInfos[i].Vbitrate > streamUrlInfos[j].Vbitrate
 		}
 	})
+	// TODO: fix inefficient code
+	//nolint:ineffassign
 
 	return streamUrlInfos, nil
 }
@@ -434,12 +436,9 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 		if err == nil {
 			l.LastAvailableStreamData = streamData{
 				streamUrlInfo: streamUrlInfo,
-			}
-			return
 		}
 	}
 	info, streamUrlInfo, originUrlList, err = l.getDouYinStreamData(l.Url.String())
-	if err == nil {
 		l.LastAvailableStreamData = streamData{
 			streamUrlInfo: streamUrlInfo,
 			originUrlList: originUrlList,

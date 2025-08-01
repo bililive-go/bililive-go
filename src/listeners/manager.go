@@ -50,7 +50,7 @@ func (m *manager) registryListener(ctx context.Context, ed events.Dispatcher) {
 
 		room, err := inst.Config.GetLiveRoomByUrl(live.GetRawUrl())
 		if err != nil {
-			logger.WithFields(map[string]interface{}{
+			logger.WithFields(map[string]any{
 				"room": live.GetRawUrl(),
 			}).Error(err)
 			panic(err)
@@ -58,7 +58,7 @@ func (m *manager) registryListener(ctx context.Context, ed events.Dispatcher) {
 		room.LiveId = live.GetLiveId()
 		if room.IsListening {
 			if err := m.replaceListener(ctx, initializingLive, live); err != nil {
-				logger.WithFields(map[string]interface{}{
+				logger.WithFields(map[string]any{
 					"url": live.GetRawUrl(),
 				}).Error(err)
 			}
