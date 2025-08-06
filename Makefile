@@ -10,7 +10,7 @@ dev:
 	@go run build.go dev
 
 .PHONY: release
-release:
+release: build-web generate
 	@./src/hack/release.sh
 
 .PHONY: release-docker

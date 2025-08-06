@@ -14,8 +14,14 @@ import (
 )
 
 func BuildGoBinary(isDev bool) {
-	goHostOS := runtime.GOOS
-	goHostArch := runtime.GOARCH
+	goHostOS := os.Getenv("PLATFORM")
+	if goHostOS == "" {
+		goHostOS = runtime.GOOS
+	}
+	goHostArch := os.Getenv("ARCH")
+	if goHostArch == "" {
+		goHostArch = runtime.GOARCH
+	}
 	goVersion := runtime.Version()
 	goTags := "release"
 	gcflags := ""
@@ -49,7 +55,7 @@ func BuildGoBinary(isDev bool) {
 		"go", "build",
 		"-tags", goTags,
 		`-gcflags=`+gcflags,
-		"-o", "bin/"+generateBinaryName(),
+		"-o", "bin/"+generateBinaryName(goHostOS, goHostArch),
 		"-ldflags="+ldflags,
 		"./src/cmd/bililive",
 	)
@@ -69,8 +75,8 @@ func BuildGoBinary(isDev bool) {
 	}
 }
 
-func generateBinaryName() string {
-	binaryName := "bililive-" + runtime.GOOS + "-" + runtime.GOARCH
+func generateBinaryName(goHostOS string, goHostArch string) string {
+	binaryName := "bililive-" + goHostOS + "-" + goHostArch
 	if runtime.GOOS == "windows" {
 		binaryName += ".exe"
 	}
