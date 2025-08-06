@@ -59,7 +59,7 @@ func (l *Live) getRoomInfo() ([]byte, error) {
 		result, _ := url.ParseQuery(l.Url.RawQuery)
 		if result.Get("_specific_parameter") != "" {
 			urlparam := result.Get("_specific_parameter")
-			unescapestr, err := url.QueryUnescape(urlparam)
+			unescapestr, _ := url.QueryUnescape(urlparam)
 			decryptresult, err := decrypt(restoreBase64Standard(unescapestr))
 			if err != nil {
 				return nil, err

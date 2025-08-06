@@ -106,7 +106,7 @@ func (l *Live) getDouYinAppStreamData() (info *live.Info,
 				return
 			}
 
-			if l.isReTrying == false {
+			if !l.isReTrying {
 				l.isReTrying = true
 				return l.getDouYinStreamData(fmt.Sprintf("https://live.douyin.com/%s", uniqueID))
 			}
@@ -209,7 +209,7 @@ func (l *Live) getSecUserID(headers map[string]interface{}) (
 		match := re.FindStringSubmatch(redirectURL)
 		if len(match) >= 2 {
 			secUserID = match[1]
-			sp := strings.SplitN(strings.SplitN(redirectURL, "?", 2)[0], "/", -1)
+			sp := strings.Split(strings.SplitN(redirectURL, "?", 2)[0], "/")
 			roomID = sp[len(sp)-1]
 			return roomID, secUserID, nil
 		}
@@ -266,7 +266,7 @@ func (l *Live) getUniqueID(headers map[string]interface{}) (string, error) {
 	if strings.Contains(redirectURL, "reflow/") {
 		return "", errUnsupportedUrl
 	}
-	secUserID := strings.SplitN(strings.SplitN(redirectURL, "?", 2)[0], "/", -1)
+	secUserID := strings.Split(strings.SplitN(redirectURL, "?", 2)[0], "/")
 	secID := secUserID[len(secUserID)-1]
 
 	localHeaders := headers
