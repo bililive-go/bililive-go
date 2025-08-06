@@ -77,7 +77,7 @@ func BuildGoBinary(isDev bool) {
 
 func generateBinaryName(goHostOS string, goHostArch string) string {
 	binaryName := "bililive-" + goHostOS + "-" + goHostArch
-	if runtime.GOOS == "windows" {
+	if goHostOS == "windows" {
 		binaryName += ".exe"
 	}
 	return binaryName
