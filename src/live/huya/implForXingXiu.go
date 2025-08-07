@@ -103,7 +103,7 @@ func getJsonFromBody(htmlBody string) (result *gjson.Result, err error) {
 	params["roomid"] = roomId
 	params["showSecret"] = "1"
 
-	headers := make(map[string]interface{})
+	headers := make(map[string]any)
 	headers["User-Agent"] = uaForXingXiu
 	headers["xweb_xhr"] = "1"
 	headers["referer"] = "https://servicewechat.com/wx74767bf0b684f7d3/301/page-frame.html"

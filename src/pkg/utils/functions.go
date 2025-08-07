@@ -7,7 +7,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/configs"
 )
 
-func getFunctionList(config *configs.Config) map[string]interface{} {
+func getFunctionList(config *configs.Config) map[string]any {
 	filenameFilters := []StringFilter{
 		UnescapeHTMLEntity,
 		ReplaceIllegalChar,
@@ -15,7 +15,7 @@ func getFunctionList(config *configs.Config) map[string]interface{} {
 	if config.Feature.RemoveSymbolOtherCharacter {
 		filenameFilters = append(filenameFilters, RemoveSymbolOtherChar)
 	}
-	return map[string]interface{}{
+	return map[string]any{
 		"decodeUnicode":      ParseUnicode,
 		"replaceIllegalChar": ReplaceIllegalChar,
 		"unescapeHTMLEntity": UnescapeHTMLEntity,

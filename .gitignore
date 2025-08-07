@@ -167,3 +167,5 @@ node_modules
 
 #vscode
 .vscode
+
+!src/cmd/build/

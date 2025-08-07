@@ -87,7 +87,7 @@ func (l *listener) refresh() {
 		latestStatus = status{roomName: info.RoomName, roomStatus: info.Status}
 		evtTyp       events.EventType
 		logInfo      string
-		fields       = map[string]interface{}{
+		fields       = map[string]any{
 			"room": info.RoomName,
 			"host": info.HostName,
 		}

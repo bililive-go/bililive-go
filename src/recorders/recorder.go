@@ -108,6 +108,8 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	var err error
 	if streamInfos, err = r.Live.GetStreamInfos(); err == live.ErrNotImplemented {
 		var urls []*url.URL
+		// TODO: remove deprecated method GetStreamUrls
+		//nolint:staticcheck
 		if urls, err = r.Live.GetStreamUrls(); err == live.ErrNotImplemented {
 			panic("GetStreamInfos and GetStreamUrls are not implemented for " + r.Live.GetPlatformCNName())
 		} else if err == nil {
@@ -305,13 +307,13 @@ func (r *recorder) getLogger() *logrus.Entry {
 	return r.logger.WithFields(r.getFields())
 }
 
-func (r *recorder) getFields() map[string]interface{} {
+func (r *recorder) getFields() map[string]any {
 	obj, err := r.cache.Get(r.Live)
 	if err != nil {
 		return nil
 	}
 	info := obj.(*live.Info)
-	return map[string]interface{}{
+	return map[string]any{
 		"host": info.HostName,
 		"room": info.RoomName,
 	}

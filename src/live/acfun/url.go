@@ -25,11 +25,11 @@ func (r representations) Swap(i, j int) {
 	r[i], r[j] = r[j], r[i]
 }
 
-func (r *representations) Push(x interface{}) {
+func (r *representations) Push(x any) {
 	*r = append(*r, x.(representation))
 }
 
-func (r *representations) Pop() interface{} {
+func (r *representations) Pop() any {
 	old := *r
 	n := len(old)
 	item := old[n-1]

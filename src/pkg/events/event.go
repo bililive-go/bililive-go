@@ -6,10 +6,10 @@ type EventHandler func(event *Event)
 
 type Event struct {
 	Type   EventType
-	Object interface{}
+	Object any
 }
 
-func NewEvent(eventType EventType, object interface{}) *Event {
+func NewEvent(eventType EventType, object any) *Event {
 	return &Event{eventType, object}
 }
 

@@ -141,6 +141,9 @@ func (l *Live) getRoomInfo() ([]byte, bool, error) {
 			return nil, false, live.ErrRoomNotExist
 		}
 		body, err = resp.Bytes()
+		if err != nil {
+			return nil, false, err
+		}
 		return body, false, nil
 	}
 

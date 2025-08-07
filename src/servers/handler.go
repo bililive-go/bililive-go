@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -133,9 +134,9 @@ func stopListening(ctx context.Context, liveId types.LiveID) error {
 ]
 */
 func addLives(writer http.ResponseWriter, r *http.Request) {
-	b, err := ioutil.ReadAll(r.Body)
+	b, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeJSON(writer, map[string]interface{}{
+		writeJSON(writer, map[string]any{
 			"error": err.Error(),
 		})
 		return
@@ -261,7 +262,7 @@ func getRawConfig(writer http.ResponseWriter, r *http.Request) {
 }
 
 func putRawConfig(writer http.ResponseWriter, r *http.Request) {
-	b, err := ioutil.ReadAll(r.Body)
+	b, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
 			ErrNo:  http.StatusBadRequest,
@@ -271,7 +272,7 @@ func putRawConfig(writer http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	inst := instance.GetInstance(ctx)
-	var jsonBody map[string]interface{}
+	var jsonBody map[string]any
 	json.Unmarshal(b, &jsonBody)
 	newConfig, err := configs.NewConfigWithBytes([]byte(jsonBody["config"].(string)))
 	if err != nil {
@@ -286,7 +287,7 @@ func putRawConfig(writer http.ResponseWriter, r *http.Request) {
 	inst.Config = newConfig
 	newConfig.File = oldConfig.File
 	if err := applyLiveRoomsByConfig(ctx, oldConfig); err != nil {
-		writeJSON(writer, map[string]interface{}{
+		writeJSON(writer, map[string]any{
 			"error": err.Error(),
 		})
 		return
@@ -313,7 +314,7 @@ func applyLiveRoomsByConfig(ctx context.Context, oldConfig *configs.Config) erro
 		} else {
 			live, ok := inst.Lives[types.LiveID(room.LiveId)]
 			if !ok {
-				return errors.New(fmt.Sprintf("live id: %s can not find", room.LiveId))
+				return fmt.Errorf("live id: %s can not find", room.LiveId)
 			}
 			live.UpdateLiveOptionsbyConfig(ctx, &newRoom)
 			if room.IsListening != newRoom.IsListening {
@@ -338,7 +339,7 @@ func applyLiveRoomsByConfig(ctx context.Context, oldConfig *configs.Config) erro
 			// remove live
 			live, ok := inst.Lives[types.LiveID(room.LiveId)]
 			if !ok {
-				return errors.New(fmt.Sprintf("live id: %s can not find", room.LiveId))
+				return fmt.Errorf("live id: %s can not find", room.LiveId)
 			}
 			removeLiveImpl(ctx, live)
 		}
@@ -377,7 +378,7 @@ func getFileInfo(writer http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	files, err := ioutil.ReadDir(absPath)
+	files, err := os.ReadDir(absPath)
 	if err != nil {
 		writeJSON(writer, commonResp{
 			ErrMsg: "获取目录失败",
@@ -394,16 +395,20 @@ func getFileInfo(writer http.ResponseWriter, r *http.Request) {
 	jsonFiles := make([]jsonFile, len(files))
 	json := struct {
 		Files []jsonFile `json:"files"`
-		Path  string     `json:"path`
+		Path  string     `json:"path"`
 	}{
 		Path: path,
 	}
 	for i, file := range files {
+		info, err := file.Info()
+		if err != nil {
+			continue
+		}
 		jsonFiles[i].IsFolder = file.IsDir()
 		jsonFiles[i].Name = file.Name()
-		jsonFiles[i].LastModified = file.ModTime().Unix()
+		jsonFiles[i].LastModified = info.ModTime().Unix()
 		if !file.IsDir() {
-			jsonFiles[i].Size = file.Size()
+			jsonFiles[i].Size = info.Size()
 		}
 	}
 	json.Files = jsonFiles
@@ -417,12 +422,12 @@ func getLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 	keys := make([]string, 0)
 	for _, v := range inst.Lives {
 		urltmp, _ := url.Parse(v.GetRawUrl())
-		if _, ok := hostCookieMap[urltmp.Host]; ok == true {
+		if _, ok := hostCookieMap[urltmp.Host]; ok {
 			continue
 		}
 		v1, _ := v.GetInfo()
 		host := urltmp.Host
-		if cookie, ok := inst.Config.Cookies[host]; ok == true {
+		if cookie, ok := inst.Config.Cookies[host]; ok {
 			tmp := &live.InfoCookie{Platform_cn_name: v1.Live.GetPlatformCNName(), Host: host, Cookie: cookie}
 			hostCookieMap[host] = tmp
 		} else {
@@ -440,7 +445,7 @@ func getLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 }
 
 func putLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
-	b, err := ioutil.ReadAll(r.Body)
+	b, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
 			ErrNo:  http.StatusBadRequest,

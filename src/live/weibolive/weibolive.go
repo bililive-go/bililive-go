@@ -49,7 +49,7 @@ func (l *Live) getRoomInfo() ([]byte, error) {
 
 	resp, err := requests.Get(liveurl+roomid,
 		live.CommonUserAgent,
-		requests.Headers(map[string]interface{}{
+		requests.Headers(map[string]any{
 			"Referer": l.Url,
 		}))
 	if err != nil {
@@ -95,7 +95,7 @@ func (l *Live) GetStreamUrls() (us []*url.URL, err error) {
 		if err == nil && reg.MatchString(streamurl) {
 			streamurl = reg.ReplaceAllString(streamurl, targetQuality)
 		} else {
-			streamurl = strings.Replace(streamurl, ".flv", targetQuality, -1)
+			streamurl = strings.ReplaceAll(streamurl, ".flv", targetQuality)
 		}
 		fmt.Println("weibo stream quality fixed: " + streamurl)
 	}

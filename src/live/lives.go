@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bluele/gcache"
 	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/types"
+	"github.com/bluele/gcache"
 )
 
 var (

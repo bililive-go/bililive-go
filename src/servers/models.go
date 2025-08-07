@@ -5,9 +5,9 @@ import (
 )
 
 type commonResp struct {
-	ErrNo  int         `json:"err_no"`
-	ErrMsg string      `json:"err_msg"`
-	Data   interface{} `json:"data"`
+	ErrNo  int    `json:"err_no"`
+	ErrMsg string `json:"err_msg"`
+	Data   any    `json:"data"`
 }
 
 type liveSlice []*live.Info

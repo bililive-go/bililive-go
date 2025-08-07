@@ -118,7 +118,7 @@ func (m *manager) cronRestart(ctx context.Context, live live.Live) {
 	if err != nil {
 		return
 	}
-	if time.Now().Sub(recorder.StartTime()) < m.cfg.VideoSplitStrategies.MaxDuration {
+	if time.Since(recorder.StartTime()) < m.cfg.VideoSplitStrategies.MaxDuration {
 		time.AfterFunc(time.Minute/4, func() {
 			m.cronRestart(ctx, live)
 		})
