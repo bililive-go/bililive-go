@@ -61,7 +61,7 @@ var (
 
 func getDefaultFileNameTmpl(config *configs.Config) *template.Template {
 	return template.Must(template.New("filename").Funcs(utils.GetFuncMap(config)).
-		Parse(`{{ .Live.GetPlatformCNName }}/{{ with .NickName }}{{ . | filenameFilter }}{{ else }}{{ .HostName | filenameFilter }}{{ end }}/[{{ now | date "2006-01-02 15-04-05"}}][{{ .HostName | filenameFilter }}][{{ .RoomName | filenameFilter }}].flv`))
+		Parse(`{{ .Live.GetPlatformCNName }}/{{ with .Live.GetOptions.NickName }}{{ . | filenameFilter }}{{ else }}{{ .HostName | filenameFilter }}{{ end }}/[{{ now | date "2006-01-02 15-04-05"}}][{{ .HostName | filenameFilter }}][{{ .RoomName | filenameFilter }}].flv`))
 }
 
 type Recorder interface {
@@ -125,21 +125,6 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	obj, _ := r.cache.Get(r.Live)
 	info := obj.(*live.Info)
 
-	config := configs.GetCurrentConfig()
-	if config != nil {
-		roomInfo, err := config.GetLiveRoomByUrl(r.Live.GetRawUrl())
-		if err != nil {
-			r.getLogger().WithError(err).Warn("failed to get room info, will retry after 5s...")
-			time.Sleep(5 * time.Second)
-			return
-		}
-		info.NickName = roomInfo.NickName
-	} else {
-		r.getLogger().WithError(err).Warn("failed to get config, will retry after 5s...")
-		time.Sleep(5 * time.Second)
-		return
-	}
-
 	tmpl := getDefaultFileNameTmpl(r.config)
 	if r.config.OutputTmpl != "" {
 		_tmpl, err := template.New("user_filename").Funcs(utils.GetFuncMap(r.config)).Parse(r.config.OutputTmpl)
@@ -198,9 +183,6 @@ func (r *recorder) tryRecord(ctx context.Context) {
 			r.getLogger().WithError(err).Error("custom commandline parse failure")
 			return
 		}
-
-		obj, _ := r.cache.Get(r.Live)
-		info := obj.(*live.Info)
 
 		buf := new(bytes.Buffer)
 		if err := tmpl.Execute(buf, struct {

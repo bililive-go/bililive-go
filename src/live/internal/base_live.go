@@ -56,6 +56,7 @@ func (a *BaseLive) UpdateLiveOptionsbyConfig(ctx context.Context, room *configs.
 	}
 	opts = append(opts, live.WithQuality(room.Quality))
 	opts = append(opts, live.WithAudioOnly(room.AudioOnly))
+	opts = append(opts, live.WithNickName(room.NickName))
 	a.Options = live.MustNewOptions(opts...)
 	return
 }
@@ -78,6 +79,10 @@ func (a *BaseLive) GetLastStartTime() time.Time {
 
 func (a *BaseLive) SetLastStartTime(time time.Time) {
 	a.LastStartTime = time
+}
+
+func (a *BaseLive) GetOptions() *live.Options {
+	return a.Options
 }
 
 // TODO: remove this method

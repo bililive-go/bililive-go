@@ -47,6 +47,7 @@ type Options struct {
 	Cookies   *cookiejar.Jar
 	Quality   int
 	AudioOnly bool
+	NickName  string
 }
 
 func NewOptions(opts ...Option) (*Options, error) {
@@ -100,6 +101,12 @@ func WithAudioOnly(audioOnly bool) Option {
 	}
 }
 
+func WithNickName(nickName string) Option {
+	return func(opts *Options) {
+		opts.NickName = nickName
+	}
+}
+
 type StreamUrlInfo struct {
 	Url                  *url.URL
 	Name                 string
@@ -121,6 +128,7 @@ type Live interface {
 	GetLastStartTime() time.Time
 	SetLastStartTime(time.Time)
 	UpdateLiveOptionsbyConfig(context.Context, *configs.LiveRoom) error
+	GetOptions() *Options
 }
 
 type WrappedLive struct {

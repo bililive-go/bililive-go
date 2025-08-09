@@ -322,7 +322,7 @@ class LiveList extends React.Component<Props, IState> {
 
                     return {
                         key: index + 1,
-                        name: item.host_name,
+                        name: item.nick_name || item.host_name,
                         room: {
                             roomName: item.room_name,
                             url: item.live_url

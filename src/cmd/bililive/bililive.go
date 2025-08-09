@@ -96,8 +96,10 @@ func main() {
 	events.NewDispatcher(ctx)
 
 	inst.Lives = make(map[types.LiveID]live.Live)
-	for _, room := range inst.Config.LiveRooms {
-		l, err := live.New(ctx, &room, inst.Cache)
+	for index := range inst.Config.LiveRooms {
+		room := &inst.Config.LiveRooms[index]
+
+		l, err := live.New(ctx, room, inst.Cache)
 		if err != nil {
 			logger.WithField("url", room).Error(err.Error())
 			continue
