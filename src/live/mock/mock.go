@@ -88,6 +88,20 @@ func (mr *MockLiveMockRecorder) GetLiveId() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLiveId", reflect.TypeOf((*MockLive)(nil).GetLiveId))
 }
 
+// GetOptions mocks base method.
+func (m *MockLive) GetOptions() *live.Options {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOptions")
+	ret0, _ := ret[0].(*live.Options)
+	return ret0
+}
+
+// GetOptions indicates an expected call of GetOptions.
+func (mr *MockLiveMockRecorder) GetOptions() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOptions", reflect.TypeOf((*MockLive)(nil).GetOptions))
+}
+
 // GetPlatformCNName mocks base method.
 func (m *MockLive) GetPlatformCNName() string {
 	m.ctrl.T.Helper()
