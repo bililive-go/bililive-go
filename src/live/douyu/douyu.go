@@ -103,7 +103,7 @@ func render(tmpl *template.Template, data any) (string, error) {
 	return buf.String(), nil
 }
 
-func loadCryptoJS() {
+func (l *Live) loadCryptoJS() {
 	var (
 		resp *requests.Response
 		body []byte
@@ -115,7 +115,7 @@ func loadCryptoJS() {
 		"https://cdn.bootcdn.net/ajax/libs/crypto-js/3.1.9-1/crypto-js.min.js"}
 
 	for _, url := range cdnUrls {
-		resp, err = requests.Get(url)
+		resp, err = l.RequestSession.Get(url)
 		if err != nil || resp.StatusCode != http.StatusOK {
 			continue
 		}
@@ -129,9 +129,9 @@ func loadCryptoJS() {
 	panic(fmt.Errorf("failed to load CryptoJS, please check network"))
 }
 
-func getEngineWithCryptoJS() (*otto.Otto, error) {
+func (l *Live) getEngineWithCryptoJS() (*otto.Otto, error) {
 	if cryptoJS == nil {
-		loadCryptoJS()
+		l.loadCryptoJS()
 	}
 	engine := otto.New()
 	if _, err := engine.Eval(cryptoJS); err != nil {
@@ -150,7 +150,7 @@ func (l *Live) fetchRoomID() error {
 		return nil
 	}
 	var body []byte
-	resp, err := requests.Get(l.Url.String(), live.CommonUserAgent)
+	resp, err := l.RequestSession.Get(l.Url.String(), live.CommonUserAgent)
 	if err != nil {
 		return errors.New("request failed. error: " + err.Error())
 	}
@@ -203,7 +203,7 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 		}
 
 	}
-	resp, err := requests.Get(fmt.Sprintf("%s/%s", liveInfoUrl, l.roomID), live.CommonUserAgent)
+	resp, err := l.RequestSession.Get(fmt.Sprintf("%s/%s", liveInfoUrl, l.roomID), live.CommonUserAgent)
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +225,7 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 }
 
 func (l *Live) getSignParams() (map[string]string, error) {
-	resp, err := requests.Get(liveEncUrl, live.CommonUserAgent, requests.Query("rids", l.roomID))
+	resp, err := l.RequestSession.Get(liveEncUrl, live.CommonUserAgent, requests.Query("rids", l.roomID))
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +268,7 @@ func (l *Live) getSignParams() (map[string]string, error) {
 	}
 
 	jsEnc = strings.ReplaceAll(jsEnc, fmt.Sprintf("eval(%s);", context.Workflow), jsPatch)
-	engine, err := getEngineWithCryptoJS()
+	engine, err := l.getEngineWithCryptoJS()
 	if err != nil {
 		return nil, err
 	}
@@ -315,7 +315,7 @@ func (l *Live) GetStreamUrls() (us []*url.URL, err error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := requests.Post(
+	resp, err := l.RequestSession.Post(
 		fmt.Sprintf("%s/%s", liveAPIUrl, l.roomID),
 		requests.Form(params),
 		requests.Header("origin", "https://www.douyu.com"),

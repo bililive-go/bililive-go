@@ -42,7 +42,7 @@ func (l *Live) getData() (*gjson.Result, error) {
 		return nil, live.ErrRoomUrlIncorrect
 	}
 	roomID := paths[2]
-	resp, err := requests.Get(liveInfoAPIUrl, live.CommonUserAgent, requests.Query("room_id", roomID))
+	resp, err := l.RequestSession.Get(liveInfoAPIUrl, live.CommonUserAgent, requests.Query("room_id", roomID))
 	if err != nil {
 		return nil, err
 	}

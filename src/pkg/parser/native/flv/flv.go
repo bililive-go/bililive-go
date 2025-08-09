@@ -150,7 +150,7 @@ func (p *Parser) doParse(ctx context.Context) error {
 
 func (p *Parser) doCopy(ctx context.Context, n uint32) error {
 	if writtenCount, err := io.CopyN(p.o, p.i, int64(n)); err != nil || writtenCount != int64(writtenCount) {
-		utils.PrintStack(ctx)
+		utils.PrintStack()
 		if err == nil {
 			err = fmt.Errorf("doCopy(%d), %d bytes written", n, writtenCount)
 		}

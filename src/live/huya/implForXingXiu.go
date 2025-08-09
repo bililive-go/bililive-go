@@ -20,7 +20,7 @@ var downloaderHeadersForXingXiu = func() map[string]string {
 }()
 
 func GetInfo_ForXingXiu(l *Live, body string) (info *live.Info, err error) {
-	res, err := getJsonFromBody(body)
+	res, err := l.getJsonFromBody(body)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +54,7 @@ func GetStreamInfos_ForXingXiu(l *Live) (infos []*live.StreamUrlInfo, err error)
 		return nil, err
 	}
 
-	data, err := getJsonFromBody(body)
+	data, err := l.getJsonFromBody(body)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +91,7 @@ func GetStreamInfos_ForXingXiu(l *Live) (infos []*live.StreamUrlInfo, err error)
 	return infos, nil
 }
 
-func getJsonFromBody(htmlBody string) (result *gjson.Result, err error) {
+func (l *Live) getJsonFromBody(htmlBody string) (result *gjson.Result, err error) {
 	strFilter := utils.NewStringFilterChain(utils.ParseUnicode, utils.UnescapeHTMLEntity)
 	rjson := strFilter.Do(utils.Match1(`stream: (\{"data".*?),"iWebDefaultBitRate"`, htmlBody)) + "}"
 	gj := gjson.Parse(rjson)
@@ -108,7 +108,7 @@ func getJsonFromBody(htmlBody string) (result *gjson.Result, err error) {
 	headers["xweb_xhr"] = "1"
 	headers["referer"] = "https://servicewechat.com/wx74767bf0b684f7d3/301/page-frame.html"
 	headers["accept-language"] = "zh-CN,zh;q=0.9"
-	resp, err := requests.Get("https://mp.huya.com/cache.php", requests.Headers(headers), requests.Queries(params), requests.UserAgent(uaForXingXiu))
+	resp, err := l.RequestSession.Get("https://mp.huya.com/cache.php", requests.Headers(headers), requests.Queries(params), requests.UserAgent(uaForXingXiu))
 	if err != nil {
 		return nil, err
 	}

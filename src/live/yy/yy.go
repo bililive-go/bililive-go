@@ -114,7 +114,7 @@ func (l *Live) getRoomInfo() ([]byte, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	resp, err := requests.Get(buf.String())
+	resp, err := l.RequestSession.Get(buf.String())
 	if err != nil {
 		return nil, false, err
 	}
@@ -133,7 +133,7 @@ func (l *Live) getRoomInfo() ([]byte, bool, error) {
 	}
 	if gjson.Get(string(body), "data").Type == gjson.Null {
 		//返回无data，则停播，从其他接口获取直播间信息
-		resp, err = requests.Get(roomInitBakUrl + roomid)
+		resp, err = l.RequestSession.Get(roomInitBakUrl + roomid)
 		if err != nil {
 			return nil, false, err
 		}
@@ -190,7 +190,7 @@ func (l *Live) GetStreamUrls() (us []*url.URL, err error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := requests.Post(liveurl.String(), requests.Body(strings.NewReader(rawbuf.String())))
+	resp, err := l.RequestSession.Post(liveurl.String(), requests.Body(strings.NewReader(rawbuf.String())))
 	if err != nil {
 		return nil, err
 	}

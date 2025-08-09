@@ -81,6 +81,16 @@ type Config struct {
 	liveRoomIndexCache map[string]int
 }
 
+var config *Config
+
+func SetCurrentConfig(cfg *Config) {
+	config = cfg
+}
+
+func GetCurrentConfig() *Config {
+	return config
+}
+
 type LiveRoom struct {
 	Url         string       `yaml:"url"`
 	IsListening bool         `yaml:"is_listening"`

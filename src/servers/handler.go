@@ -294,6 +294,7 @@ func putRawConfig(writer http.ResponseWriter, r *http.Request) {
 	}
 	newConfig.Marshal()
 	newConfig.RefreshLiveRoomIndexCache()
+	configs.SetCurrentConfig(newConfig)
 	writeJSON(writer, commonResp{
 		Data: "OK",
 	})

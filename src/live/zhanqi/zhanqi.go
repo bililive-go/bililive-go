@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/hr3lxphr6j/requests"
 	"github.com/tidwall/gjson"
 
 	"github.com/bililive-go/bililive-go/src/live"
@@ -39,7 +38,7 @@ type Live struct {
 }
 
 func (l *Live) requestRoomInfo() ([]byte, error) {
-	resp, err := requests.Get(fmt.Sprintf(apiUrl, strings.Split(l.Url.Path, "/")[1]), live.CommonUserAgent)
+	resp, err := l.RequestSession.Get(fmt.Sprintf(apiUrl, strings.Split(l.Url.Path, "/")[1]), live.CommonUserAgent)
 	if err != nil {
 		return nil, err
 	}

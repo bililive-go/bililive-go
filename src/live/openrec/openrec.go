@@ -5,8 +5,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/hr3lxphr6j/requests"
-
 	"github.com/bililive-go/bililive-go/src/live"
 	"github.com/bililive-go/bililive-go/src/live/internal"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
@@ -34,7 +32,7 @@ func (b *builder) Build(url *url.URL) (live.Live, error) {
 }
 
 func (l *Live) GetInfo() (info *live.Info, err error) {
-	resp, err := requests.Get(l.Url.String(), live.CommonUserAgent)
+	resp, err := l.RequestSession.Get(l.Url.String(), live.CommonUserAgent)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +69,7 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 }
 
 func (l *Live) GetStreamUrls() (us []*url.URL, err error) {
-	resp, err := requests.Get(l.Url.String(), live.CommonUserAgent)
+	resp, err := l.RequestSession.Get(l.Url.String(), live.CommonUserAgent)
 	if err != nil {
 		return nil, err
 	}

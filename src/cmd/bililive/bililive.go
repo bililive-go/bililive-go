@@ -68,6 +68,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	configs.SetCurrentConfig(config)
+
 	inst := new(instance.Instance)
 	inst.Config = config
 	// TODO: Replace gcache with hashmap.
@@ -151,6 +153,14 @@ func main() {
 		inst.RecorderManager.Close(ctx)
 	}()
 
+	if inst.Config.Debug {
+		go func() {
+			for {
+				time.Sleep(time.Second * 5)
+				utils.ConnCounterManager.PrintMap()
+			}
+		}()
+	}
 	inst.WaitGroup.Wait()
 	logger.Info("Bye~")
 }

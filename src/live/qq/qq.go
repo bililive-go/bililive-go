@@ -41,7 +41,7 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 		return nil, live.ErrRoomUrlIncorrect
 	}
 	anchorID := paths[1]
-	resp, err := requests.Get(mobileUrl, live.CommonUserAgent, requests.Query("anchorid", anchorID))
+	resp, err := l.RequestSession.Get(mobileUrl, live.CommonUserAgent, requests.Query("anchorid", anchorID))
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +68,7 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 }
 
 func (l *Live) GetStreamUrls() (us []*url.URL, err error) {
-	resp, err := requests.Get(l.Url.String(), live.CommonUserAgent)
+	resp, err := l.RequestSession.Get(l.Url.String(), live.CommonUserAgent)
 	if err != nil {
 		return nil, err
 	}
