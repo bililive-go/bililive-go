@@ -7,6 +7,7 @@ import './live-list.css';
 import { RouteComponentProps } from "react-router-dom";
 import { ColumnProps } from 'antd/lib/table';
 import EditCookieDialog from "../edit-cookie/index";
+import { ItemData, Room } from "../../types";
 
 const api = new API();
 const { TabPane } = Tabs;
@@ -24,24 +25,10 @@ interface IState {
     window: any
 }
 
-interface ItemData {
-    key: string,
-    name: string,
-    room: Room,
-    address: string,
-    tags: string[],
-    listening: boolean
-    roomId: string
-}
 interface CookieItemData {
     Platform_cn_name:string,
     Host:string,
     Cookie:string
-}
-
-interface Room {
-    roomName: string;
-    url: string;
 }
 
 class LiveList extends React.Component<Props, IState> {
@@ -398,7 +385,7 @@ class LiveList extends React.Component<Props, IState> {
                                     <Button key="1" type="primary" onClick={this.onAddRoomClick}>
                                         添加房间
                                     </Button>,
-                                    <AddRoomDialog key="0" ref={this.onRef} refresh={this.refresh} />
+                                    <AddRoomDialog key="0" ref={this.onRef} refresh={this.refresh} liveList={this.state.list} />
                                 ]}>
                             </PageHeader>
                         </div>
