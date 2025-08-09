@@ -17,7 +17,6 @@ import (
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/live"
 	"github.com/sirupsen/logrus"
-	log "github.com/sirupsen/logrus"
 )
 
 func init() {
@@ -161,7 +160,7 @@ func ExecCommandInDir(args []string, dir string) error {
 	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	log.Info(cmd.String())
+	logrus.Info(cmd.String())
 	return cmd.Run()
 }
 
