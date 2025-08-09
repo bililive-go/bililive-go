@@ -14,6 +14,7 @@ type Info struct {
 	Initializing         bool
 	CustomLiveId         string
 	AudioOnly            bool
+	NickName             string
 }
 
 type InfoCookie struct {

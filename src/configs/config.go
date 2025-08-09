@@ -95,8 +95,9 @@ type LiveRoom struct {
 	Url         string       `yaml:"url"`
 	IsListening bool         `yaml:"is_listening"`
 	LiveId      types.LiveID `yaml:"-"`
-	Quality     int          `yaml:"quality"`
-	AudioOnly   bool         `yaml:"audio_only"`
+	Quality     int          `yaml:"quality,omitempty"`
+	AudioOnly   bool         `yaml:"audio_only,omitempty"`
+	NickName    string       `yaml:"nick_name,omitempty"`
 }
 
 type liveRoomAlias LiveRoom
