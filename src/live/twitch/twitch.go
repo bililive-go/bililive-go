@@ -52,7 +52,7 @@ func (l *Live) parseInfo() error {
 		return live.ErrRoomUrlIncorrect
 	}
 	chanId := paths[1]
-	resp, err := requests.Get(fmt.Sprintf(userApiUrl, chanId), live.CommonUserAgent,
+	resp, err := l.RequestSession.Get(fmt.Sprintf(userApiUrl, chanId), live.CommonUserAgent,
 		requests.Header("client-id", clientId), requests.Header("Accept", v5Header))
 	if err != nil {
 		return err
@@ -69,7 +69,7 @@ func (l *Live) parseInfo() error {
 	}
 	l.userId = gjson.GetBytes(body, "users").Array()[0].Get("_id").String()
 
-	resp, err = requests.Get(fmt.Sprintf(channelApiUrl, l.userId), live.CommonUserAgent,
+	resp, err = l.RequestSession.Get(fmt.Sprintf(channelApiUrl, l.userId), live.CommonUserAgent,
 		requests.Header("client-id", clientId), requests.Header("Accept", v5Header))
 	if err != nil {
 		return err
@@ -92,7 +92,7 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 			return nil, err
 		}
 	}
-	resp, err := requests.Get(fmt.Sprintf(streamApiUrl, l.userId), live.CommonUserAgent,
+	resp, err := l.RequestSession.Get(fmt.Sprintf(streamApiUrl, l.userId), live.CommonUserAgent,
 		requests.Header("client-id", clientId), requests.Header("Accept", v5Header))
 	if err != nil {
 		return nil, err
@@ -123,7 +123,7 @@ func (l *Live) GetStreamUrls() (us []*url.URL, err error) {
 			return nil, err
 		}
 	}
-	resp, err := requests.Get(fmt.Sprintf(tokenApiUrl, l.hostName), live.CommonUserAgent, requests.Header("client-id", clientId))
+	resp, err := l.RequestSession.Get(fmt.Sprintf(tokenApiUrl, l.hostName), live.CommonUserAgent, requests.Header("client-id", clientId))
 	if err != nil {
 		return nil, err
 	}

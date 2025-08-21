@@ -1,4 +1,4 @@
-//go:generate mockgen -package recorders -destination mock_test.go github.com/bililive-go/bililive-go/src/recorders Recorder,Manager
+//go:generate go run go.uber.org/mock/mockgen -package recorders -destination mock_test.go github.com/bililive-go/bililive-go/src/recorders Recorder,Manager
 package recorders
 
 import (
@@ -61,7 +61,7 @@ var (
 
 func getDefaultFileNameTmpl(config *configs.Config) *template.Template {
 	return template.Must(template.New("filename").Funcs(utils.GetFuncMap(config)).
-		Parse(`{{ .Live.GetPlatformCNName }}/{{ .HostName | filenameFilter }}/[{{ now | date "2006-01-02 15-04-05"}}][{{ .HostName | filenameFilter }}][{{ .RoomName | filenameFilter }}].flv`))
+		Parse(`{{ .Live.GetPlatformCNName }}/{{ with .Live.GetOptions.NickName }}{{ . | filenameFilter }}{{ else }}{{ .HostName | filenameFilter }}{{ end }}/[{{ now | date "2006-01-02 15-04-05"}}][{{ .HostName | filenameFilter }}][{{ .RoomName | filenameFilter }}].flv`))
 }
 
 type Recorder interface {
@@ -183,9 +183,6 @@ func (r *recorder) tryRecord(ctx context.Context) {
 			r.getLogger().WithError(err).Error("custom commandline parse failure")
 			return
 		}
-
-		obj, _ := r.cache.Get(r.Live)
-		info := obj.(*live.Info)
 
 		buf := new(bytes.Buffer)
 		if err := tmpl.Execute(buf, struct {

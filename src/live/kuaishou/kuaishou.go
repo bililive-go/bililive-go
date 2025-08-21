@@ -42,7 +42,7 @@ func (l *Live) getData() (*gjson.Result, error) {
 	for _, item := range cookies {
 		cookieKVs[item.Name] = item.Value
 	}
-	resp, err := requests.Get(l.Url.String(), live.CommonUserAgent, requests.Cookies(cookieKVs))
+	resp, err := l.RequestSession.Get(l.Url.String(), live.CommonUserAgent, requests.Cookies(cookieKVs))
 	if err != nil {
 		return nil, err
 	}

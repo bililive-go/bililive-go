@@ -56,7 +56,7 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 		"Referer":         "https://www.xiaohongshu.com/hina/livestream/" + roomId,
 	}
 
-	resp, err := requests.Get(
+	resp, err := l.RequestSession.Get(
 		roomApiUrl,
 		requests.Query("room_id", roomId),
 		requests.Cookies(cookieKVs),
@@ -78,7 +78,7 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 	}
 
 	homeUrl := fmt.Sprintf("%s/%s", roomUrl, roomId)
-	response, err := requests.Get(homeUrl,
+	response, err := l.RequestSession.Get(homeUrl,
 		requests.Cookies(cookieKVs),
 		requests.Headers(headers),
 	)

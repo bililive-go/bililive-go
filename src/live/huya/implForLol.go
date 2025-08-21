@@ -50,7 +50,7 @@ func GetInfo_ForLol(l *Live, body string) (info *live.Info, err error) {
 }
 
 func GetStreamInfos_ForLol(l *Live) (infos []*live.StreamUrlInfo, err error) {
-	resp, err := requests.Get(l.Url.String(), requests.UserAgent(uaForLol))
+	resp, err := l.RequestSession.Get(l.Url.String(), requests.UserAgent(uaForLol))
 	if err != nil {
 		return nil, err
 	}

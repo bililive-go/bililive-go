@@ -85,7 +85,7 @@ func (l *Live) getDouYinStreamData(url string) (info *live.Info,
 	}
 
 	var resp *requests.Response
-	resp, err = asyncReq(url, localHeaders, 0)
+	resp, err = l.asyncReq(url, localHeaders, 0)
 	if err != nil {
 		return
 	}
@@ -426,6 +426,7 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 		streamUrlInfo: streamUrlInfo,
 		originUrlList: originUrlList,
 	}
+
 	return
 }
 

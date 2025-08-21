@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"math/rand"
 	"net/url"
 	"os"
@@ -15,8 +16,13 @@ import (
 
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/live"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 )
+
+func init() {
+	ConnCounterManager = ConnCounterManagerType{}
+	ConnCounterManager.bcMap = make(map[string]*ByteCounter)
+}
 
 func GetFFmpegPath(ctx context.Context) (string, error) {
 	path := instance.GetInstance(ctx).Config.FfmpegPath
@@ -112,10 +118,8 @@ func GenUrlInfos(urls []*url.URL, headersForDownloader map[string]string) []*liv
 	return infos
 }
 
-func PrintStack(ctx context.Context) {
-	inst := instance.GetInstance(ctx)
-	logger := inst.Logger
-	logger.Debugf(string(debug.Stack()))
+func PrintStack() {
+	logrus.Debugf(string(debug.Stack()))
 }
 
 func ExecCommands(commands [][]string) error {
@@ -156,6 +160,25 @@ func ExecCommandInDir(args []string, dir string) error {
 	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	log.Info(cmd.String())
+	logrus.Info(cmd.String())
 	return cmd.Run()
+}
+
+const (
+	KB = 1024
+	MB = 1024 * KB
+	GB = 1024 * MB
+)
+
+func FormatBytes(bytes int64) string {
+	switch {
+	case bytes >= GB:
+		return fmt.Sprintf("%.2f GB", float64(bytes)/float64(GB))
+	case bytes >= MB:
+		return fmt.Sprintf("%.2f MB", float64(bytes)/float64(MB))
+	case bytes >= KB:
+		return fmt.Sprintf("%.2f KB", float64(bytes)/float64(KB))
+	default:
+		return fmt.Sprintf("%d B", bytes)
+	}
 }

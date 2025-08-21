@@ -294,6 +294,7 @@ func putRawConfig(writer http.ResponseWriter, r *http.Request) {
 	}
 	newConfig.Marshal()
 	newConfig.RefreshLiveRoomIndexCache()
+	configs.SetCurrentConfig(newConfig)
 	writeJSON(writer, commonResp{
 		Data: "OK",
 	})
@@ -304,8 +305,9 @@ func applyLiveRoomsByConfig(ctx context.Context, oldConfig *configs.Config) erro
 	newConfig := inst.Config
 	newLiveRooms := newConfig.LiveRooms
 	newUrlMap := make(map[string]*configs.LiveRoom)
-	for _, newRoom := range newLiveRooms {
-		newUrlMap[newRoom.Url] = &newRoom
+	for index := range newLiveRooms {
+		newRoom := &newLiveRooms[index]
+		newUrlMap[newRoom.Url] = newRoom
 		if room, err := oldConfig.GetLiveRoomByUrl(newRoom.Url); err != nil {
 			// add live
 			if _, err := addLiveImpl(ctx, newRoom.Url, newRoom.IsListening); err != nil {
@@ -316,7 +318,7 @@ func applyLiveRoomsByConfig(ctx context.Context, oldConfig *configs.Config) erro
 			if !ok {
 				return fmt.Errorf("live id: %s can not find", room.LiveId)
 			}
-			live.UpdateLiveOptionsbyConfig(ctx, &newRoom)
+			live.UpdateLiveOptionsbyConfig(ctx, newRoom)
 			if room.IsListening != newRoom.IsListening {
 				if newRoom.IsListening {
 					// start listening

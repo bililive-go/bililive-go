@@ -36,6 +36,7 @@ func (i *Info) MarshalJSON() ([]byte, error) {
 		LastStartTime     string       `json:"last_start_time,omitempty"`
 		LastStartTimeUnix int64        `json:"last_start_time_unix,omitempty"`
 		AudioOnly         bool         `json:"audio_only"`
+		NickName          string       `json:"nick_name"`
 	}{
 		Id:             i.Live.GetLiveId(),
 		LiveUrl:        i.Live.GetRawUrl(),
@@ -47,6 +48,7 @@ func (i *Info) MarshalJSON() ([]byte, error) {
 		Recording:      i.Recording,
 		Initializing:   i.Initializing,
 		AudioOnly:      i.AudioOnly,
+		NickName:       i.Live.GetOptions().NickName,
 	}
 	if !i.Live.GetLastStartTime().IsZero() {
 		t.LastStartTime = i.Live.GetLastStartTime().Format("2006-01-02 15:04:05")

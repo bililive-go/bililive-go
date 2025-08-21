@@ -11,13 +11,15 @@ import (
 	"github.com/bililive-go/bililive-go/src/live"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
 	"github.com/bililive-go/bililive-go/src/types"
+	"github.com/hr3lxphr6j/requests"
 )
 
 type BaseLive struct {
-	Url           *url.URL
-	LastStartTime time.Time
-	LiveId        types.LiveID
-	Options       *live.Options
+	Url            *url.URL
+	LastStartTime  time.Time
+	LiveId         types.LiveID
+	Options        *live.Options
+	RequestSession *requests.Session
 }
 
 func genLiveId(url *url.URL) types.LiveID {
@@ -29,9 +31,16 @@ func genLiveIdByString(value string) types.LiveID {
 }
 
 func NewBaseLive(url *url.URL) BaseLive {
+	requestSession := requests.DefaultSession
+	config := configs.GetCurrentConfig()
+	if config != nil && config.Debug {
+		client, _ := utils.CreateConnCounterClient()
+		requestSession = requests.NewSession(client)
+	}
 	return BaseLive{
-		Url:    url,
-		LiveId: genLiveId(url),
+		Url:            url,
+		LiveId:         genLiveId(url),
+		RequestSession: requestSession,
 	}
 }
 
@@ -47,6 +56,7 @@ func (a *BaseLive) UpdateLiveOptionsbyConfig(ctx context.Context, room *configs.
 	}
 	opts = append(opts, live.WithQuality(room.Quality))
 	opts = append(opts, live.WithAudioOnly(room.AudioOnly))
+	opts = append(opts, live.WithNickName(room.NickName))
 	a.Options = live.MustNewOptions(opts...)
 	return
 }
@@ -69,6 +79,10 @@ func (a *BaseLive) GetLastStartTime() time.Time {
 
 func (a *BaseLive) SetLastStartTime(time time.Time) {
 	a.LastStartTime = time
+}
+
+func (a *BaseLive) GetOptions() *live.Options {
+	return a.Options
 }
 
 // TODO: remove this method

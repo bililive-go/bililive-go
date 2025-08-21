@@ -44,7 +44,7 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 	if len(paths) < 2 {
 		return nil, live.ErrRoomUrlIncorrect
 	}
-	resp, err := requests.Get(roomInfoApi, live.CommonUserAgent, requests.Query("authorId", paths[2]))
+	resp, err := l.RequestSession.Get(roomInfoApi, live.CommonUserAgent, requests.Query("authorId", paths[2]))
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +66,7 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 
 func (l *Live) GetStreamUrls() (us []*url.URL, err error) {
 	did := "web_" + utils.GenRandomName(16)
-	resp, err := requests.Post(
+	resp, err := l.RequestSession.Post(
 		loginApi,
 		live.CommonUserAgent,
 		requests.Form(map[string]string{"sid": "acfun.api.visitor"}),
@@ -85,7 +85,7 @@ func (l *Live) GetStreamUrls() (us []*url.URL, err error) {
 	res := gjson.ParseBytes(body)
 	userId := res.Get("userId").Int()
 	visitorSt := res.Get(`acfun\.api\.visitor_st`).String()
-	resp, err = requests.Post(liveInfoApi,
+	resp, err = l.RequestSession.Post(liveInfoApi,
 		live.CommonUserAgent,
 		requests.Queries(map[string]string{
 			"subBiz":               "mainApp",

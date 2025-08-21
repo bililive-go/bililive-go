@@ -47,7 +47,7 @@ func (l *Live) getUid() (string, error) {
 	if uid = utils.Match1(`https?:\/\/www.huajiao.com\/user\/(\d+)`, l.GetRawUrl()); uid != "" {
 		// nothing to do
 	} else if liveId := utils.Match1(`https?:\/\/www.huajiao.com\/l\/(\d+)`, l.GetRawUrl()); liveId != "" {
-		resp, err := requests.Get(l.GetRawUrl(), live.CommonUserAgent)
+		resp, err := l.RequestSession.Get(l.GetRawUrl(), live.CommonUserAgent)
 		if err != nil {
 			return "", err
 		}
@@ -73,7 +73,7 @@ func (l *Live) getUid() (string, error) {
 }
 
 func (l *Live) getNickname(uid string) (string, error) {
-	resp, err := requests.Get(apiUserInfo, live.CommonUserAgent, requests.Query("fmt", "json"), requests.Query("uid", uid))
+	resp, err := l.RequestSession.Get(apiUserInfo, live.CommonUserAgent, requests.Query("fmt", "json"), requests.Query("uid", uid))
 	if err != nil {
 		return "", err
 	}
@@ -91,7 +91,7 @@ func (l *Live) getNickname(uid string) (string, error) {
 }
 
 func (l *Live) getLiveFeeds(uid string) ([]gjson.Result, error) {
-	resp, err := requests.Get(apiUserFeeds, live.CommonUserAgent, requests.Query("fmt", "json"), requests.Query("uid", uid))
+	resp, err := l.RequestSession.Get(apiUserFeeds, live.CommonUserAgent, requests.Query("fmt", "json"), requests.Query("uid", uid))
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +150,7 @@ func (l *Live) GetStreamUrls() (us []*url.URL, err error) {
 		sn     = feeds[0].Get("feed.sn").String()
 		liveID = feeds[0].Get("feed.relateid").String()
 	)
-	resp, err := requests.Get(apiStream, live.CommonUserAgent, requests.Queries(map[string]string{
+	resp, err := l.RequestSession.Get(apiStream, live.CommonUserAgent, requests.Queries(map[string]string{
 		"sn":     sn,
 		"uid":    uid,
 		"liveid": liveID,

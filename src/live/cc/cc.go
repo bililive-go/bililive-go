@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/hr3lxphr6j/requests"
 	"github.com/tidwall/gjson"
 
 	"github.com/bililive-go/bililive-go/src/live"
@@ -39,7 +38,7 @@ type Live struct {
 }
 
 func (l *Live) getData() (*gjson.Result, error) {
-	resp, err := requests.Get(l.Url.String(), live.CommonUserAgent)
+	resp, err := l.RequestSession.Get(l.Url.String(), live.CommonUserAgent)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +93,7 @@ func (l *Live) GetStreamUrls() (us []*url.URL, err error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := requests.Get(fmt.Sprintf("%s%s", apiUrl, ccid), live.CommonUserAgent)
+	resp, err := l.RequestSession.Get(fmt.Sprintf("%s%s", apiUrl, ccid), live.CommonUserAgent)
 	if err != nil {
 		return nil, err
 	}

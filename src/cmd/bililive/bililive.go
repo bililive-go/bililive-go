@@ -68,11 +68,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	configs.SetCurrentConfig(config)
+
 	inst := new(instance.Instance)
 	inst.Config = config
 	// TODO: Replace gcache with hashmap.
 	// LRU seems not necessary here.
-	inst.Cache = gcache.New(1024).LRU().Build()
+	inst.Cache = gcache.New(4096).LRU().Build()
 	ctx := context.WithValue(context.Background(), instance.Key, inst)
 
 	logger := log.New(ctx)
@@ -94,8 +96,10 @@ func main() {
 	events.NewDispatcher(ctx)
 
 	inst.Lives = make(map[types.LiveID]live.Live)
-	for _, room := range inst.Config.LiveRooms {
-		l, err := live.New(ctx, &room, inst.Cache)
+	for index := range inst.Config.LiveRooms {
+		room := &inst.Config.LiveRooms[index]
+
+		l, err := live.New(ctx, room, inst.Cache)
 		if err != nil {
 			logger.WithField("url", room).Error(err.Error())
 			continue
@@ -151,6 +155,14 @@ func main() {
 		inst.RecorderManager.Close(ctx)
 	}()
 
+	if inst.Config.Debug {
+		go func() {
+			for {
+				time.Sleep(time.Second * 5)
+				utils.ConnCounterManager.PrintMap()
+			}
+		}()
+	}
 	inst.WaitGroup.Wait()
 	logger.Info("Bye~")
 }

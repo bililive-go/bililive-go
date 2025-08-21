@@ -57,7 +57,7 @@ func (l *Live) getDouYinAppStreamData() (info *live.Info,
 		api := fmt.Sprintf("https://live.douyin.com/webcast/room/web/enter/?%s", params.Encode())
 
 		var resp *requests.Response
-		resp, err = asyncReq(api, localHeaders, 0)
+		resp, err = l.asyncReq(api, localHeaders, 0)
 		if err != nil {
 			return
 		}
@@ -192,7 +192,7 @@ func (l *Live) getDouYinAppStreamData() (info *live.Info,
 func (l *Live) getSecUserID(headers map[string]interface{}) (
 	roomID, secUserID string, err error) {
 	var resp *requests.Response
-	resp, err = asyncReq(l.Url.String(), headers, 15)
+	resp, err = l.asyncReq(l.Url.String(), headers, 15)
 	if err != nil {
 		return
 	}
@@ -230,7 +230,7 @@ func (l *Live) getAppData(roomID, secUID string, headers map[string]interface{})
 		"app_id":       {"1128"},
 	}
 	api := fmt.Sprintf("https://webcast.amemv.com/webcast/room/reflow/info/?%s", appParams.Encode())
-	resp, err := asyncReq(api, headers, 0)
+	resp, err := l.asyncReq(api, headers, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +256,7 @@ func (l *Live) getAppData(roomID, secUID string, headers map[string]interface{})
 
 func (l *Live) getUniqueID(headers map[string]interface{}) (string, error) {
 	logrus.Debug("[getUniqueID][1]")
-	resp, err := asyncReq(l.Url.String(), headers, 0)
+	resp, err := l.asyncReq(l.Url.String(), headers, 0)
 	if err != nil {
 		return "", err
 	}
@@ -271,7 +271,7 @@ func (l *Live) getUniqueID(headers map[string]interface{}) (string, error) {
 
 	localHeaders := headers
 	localHeaders["Cookie"] = "ttwid=1%7C4ejCkU2bKY76IySQENJwvGhg1IQZrgGEupSyTKKfuyk%7C1740470403%7Cbc9ad2ee341f1a162f9e27f4641778030d1ae91e31f9df6553a8f2efa3bdb7b4; __ac_nonce=0683e59f3009cc48fbab0; __ac_signature=_02B4Z6wo00f01mG6waQAAIDB9JUCzFb6.TZhmsUAAPBf34; __ac_referer=__ac_blank"
-	resp2, err := asyncReq(fmt.Sprintf("https://www.iesdouyin.com/share/user/%s", secID), localHeaders, 0)
+	resp2, err := l.asyncReq(fmt.Sprintf("https://www.iesdouyin.com/share/user/%s", secID), localHeaders, 0)
 	if err != nil {
 		return "", err
 	}
@@ -291,8 +291,7 @@ func (l *Live) getUniqueID(headers map[string]interface{}) (string, error) {
 	}
 }
 
-func asyncReq(url string, headers map[string]interface{}, timeOut int) (resp *requests.Response, err error) {
-	requestSession := requests.NewSession(&http.Client{})
+func (l *Live) asyncReq(url string, headers map[string]interface{}, timeOut int) (resp *requests.Response, err error) {
 	opts := []requests.RequestOption{
 		requests.Headers(headers),
 	}
@@ -309,7 +308,7 @@ func asyncReq(url string, headers map[string]interface{}, timeOut int) (resp *re
 		return
 	}
 
-	resp, err = requestSession.Do(req)
+	resp, err = l.RequestSession.Do(req)
 	if err != nil {
 		return
 	}

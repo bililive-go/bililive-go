@@ -9,7 +9,6 @@ import (
 	"github.com/bililive-go/bililive-go/src/live"
 	"github.com/bililive-go/bililive-go/src/live/internal"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
-	"github.com/hr3lxphr6j/requests"
 )
 
 const (
@@ -50,7 +49,7 @@ var GetStreamInfosMethodList = []GetStreamInfosMethod{
 }
 
 func (l *Live) GetHtmlBody() (htmlBody string, err error) {
-	html, err := requests.Get(l.Url.String(), live.CommonUserAgent)
+	html, err := l.RequestSession.Get(l.Url.String(), live.CommonUserAgent)
 	if err != nil {
 		return
 	}

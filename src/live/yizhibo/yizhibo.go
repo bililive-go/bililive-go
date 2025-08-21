@@ -38,7 +38,7 @@ type Live struct {
 
 func (l *Live) requestRoomInfo() ([]byte, error) {
 	scid := strings.Split(strings.Split(l.Url.Path, "/")[2], ".")[0]
-	resp, err := requests.Get(apiUrl, live.CommonUserAgent, requests.Query("scid", scid))
+	resp, err := l.RequestSession.Get(apiUrl, live.CommonUserAgent, requests.Query("scid", scid))
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +70,7 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 }
 
 func (l *Live) GetStreamUrls() (us []*url.URL, err error) {
-	resp, err := requests.Get(l.GetRawUrl(), live.CommonUserAgent)
+	resp, err := l.RequestSession.Get(l.GetRawUrl(), live.CommonUserAgent)
 	if err != nil {
 		return nil, err
 	}

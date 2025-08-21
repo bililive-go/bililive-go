@@ -82,13 +82,24 @@ type Config struct {
 	liveRoomIndexCache map[string]int
 }
 
+var config *Config
+
+func SetCurrentConfig(cfg *Config) {
+	config = cfg
+}
+
+func GetCurrentConfig() *Config {
+	return config
+}
+
 type LiveRoom struct {
 	Url         string       `yaml:"url"`
 	IsListening bool         `yaml:"is_listening"`
 	LiveId      types.LiveID `yaml:"-"`
-	Quality     int          `yaml:"quality"`
-	AudioOnly   bool         `yaml:"audio_only"`
-	LastStartTime int64        `yaml:"last_start_time"`
+	Quality     int          `yaml:"quality,omitempty"`
+	AudioOnly   bool         `yaml:"audio_only,omitempty"`
+	NickName    string       `yaml:"nick_name,omitempty"`
+	LastStartTime int64      `yaml:"last_start_time"`
 }
 
 type liveRoomAlias LiveRoom

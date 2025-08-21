@@ -5,7 +5,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/hr3lxphr6j/requests"
 	"github.com/tidwall/gjson"
 
 	"github.com/bililive-go/bililive-go/src/live"
@@ -51,7 +50,7 @@ func (l *Live) getRoomInfo() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := requests.Get(roomInitUrl + roomid)
+	resp, err := l.RequestSession.Get(roomInitUrl + roomid)
 	if err != nil {
 		return nil, err
 	}

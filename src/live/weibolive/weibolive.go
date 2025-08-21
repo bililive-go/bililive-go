@@ -47,7 +47,7 @@ func (l *Live) getRoomInfo() ([]byte, error) {
 	roomid := paths[5]
 	l.roomID = roomid
 
-	resp, err := requests.Get(liveurl+roomid,
+	resp, err := l.RequestSession.Get(liveurl+roomid,
 		live.CommonUserAgent,
 		requests.Headers(map[string]any{
 			"Referer": l.Url,

@@ -55,7 +55,7 @@ func (l *Live) parseRealId() error {
 	for _, item := range cookies {
 		cookieKVs[item.Name] = item.Value
 	}
-	resp, err := requests.Get(roomInitUrl, live.CommonUserAgent, requests.Query("id", paths[1]), requests.Cookies(cookieKVs))
+	resp, err := l.RequestSession.Get(roomInitUrl, live.CommonUserAgent, requests.Query("id", paths[1]), requests.Cookies(cookieKVs))
 	if err != nil {
 		return err
 	}
@@ -82,7 +82,7 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 	for _, item := range cookies {
 		cookieKVs[item.Name] = item.Value
 	}
-	resp, err := requests.Get(
+	resp, err := l.RequestSession.Get(
 		roomApiUrl,
 		live.CommonUserAgent,
 		requests.Query("room_id", l.realID),
@@ -110,7 +110,7 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 		AudioOnly: l.Options.AudioOnly,
 	}
 
-	resp, err = requests.Get(userApiUrl, live.CommonUserAgent, requests.Query("roomid", l.realID))
+	resp, err = l.RequestSession.Get(userApiUrl, live.CommonUserAgent, requests.Query("roomid", l.realID))
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +166,7 @@ func (l *Live) GetStreamInfos() (infos []*live.StreamUrlInfo, err error) {
 		apiUrl = appLiveApiUrlv2
 		agent = requests.UserAgent(biliAppAgent)
 	}
-	resp, err := requests.Get(apiUrl+query, agent, requests.Cookies(cookieKVs))
+	resp, err := l.RequestSession.Get(apiUrl+query, agent, requests.Cookies(cookieKVs))
 	if err != nil {
 		return nil, err
 	}
