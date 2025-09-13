@@ -11,9 +11,11 @@ COPY --from=mwader/static-ffmpeg:8.0 /ffmpeg /usr/local/bin/
 COPY --from=mwader/static-ffmpeg:8.0 /ffprobe /usr/local/bin/
 
 FROM alpine AS ffmpeg_arm
+# FFmpeg will be installed later via Alpine packages (apk add ffmpeg) for arm architecture.
 RUN echo "Using ffmpeg for arm"
 
 FROM alpine AS ffmpeg_386
+# FFmpeg will be installed later via Alpine packages (apk add ffmpeg) for 386 architecture.
 RUN echo "Using ffmpeg for 386"
 
 FROM ffmpeg_${TARGETARCH}
