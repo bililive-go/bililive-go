@@ -182,10 +182,10 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool) (info *live.
 		IsListening: isListen,
 	}
 	newLive, err := live.New(ctx, &liveRoom, inst.Cache)
-	liveRoom.LiveId = newLive.GetLiveId()
 	if err != nil {
 		return nil, err
 	}
+	liveRoom.LiveId = newLive.GetLiveId()
 	if _, ok := inst.Lives[newLive.GetLiveId()]; !ok {
 		inst.Lives[newLive.GetLiveId()] = newLive
 		if isListen {
