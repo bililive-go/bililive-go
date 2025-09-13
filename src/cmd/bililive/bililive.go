@@ -112,11 +112,6 @@ func main() {
 		room.LiveId = l.GetLiveId()
 	}
 
-	if inst.Config.RPC.Enable {
-		if err := servers.NewServer(ctx).Start(ctx); err != nil {
-			logger.WithError(err).Fatalf("failed to init server")
-		}
-	}
 	lm := listeners.NewManager(ctx)
 	rm := recorders.NewManager(ctx)
 	if err := lm.Start(ctx); err != nil {
@@ -128,6 +123,13 @@ func main() {
 
 	if err = metrics.NewCollector(ctx).Start(ctx); err != nil {
 		logger.Fatalf("failed to init metrics collector, error: %s", err)
+	}
+
+	// 启动 server 要在上面的 manager 初始化之后，否则可能会出现空指针异常
+	if inst.Config.RPC.Enable {
+		if err := servers.NewServer(ctx).Start(ctx); err != nil {
+			logger.WithError(err).Fatalf("failed to init server")
+		}
 	}
 
 	for _, _live := range inst.Lives {
