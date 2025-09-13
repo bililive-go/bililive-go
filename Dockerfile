@@ -35,7 +35,12 @@ RUN mkdir -p $OUTPUT_DIR && \
     mkdir -p $CONF_DIR && \
     apk update && \
     apk --no-cache add libc6-compat curl su-exec tzdata && \
-    sh -c 'if [ "$TARGETARCH" = "amd64" ] || [ "$TARGETARCH" = "arm64" ]; then echo "skip apk ffmpeg for $TARGETARCH"; else apk add --no-cache ffmpeg; fi' && \
+    sh -c '\
+        if [ "$TARGETARCH" = "amd64" ] || [ "$TARGETARCH" = "arm64" ]; then \
+            echo "skip apk ffmpeg for $TARGETARCH"; \
+        else \
+            apk add --no-cache ffmpeg; \
+        fi' && \
     cp -r -f /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 
 RUN sh -c "case $(arch) in aarch64) go_arch=arm64 ;; arm*) go_arch=arm ;; i386|i686) go_arch=386 ;; x86_64) go_arch=amd64;; esac && \
