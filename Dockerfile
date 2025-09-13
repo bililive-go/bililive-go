@@ -1,5 +1,8 @@
 FROM alpine
 
+COPY --from=mwader/static-ffmpeg:8.0 /ffmpeg /usr/local/bin/
+COPY --from=mwader/static-ffmpeg:8.0 /ffprobe  /usr/local/bin/
+
 ARG tag
 
 ENV IS_DOCKER=true
@@ -13,7 +16,7 @@ ENV PUID=0 PGID=0 UMASK=022
 RUN mkdir -p $OUTPUT_DIR && \
     mkdir -p $CONF_DIR && \
     apk update && \
-    apk --no-cache add ffmpeg libc6-compat curl su-exec tzdata && \
+    apk --no-cache add libc6-compat curl su-exec tzdata && \
     cp -r -f /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 
 RUN sh -c "case $(arch) in aarch64) go_arch=arm64 ;; arm*) go_arch=arm ;; i386|i686) go_arch=386 ;; x86_64) go_arch=amd64;; esac && \
