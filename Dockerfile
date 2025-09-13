@@ -1,20 +1,21 @@
+ARG TARGETARCH
+
 FROM alpine AS ffmpeg_amd64
-ONBUILD RUN echo "Using ffmpeg for amd64"
+RUN echo "Using ffmpeg for amd64"
 COPY --from=mwader/static-ffmpeg:8.0 /ffmpeg /usr/local/bin/
 COPY --from=mwader/static-ffmpeg:8.0 /ffprobe /usr/local/bin/
 
 FROM alpine AS ffmpeg_arm64
-ONBUILD RUN echo "Using ffmpeg for arm64"
+RUN echo "Using ffmpeg for arm64"
 COPY --from=mwader/static-ffmpeg:8.0 /ffmpeg /usr/local/bin/
 COPY --from=mwader/static-ffmpeg:8.0 /ffprobe /usr/local/bin/
 
 FROM alpine AS ffmpeg_arm
-ONBUILD RUN echo "Using ffmpeg for arm"
+RUN echo "Using ffmpeg for arm"
 
 FROM alpine AS ffmpeg_386
-ONBUILD RUN echo "Using ffmpeg for 386"
+RUN echo "Using ffmpeg for 386"
 
-ARG TARGETARCH
 FROM ffmpeg_${TARGETARCH}
 ARG TARGETARCH
 
