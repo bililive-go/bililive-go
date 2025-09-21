@@ -10,6 +10,11 @@ const (
 	AppName = "BiliLive-go"
 )
 
+const (
+	LiveStatusStart = "start"
+	LiveStatusStop  = "stop"
+)
+
 type Info struct {
 	AppName       string `json:"app_name"`
 	AppVersion    string `json:"app_version"`

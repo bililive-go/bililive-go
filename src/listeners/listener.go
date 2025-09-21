@@ -9,10 +9,12 @@ import (
 	"github.com/lthibault/jitterbug"
 
 	"github.com/bililive-go/bililive-go/src/configs"
+	"github.com/bililive-go/bililive-go/src/consts"
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/interfaces"
 	"github.com/bililive-go/bililive-go/src/live"
 	"github.com/bililive-go/bililive-go/src/live/system"
+	"github.com/bililive-go/bililive-go/src/notify"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
 )
 
@@ -73,6 +75,16 @@ func (l *listener) Close() {
 	close(l.stop)
 }
 
+// sendLiveNotification 发送直播状态变更通知
+func (l *listener) sendLiveNotification(hostName, platform, liveUrl, status string) {
+	// 创建context用于日志记录
+	ctx := context.Background()
+	// 发送通知
+	if err := notify.SendNotification(ctx, hostName, platform, liveUrl, status); err != nil {
+		l.logger.WithError(err).WithField("host", hostName).Error("failed to send notification")
+	}
+}
+
 func (l *listener) refresh() {
 	info, err := l.Live.GetInfo()
 	if err != nil {
@@ -93,6 +105,12 @@ func (l *listener) refresh() {
 		}
 	)
 	defer func() { l.status = latestStatus }()
+
+	// 提取主播信息，避免在各个分支中重复获取
+	hostName := info.HostName
+	platform := l.Live.GetPlatformCNName()
+	liveUrl := l.Live.GetRawUrl()
+
 	isStatusChanged := true
 	switch l.status.Diff(latestStatus) {
 	case 0:
@@ -101,9 +119,14 @@ func (l *listener) refresh() {
 		l.Live.SetLastStartTime(time.Now())
 		evtTyp = LiveStart
 		logInfo = "Live Start"
+		// 发送开播提醒和录像通知
+		l.sendLiveNotification(hostName, platform, liveUrl, consts.LiveStatusStart)
+
 	case statusToFalseEvt:
 		evtTyp = LiveEnd
 		logInfo = "Live end"
+		// 发送结束直播提醒和录像通知
+		l.sendLiveNotification(hostName, platform, liveUrl, consts.LiveStatusStop)
 	case roomNameChangedEvt:
 		if !l.config.VideoSplitStrategies.OnRoomNameChanged {
 			return
