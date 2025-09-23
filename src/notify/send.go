@@ -39,7 +39,7 @@ func SendNotification(ctx context.Context, hostName, platform, liveURL, status s
 	}
 
 	// 构造Telegram消息内容 (包含所有信息)
-	telegramMessage := fmt.Sprintf("主播：%s\n平台：%s\n直播地址：%s", hostName+","+messageStatus, platform, liveURL)
+	telegramMessage := fmt.Sprintf("主播：%s,%s\n平台：%s\n直播地址：%s", hostName, messageStatus, platform, liveURL)
 
 	// 检查是否开启了Telegram通知服务
 	if cfg.Notify.Telegram.Enable {
@@ -63,8 +63,8 @@ func SendNotification(ctx context.Context, hostName, platform, liveURL, status s
 	}
 
 	// 构造邮件主题和内容
-	emailSubject := fmt.Sprintf("%s - %s", hostName+","+messageStatus, platform)
-	emailBody := fmt.Sprintf("主播：%s\n平台：%s\n直播地址：%s", hostName+","+messageStatus, platform, liveURL)
+	emailSubject := fmt.Sprintf("%s,%s - %s", hostName, messageStatus, platform)
+	emailBody := fmt.Sprintf("主播：%s,%s\n平台：%s\n直播地址：%s", hostName, messageStatus, platform, liveURL)
 
 	// 检查是否开启了Email通知服务
 	if cfg.Notify.Email.Enable {
@@ -81,4 +81,37 @@ func SendNotification(ctx context.Context, hostName, platform, liveURL, status s
 	}
 
 	return nil
+}
+
+// SendTestNotification 发送测试通知
+func SendTestNotification(ctx context.Context) {
+	// 测试开始直播通知
+	err := SendNotification(ctx, "测试主播", "测试平台", "https://example.com/live", consts.LiveStatusStart)
+	if err != nil {
+		// 获取logger实例
+		var logger *instance.Instance
+		if ctx != nil {
+			logger = instance.GetInstance(ctx)
+		}
+		if logger != nil && logger.Logger != nil {
+			logger.Logger.WithError(err).Error("Failed to send start live test notification")
+		} else {
+			fmt.Printf("[ERROR] Failed to send start live test notification: %v\n", err)
+		}
+	}
+
+	// 测试结束直播通知
+	err = SendNotification(ctx, "测试主播", "测试平台", "https://example.com/live", consts.LiveStatusStop)
+	if err != nil {
+		// 获取logger实例
+		var logger *instance.Instance
+		if ctx != nil {
+			logger = instance.GetInstance(ctx)
+		}
+		if logger != nil && logger.Logger != nil {
+			logger.Logger.WithError(err).Error("Failed to send stop live test notification")
+		} else {
+			fmt.Printf("[ERROR] Failed to send stop live test notification: %v\n", err)
+		}
+	}
 }

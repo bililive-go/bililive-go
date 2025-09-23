@@ -4,8 +4,6 @@ import (
 	"fmt"
 
 	"github.com/bililive-go/bililive-go/src/configs"
-	_ "github.com/bililive-go/bililive-go/src/configs"
-
 	"gopkg.in/gomail.v2"
 )
 

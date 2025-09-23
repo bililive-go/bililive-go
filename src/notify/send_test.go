@@ -2,11 +2,9 @@ package notify
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/bililive-go/bililive-go/src/consts"
-	"github.com/bililive-go/bililive-go/src/instance"
 )
 
 // TestSendTestNotification 测试SendTestNotification函数
@@ -80,37 +78,4 @@ func TestSendNotificationUnknown(t *testing.T) {
 	_ = err // 在实际测试中，我们可能需要检查错误
 
 	// 如果没有panic，则测试通过
-}
-
-// SendTestNotification 发送测试通知
-func SendTestNotification(ctx context.Context) {
-	// 测试开始直播通知
-	err := SendNotification(ctx, "测试主播", "测试平台", "https://example.com/live", consts.LiveStatusStart)
-	if err != nil {
-		// 获取logger实例
-		var logger *instance.Instance
-		if ctx != nil {
-			logger = instance.GetInstance(ctx)
-		}
-		if logger != nil && logger.Logger != nil {
-			logger.Logger.WithError(err).Error("Failed to send start live test notification")
-		} else {
-			fmt.Printf("[ERROR] Failed to send start live test notification: %v\n", err)
-		}
-	}
-
-	// 测试结束直播通知
-	err = SendNotification(ctx, "测试主播", "测试平台", "https://example.com/live", consts.LiveStatusStop)
-	if err != nil {
-		// 获取logger实例
-		var logger *instance.Instance
-		if ctx != nil {
-			logger = instance.GetInstance(ctx)
-		}
-		if logger != nil && logger.Logger != nil {
-			logger.Logger.WithError(err).Error("Failed to send stop live test notification")
-		} else {
-			fmt.Printf("[ERROR] Failed to send stop live test notification: %v\n", err)
-		}
-	}
 }

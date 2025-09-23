@@ -169,3 +169,12 @@ node_modules
 .vscode
 
 !src/cmd/build/
+build-custom-docker.sh
+.gitignore
+.gitignore
+cross-compile.sh
+.gitignore
+Dockerfile.custom
+build-custom-tag.sh
+.gitignore
+CUSTOM_TAG_USAGE.md
