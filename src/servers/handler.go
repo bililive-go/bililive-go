@@ -177,11 +177,16 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool) (info *live.
 		return nil, errors.New("can't parse url: " + urlStr)
 	}
 	inst := instance.GetInstance(ctx)
-	liveRoom := configs.LiveRoom{
-		Url:         u.String(),
-		IsListening: isListen,
+	needAppend := false
+	liveRoom, err := inst.Config.GetLiveRoomByUrl(u.String())
+	if err != nil {
+		liveRoom = &configs.LiveRoom{
+			Url:         u.String(),
+			IsListening: isListen,
+		}
+		needAppend = true
 	}
-	newLive, err := live.New(ctx, &liveRoom, inst.Cache)
+	newLive, err := live.New(ctx, liveRoom, inst.Cache)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +198,9 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool) (info *live.
 		}
 		info = parseInfo(ctx, newLive)
 
-		inst.Config.LiveRooms = append(inst.Config.LiveRooms, liveRoom)
+		if needAppend {
+			inst.Config.LiveRooms = append(inst.Config.LiveRooms, *liveRoom)
+		}
 	}
 	return info, nil
 }
