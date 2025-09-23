@@ -39,9 +39,11 @@ func init() {
 type builder struct{}
 
 func (b *builder) Build(url *url.URL) (live.Live, error) {
-	return &Live{
+	ret := &Live{
 		BaseLive: internal.NewBaseLive(url),
-	}, nil
+	}
+	ret.bgoLive = NewBgoLive(ret)
+	return ret, nil
 }
 
 type streamData struct {
@@ -53,6 +55,7 @@ type Live struct {
 	internal.BaseLive
 	LastAvailableStreamData streamData
 	isReTrying              bool
+	bgoLive                 bgoLive
 }
 
 func (l *Live) getDouYinStreamData(url string) (info *live.Info,
@@ -414,7 +417,7 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 	var streamUrlInfo, originUrlList map[string]interface{}
 	if l.Url.Host == domainForApp { // APP
 		info, streamUrlInfo, _, err = l.getDouYinAppStreamData()
-		if err == nil {
+		if err == nil && info.HostName != "" && info.RoomName != "" {
 			l.LastAvailableStreamData = streamData{
 				streamUrlInfo: streamUrlInfo,
 			}
@@ -422,9 +425,15 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 		}
 	}
 	info, streamUrlInfo, originUrlList, err = l.getDouYinStreamData(l.Url.String())
-	l.LastAvailableStreamData = streamData{
-		streamUrlInfo: streamUrlInfo,
-		originUrlList: originUrlList,
+	if err == nil && info.HostName != "" && info.RoomName != "" {
+		l.LastAvailableStreamData = streamData{
+			streamUrlInfo: streamUrlInfo,
+			originUrlList: originUrlList,
+		}
+	} else {
+		l.LastAvailableStreamData.streamUrlInfo = nil
+		l.LastAvailableStreamData.originUrlList = nil
+		info, err = l.bgoLive.GetInfo()
 	}
 
 	return
@@ -432,10 +441,10 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 
 // 新增：支持质量选择的GetStreamUrls方法
 func (l *Live) GetStreamUrls() (us []*url.URL, err error) {
-
 	quality := "origin"
-	if l.LastAvailableStreamData.streamUrlInfo == nil { // TODO
-		return nil, fmt.Errorf("no stream URLs available")
+	if l.LastAvailableStreamData.streamUrlInfo == nil {
+		us, err = l.bgoLive.GetStreamUrls()
+		return
 	}
 	res, err := l.createStreamUrlInfos(l.LastAvailableStreamData.streamUrlInfo,
 		l.LastAvailableStreamData.originUrlList)
