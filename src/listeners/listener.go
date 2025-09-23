@@ -95,6 +95,16 @@ func (l *listener) refresh() {
 		return
 	}
 
+	// 尝试从缓存中获取主播姓名，以防API调用失败
+	hostName := info.HostName
+	if hostName == "" {
+		if wrappedLive, ok := l.Live.(*live.WrappedLive); ok {
+			if cachedInfo, get_err := wrappedLive.GetInfo(); get_err == nil && cachedInfo != nil {
+				hostName = cachedInfo.HostName
+			}
+		}
+	}
+
 	var (
 		latestStatus = status{roomName: info.RoomName, roomStatus: info.Status}
 		evtTyp       events.EventType
@@ -115,13 +125,13 @@ func (l *listener) refresh() {
 		evtTyp = LiveStart
 		logInfo = "Live Start"
 		// 发送开播提醒和录像通知
-		l.sendLiveNotification(info.HostName, consts.LiveStatusStart)
+		l.sendLiveNotification(hostName, consts.LiveStatusStart)
 
 	case statusToFalseEvt:
 		evtTyp = LiveEnd
 		logInfo = "Live end"
 		// 发送结束直播提醒和录像通知
-		l.sendLiveNotification(info.HostName, consts.LiveStatusStop)
+		l.sendLiveNotification(hostName, consts.LiveStatusStop)
 	case roomNameChangedEvt:
 		if !l.config.VideoSplitStrategies.OnRoomNameChanged {
 			return
