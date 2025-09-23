@@ -76,11 +76,11 @@ func (l *listener) Close() {
 }
 
 // sendLiveNotification 发送直播状态变更通知
-func (l *listener) sendLiveNotification(hostName, platform, liveUrl, status string) {
+func (l *listener) sendLiveNotification(hostName, status string) {
 	// 创建context用于日志记录
 	ctx := context.Background()
 	// 发送通知
-	if err := notify.SendNotification(ctx, hostName, platform, liveUrl, status); err != nil {
+	if err := notify.SendNotification(ctx, hostName, l.Live.GetPlatformCNName(), l.Live.GetRawUrl(), status); err != nil {
 		l.logger.WithError(err).WithField("host", hostName).Error("failed to send notification")
 	}
 }
@@ -106,11 +106,6 @@ func (l *listener) refresh() {
 	)
 	defer func() { l.status = latestStatus }()
 
-	// 提取主播信息，避免在各个分支中重复获取
-	hostName := info.HostName
-	platform := l.Live.GetPlatformCNName()
-	liveUrl := l.Live.GetRawUrl()
-
 	isStatusChanged := true
 	switch l.status.Diff(latestStatus) {
 	case 0:
@@ -120,13 +115,13 @@ func (l *listener) refresh() {
 		evtTyp = LiveStart
 		logInfo = "Live Start"
 		// 发送开播提醒和录像通知
-		l.sendLiveNotification(hostName, platform, liveUrl, consts.LiveStatusStart)
+		l.sendLiveNotification(info.HostName, consts.LiveStatusStart)
 
 	case statusToFalseEvt:
 		evtTyp = LiveEnd
 		logInfo = "Live end"
 		// 发送结束直播提醒和录像通知
-		l.sendLiveNotification(hostName, platform, liveUrl, consts.LiveStatusStop)
+		l.sendLiveNotification(info.HostName, consts.LiveStatusStop)
 	case roomNameChangedEvt:
 		if !l.config.VideoSplitStrategies.OnRoomNameChanged {
 			return
