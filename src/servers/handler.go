@@ -199,6 +199,9 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool) (info *live.
 		info = parseInfo(ctx, newLive)
 
 		if needAppend {
+			if liveRoom == nil {
+				return nil, errors.New("liveRoom is nil, cannot append to LiveRooms")
+			}
 			inst.Config.LiveRooms = append(inst.Config.LiveRooms, *liveRoom)
 		}
 	}
