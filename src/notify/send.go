@@ -38,8 +38,11 @@ func SendNotification(ctx context.Context, hostName, platform, liveURL, status s
 		messageStatus = "直播状态未知"
 	}
 
+	// 统一主播信息格式
+	hostInfo := fmt.Sprintf("%s,%s", hostName, messageStatus)
+
 	// 构造Telegram消息内容 (包含所有信息)
-	telegramMessage := fmt.Sprintf("主播：%s,%s\n平台：%s\n直播地址：%s", hostName, messageStatus, platform, liveURL)
+	telegramMessage := fmt.Sprintf("主播：%s\n平台：%s\n直播地址：%s", hostInfo, platform, liveURL)
 
 	// 检查是否开启了Telegram通知服务
 	if cfg.Notify.Telegram.Enable {
@@ -63,8 +66,8 @@ func SendNotification(ctx context.Context, hostName, platform, liveURL, status s
 	}
 
 	// 构造邮件主题和内容
-	emailSubject := fmt.Sprintf("%s,%s - %s", hostName, messageStatus, platform)
-	emailBody := fmt.Sprintf("主播：%s,%s\n平台：%s\n直播地址：%s", hostName, messageStatus, platform, liveURL)
+	emailSubject := fmt.Sprintf("%s - %s", hostInfo, platform)
+	emailBody := fmt.Sprintf("主播：%s\n平台：%s\n直播地址：%s", hostInfo, platform, liveURL)
 
 	// 检查是否开启了Email通知服务
 	if cfg.Notify.Email.Enable {
