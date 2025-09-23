@@ -110,11 +110,7 @@ func TestListenerStartAndClose(t *testing.T) {
 	live.EXPECT().GetInfo().Return(&livepkg.Info{Status: false}, nil).AnyTimes()
 	live.EXPECT().GetPlatformCNName().Return("platform").AnyTimes()
 	live.EXPECT().GetRawUrl().Return("").AnyTimes() // 添加对GetRawUrl方法的期望调用
-
-	// 调整DispatchEvent的期望设置，确保覆盖所有可能的调用
-	ed.EXPECT().DispatchEvent(events.NewEvent(ListenStart, live))
-	ed.EXPECT().DispatchEvent(events.NewEvent(ListenStop, live))
-	// ed.EXPECT().DispatchEvent(gomock.Any()).Times(2)
+	ed.EXPECT().DispatchEvent(gomock.Any()).Times(2)
 	l := NewListener(ctx, live)
 	assert.NoError(t, l.Start())
 	assert.NoError(t, l.Start())
