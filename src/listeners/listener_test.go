@@ -48,6 +48,7 @@ func TestRefresh(t *testing.T) {
 
 	// true -> true, roomName change
 	live.EXPECT().GetInfo().Return(&livepkg.Info{Status: true, RoomName: "a"}, nil)
+	ed.EXPECT().DispatchEvent(events.NewEvent(RoomNameChanged, live))
 	l.refresh()
 
 	// true -> true, roomName change

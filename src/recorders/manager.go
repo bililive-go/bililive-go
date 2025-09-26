@@ -57,8 +57,15 @@ func (m *manager) registryListener(ctx context.Context, ed events.Dispatcher) {
 		if !m.HasRecorder(ctx, live.GetLiveId()) {
 			return
 		}
-		if err := m.RestartRecorder(ctx, live); err != nil {
-			instance.GetInstance(ctx).Logger.Errorf("failed to cronRestart recorder, err: %v", err)
+		// Only restart recorder if OnRoomNameChanged is enabled in config
+		if m.cfg.VideoSplitStrategies.OnRoomNameChanged {
+			if err := m.RestartRecorder(ctx, live); err != nil {
+				instance.GetInstance(ctx).Logger.Errorf("failed to restart recorder for room name change, err: %v", err)
+			}
+		} else {
+			// Room name changed but restart is disabled - just log the change
+			// The cache has already been updated by the listener, so no further action needed
+			instance.GetInstance(ctx).Logger.Infof("Room name changed for %s but restart is disabled", live.GetRawUrl())
 		}
 	}))
 

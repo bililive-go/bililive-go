@@ -105,9 +105,6 @@ func (l *listener) refresh() {
 		evtTyp = LiveEnd
 		logInfo = "Live end"
 	case roomNameChangedEvt:
-		if !l.config.VideoSplitStrategies.OnRoomNameChanged {
-			return
-		}
 		evtTyp = RoomNameChanged
 		logInfo = "Room name was changed"
 	}
