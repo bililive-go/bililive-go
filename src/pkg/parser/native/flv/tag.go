@@ -5,9 +5,23 @@ import "context"
 func (p *Parser) parseTag(ctx context.Context) error {
 	p.tagCount += 1
 
+	// Check for stop signal before starting tag parsing
+	select {
+	case <-p.stopCh:
+		return nil
+	default:
+	}
+
 	b, err := p.i.ReadN(15)
 	if err != nil {
-		return err
+		// If we encounter an error while reading tag header, it might be due to 
+		// incomplete stream data. Check if we're being stopped gracefully.
+		select {
+		case <-p.stopCh:
+			return nil // Graceful stop, ignore the error
+		default:
+			return err // Actual error, propagate it
+		}
 	}
 
 	tagType := uint8(b[4])
@@ -17,14 +31,34 @@ func (p *Parser) parseTag(ctx context.Context) error {
 	switch tagType {
 	case audioTag:
 		if _, err := p.parseAudioTag(ctx, length, timeStamp); err != nil {
-			return err
+			// Check for stop signal in case of error during audio tag parsing
+			select {
+			case <-p.stopCh:
+				return nil
+			default:
+				return err
+			}
 		}
 	case videoTag:
 		if _, err := p.parseVideoTag(ctx, length, timeStamp); err != nil {
-			return err
+			// Check for stop signal in case of error during video tag parsing  
+			select {
+			case <-p.stopCh:
+				return nil
+			default:
+				return err
+			}
 		}
 	case scriptTag:
-		return p.parseScriptTag(ctx, length)
+		if err := p.parseScriptTag(ctx, length); err != nil {
+			// Check for stop signal in case of error during script tag parsing
+			select {
+			case <-p.stopCh:
+				return nil
+			default:
+				return err
+			}
+		}
 	default:
 		return ErrUnknownTag
 	}

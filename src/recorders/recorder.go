@@ -228,17 +228,25 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		convertCmd := exec.Command(
 			ffmpegPath,
 			"-hide_banner",
+			"-fflags", "+genpts+igndts",
+			"-err_detect", "ignore_err",
 			"-i",
 			fileName,
 			"-c",
 			"copy",
+			"-avoid_negative_ts", "make_zero",
 			newFileName+".mp4",
 		)
 		if err = convertCmd.Run(); err != nil {
-			convertCmd.Process.Kill()
-			r.getLogger().Debugln(err)
-		} else if r.config.OnRecordFinished.DeleteFlvAfterConvert {
-			os.Remove(fileName)
+			if convertCmd.Process != nil {
+				convertCmd.Process.Kill()
+			}
+			r.getLogger().WithError(err).Warnf("FFmpeg conversion failed for %s, the FLV file may have incomplete frames due to abrupt recording stop", fileName)
+		} else {
+			r.getLogger().Infof("Successfully converted %s to %s", fileName, newFileName+".mp4")
+			if r.config.OnRecordFinished.DeleteFlvAfterConvert {
+				os.Remove(fileName)
+			}
 		}
 	}
 }

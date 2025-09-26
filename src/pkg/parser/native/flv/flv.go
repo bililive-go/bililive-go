@@ -149,12 +149,21 @@ func (p *Parser) doParse(ctx context.Context) error {
 }
 
 func (p *Parser) doCopy(ctx context.Context, n uint32) error {
-	if writtenCount, err := io.CopyN(p.o, p.i, int64(n)); err != nil || writtenCount != int64(writtenCount) {
-		utils.PrintStack()
-		if err == nil {
-			err = fmt.Errorf("doCopy(%d), %d bytes written", n, writtenCount)
+	writtenCount, err := io.CopyN(p.o, p.i, int64(n))
+	if err != nil || writtenCount != int64(n) {
+		// Check if we're being stopped gracefully before reporting as error
+		select {
+		case <-p.stopCh:
+			// Graceful stop during copy operation, this is expected
+			return nil
+		default:
+			// Actual error occurred
+			utils.PrintStack()
+			if err == nil {
+				err = fmt.Errorf("doCopy(%d), %d bytes written", n, writtenCount)
+			}
+			return err
 		}
-		return err
 	}
 	return nil
 }
