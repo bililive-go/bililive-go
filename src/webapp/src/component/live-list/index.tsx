@@ -3,6 +3,7 @@ import {Button, Divider, PageHeader, Table, Tag, Tabs, Row, Col, Tooltip} from '
 import PopDialog from '../pop-dialog/index';
 import AddRoomDialog from '../add-room-dialog/index';
 import API from '../../utils/api';
+import Utils from '../../utils/common';
 import './live-list.css';
 import { RouteComponentProps } from "react-router-dom";
 import { ColumnProps } from 'antd/lib/table';
@@ -146,7 +147,8 @@ class LiveList extends React.Component<Props, IState> {
                 </PopDialog>
                 <Divider type="vertical" />
                 <Button type="link" size="small" onClick={(e) => {
-                    this.props.history.push(`/fileList/${data.address}/${data.name}`);
+                    const cleanName = Utils.replaceIllegalChar(data.name);
+                    this.props.history.push(`/fileList/${data.address}/${cleanName}`);
                 }}>文件</Button>
             </span>
         ),
