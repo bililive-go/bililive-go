@@ -138,61 +138,101 @@ func (l *Live) parseRoomInfo(body string) (info *live.Info,
 	const errorMessageForErrorf = "getDouYinStreamUrl() failed on step %d"
 	stepNumberForLog := 1
 
-	// 使用Python一样的复杂解析逻辑
+	// 使用多个正则表达式模式进行解析，增加成功率
 	var jsonStr string
-
-	// 尝试第一个正则表达式
-	reg1, err := regexp.Compile(`(\{\\"state\\":.*?)]\\n"]\)`)
-	if err != nil {
-		return
+	var patterns = []string{
+		`(\{\\"state\\":.*?)]\\n"]\)`,                            // 原始第一个模式
+		`(\{\\"common\\":.*?)]\\n"]\)</script><div hidden`,      // 原始第二个模式
+		`(\{\\"state\\":.*?)]\\n"]\)</script>`,                  // 不带div hidden的变体
+		`(\{\\"common\\":.*?)]\\n"]\)</script>`,                 // 不带div hidden的变体
+		`(\{\\"state\\":.*?)]\)"\\n`,                            // 引号位置变体
+		`(\{\\"common\\":.*?)]\)"\\n`,                           // 引号位置变体
+		`window\.RENDER_DATA\s*=\s*({.*?"roomStore".*?})`,       // RENDER_DATA模式作为备用
+		`"RENDER_DATA":\s*({.*?"roomStore".*?})`,                // JSON中的RENDER_DATA
 	}
-	match1 := reg1.FindStringSubmatch(body)
-	if len(match1) > 1 {
-		jsonStr = match1[1]
-	} else {
-		// 尝试第二个正则表达式
-		var reg2 *regexp.Regexp
-		reg2, err = regexp.Compile(`(\{\\"common\\":.*?)]\\n"]\)</script><div hidden`)
+
+	for i, pattern := range patterns {
+		var reg *regexp.Regexp
+		reg, err = regexp.Compile(pattern)
 		if err != nil {
+			continue
+		}
+		match := reg.FindStringSubmatch(body)
+		if len(match) > 1 {
+			jsonStr = match[1]
+			break
+		}
+		// 如果是最后一个模式仍然没有匹配，报错
+		if i == len(patterns)-1 {
+			err = fmt.Errorf(errorMessageForErrorf+". No match found for any regex patterns", stepNumberForLog)
 			return
 		}
-		match2 := reg2.FindStringSubmatch(body)
-		if len(match2) < 2 {
-			err = fmt.Errorf(errorMessageForErrorf+". No match found for regex patterns", stepNumberForLog)
-			return
-		}
-		jsonStr = match2[1]
 	}
 
 	// 清理JSON字符串
 	cleanedString := strings.ReplaceAll(jsonStr, "\\", "")
 	cleanedString = strings.ReplaceAll(cleanedString, "u0026", "&")
 
-	// 提取roomStore信息
-	roomStoreRegex := regexp.MustCompile(`"roomStore":(.*?),"linkmicStore"`)
-	roomStoreMatch := roomStoreRegex.FindStringSubmatch(cleanedString)
-	if len(roomStoreMatch) < 2 {
-		err = fmt.Errorf(errorMessageForErrorf+". Failed to extract roomStore", stepNumberForLog)
+	// 提取roomStore信息，使用多个模式尝试
+	var roomStore string
+	roomStorePatterns := []string{
+		`"roomStore":(.*?),"linkmicStore"`,    // 原始模式
+		`"roomStore":(.*?),"[a-zA-Z]*Store"`,  // 通用的Store模式
+		`"roomStore":(\{.*?\})(?:,"|$)`,       // JSON对象模式
+	}
+
+	for _, pattern := range roomStorePatterns {
+		roomStoreRegex := regexp.MustCompile(pattern)
+		roomStoreMatch := roomStoreRegex.FindStringSubmatch(cleanedString)
+		if len(roomStoreMatch) >= 2 {
+			roomStore = roomStoreMatch[1]
+			break
+		}
+	}
+
+	if roomStore == "" {
+		err = fmt.Errorf(errorMessageForErrorf+". Failed to extract roomStore with any pattern", stepNumberForLog)
 		return
 	}
 
-	roomStore := roomStoreMatch[1]
+	// 提取主播名称，增加多个匹配模式
+	var anchorName string
+	anchorNamePatterns := []string{
+		`"nickname":"(.*?)","avatar_thumb`,     // 原始模式
+		`"nickname":"(.*?)","`,                 // 更宽松的模式
+		`"nickname":\s*"([^"]*)"`,              // 带可能空格的模式
+	}
 
-	// 提取主播名称
-	anchorNameRegex := regexp.MustCompile(`"nickname":"(.*?)","avatar_thumb`)
-	anchorNameMatch := anchorNameRegex.FindStringSubmatch(roomStore)
-	if len(anchorNameMatch) < 2 {
-		err = fmt.Errorf(errorMessageForErrorf+". Failed to extract anchor name", stepNumberForLog)
+	for _, pattern := range anchorNamePatterns {
+		anchorNameRegex := regexp.MustCompile(pattern)
+		anchorNameMatch := anchorNameRegex.FindStringSubmatch(roomStore)
+		if len(anchorNameMatch) >= 2 {
+			anchorName = anchorNameMatch[1]
+			break
+		}
+	}
+
+	if anchorName == "" {
+		err = fmt.Errorf(errorMessageForErrorf+". Failed to extract anchor name with any pattern", stepNumberForLog)
 		return
 	}
-	anchorName := anchorNameMatch[1]
 
-	// 构建完整的roomStore JSON
-	roomStore = strings.Split(roomStore, `,"has_commerce_goods"`)[0] + "}}}"
+	// 构建完整的roomStore JSON，支持多种结构
+	completeRoomStore := roomStore
+	if strings.Contains(completeRoomStore, `,"has_commerce_goods"`) {
+		completeRoomStore = strings.Split(completeRoomStore, `,"has_commerce_goods"`)[0] + "}}}"
+	} else if !strings.HasSuffix(strings.TrimSpace(completeRoomStore), "}") {
+		// 如果JSON不完整，尝试修复
+		openBraces := strings.Count(completeRoomStore, "{")
+		closeBraces := strings.Count(completeRoomStore, "}")
+		for i := closeBraces; i < openBraces; i++ {
+			completeRoomStore += "}"
+		}
+	}
 
 	// 解析JSON数据
 	var roomData map[string]interface{}
-	if err = json.Unmarshal([]byte(roomStore), &roomData); err != nil {
+	if err = json.Unmarshal([]byte(completeRoomStore), &roomData); err != nil {
 		err = fmt.Errorf(errorMessageForErrorf+". Failed to parse roomStore JSON: %v", stepNumberForLog, err)
 		return
 	}

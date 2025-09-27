@@ -384,7 +384,8 @@ func (l *bgoLive) legacy_GetInfo(body string) (info *live.Info, err error) {
 	} else {
 		isLivingJson := data.Get("data.room_status")
 		if !isLivingJson.Exists() {
-			return nil, fmt.Errorf("failed to get room status")
+			// 提供更详细的错误信息，帮助调试
+			return nil, fmt.Errorf("failed to get room status - neither data.data.0.status nor data.room_status found in API response")
 		}
 		isLiving = isLivingJson.Int() == 0
 	}
