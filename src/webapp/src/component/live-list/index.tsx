@@ -2,6 +2,7 @@ import React from "react";
 import {Button, Divider, PageHeader, Table, Tag, Tabs, Row, Col, Tooltip} from 'antd';
 import PopDialog from '../pop-dialog/index';
 import AddRoomDialog from '../add-room-dialog/index';
+import StreamUrlsDialog from '../stream-urls-dialog/index';
 import API from '../../utils/api';
 import './live-list.css';
 import { RouteComponentProps } from "react-router-dom";
@@ -21,7 +22,11 @@ interface IState {
     list: ItemData[],
     cookieList: CookieItemData[],
     addRoomDialogVisible: boolean,
-    window: any
+    window: any,
+    streamUrlsDialogVisible: boolean,
+    selectedRoomId: string,
+    selectedRoomName: string,
+    selectedPlatform: string
 }
 
 interface ItemData {
@@ -131,6 +136,18 @@ class LiveList extends React.Component<Props, IState> {
                     <Button type="link" size="small">{listening ? "停止监控" : "开启监控"}</Button>
                 </PopDialog>
                 <Divider type="vertical" />
+                {(listening || data.tags.includes('录制中')) && (
+                    <>
+                        <Button 
+                            type="link" 
+                            size="small"
+                            onClick={() => this.showStreamUrlsDialog(data)}
+                        >
+                            复制直播源
+                        </Button>
+                        <Divider type="vertical" />
+                    </>
+                )}
                 <PopDialog title="确定删除当前直播间？"
                     onConfirm={(e) => {
                         api.deleteRoom(data.roomId)
@@ -231,7 +248,11 @@ class LiveList extends React.Component<Props, IState> {
             list: [],
             cookieList:[],
             addRoomDialogVisible: false,
-            window: window
+            window: window,
+            streamUrlsDialogVisible: false,
+            selectedRoomId: '',
+            selectedRoomName: '',
+            selectedPlatform: ''
         }
     }
 
@@ -265,6 +286,24 @@ class LiveList extends React.Component<Props, IState> {
 
     onEditCookitClick = (data:any)=>{
         this.cookieChild.showModal(data)
+    }
+
+    showStreamUrlsDialog = (data: ItemData) => {
+        this.setState({
+            streamUrlsDialogVisible: true,
+            selectedRoomId: data.roomId,
+            selectedRoomName: data.room.roomName,
+            selectedPlatform: data.address
+        });
+    }
+
+    hideStreamUrlsDialog = () => {
+        this.setState({
+            streamUrlsDialogVisible: false,
+            selectedRoomId: '',
+            selectedRoomName: '',
+            selectedPlatform: ''
+        });
     }
 
     /**
@@ -430,6 +469,13 @@ class LiveList extends React.Component<Props, IState> {
                         />
                     </TabPane>
                 </Tabs>
+                <StreamUrlsDialog
+                    visible={this.state.streamUrlsDialogVisible}
+                    onCancel={this.hideStreamUrlsDialog}
+                    roomId={this.state.selectedRoomId}
+                    roomName={this.state.selectedRoomName}
+                    platform={this.state.selectedPlatform}
+                />
             </div>
         );
     };

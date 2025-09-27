@@ -48,6 +48,14 @@ class API {
     }
 
     /**
+     * 获取直播间流媒体URL
+     * @param id 直播间id
+     */
+    getStreamUrls(id: string) {
+        return utils.requestGet(`${BASE_URL}/lives/${id}/stream-urls`);
+    }
+
+    /**
      * 开始监听直播间
      * @param id 直播间id
      */

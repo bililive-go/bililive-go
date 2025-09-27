@@ -49,6 +49,7 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/lives", addLives).Methods("POST")
 	apiRoute.HandleFunc("/lives/{id}", getLive).Methods("GET")
 	apiRoute.HandleFunc("/lives/{id}", removeLive).Methods("DELETE")
+	apiRoute.HandleFunc("/lives/{id}/stream-urls", getLiveStreamUrls).Methods("GET")
 	apiRoute.HandleFunc("/lives/{id}/{action}", parseLiveAction).Methods("GET")
 	apiRoute.HandleFunc("/file/{path:.*}", getFileInfo).Methods("GET")
 	apiRoute.HandleFunc("/cookies", getLiveHostCookie).Methods("GET")

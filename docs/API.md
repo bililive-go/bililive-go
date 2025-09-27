@@ -165,6 +165,51 @@
     }
     ```
         
+## `GET /api/lives/{id}/stream-urls` Get stream URLs for live room
+- Request:  
+    ```text
+    method: GET
+    path: http://127.0.0.1:8080/api/lives/212d9c98c7b376b730d4336bb49f6d3f/stream-urls
+    ```
+- Response (Success):
+    ```json
+    {
+        "stream_urls": [
+            {
+                "name": "高清",
+                "description": "FLV Stream - 高清",
+                "url": "http://example.com/stream1.flv",
+                "resolution": 720,
+                "vbitrate": 2500000
+            },
+            {
+                "name": "原画",
+                "description": "FLV Stream - 原画",
+                "url": "http://example.com/stream2.flv", 
+                "resolution": 1080,
+                "vbitrate": 6000000
+            }
+        ],
+        "platform": "哔哩哔哩"
+    }
+    ```
+- Response (Room not monitoring):
+    ```json
+    {
+        "err_no": 400,
+        "err_msg": "直播间未在监控中，无法获取直播源",
+        "data": null
+    }
+    ```
+- Response (Stream not available):
+    ```json
+    {
+        "err_no": 503,
+        "err_msg": "无法获取直播源URL，直播可能已结束或出现错误",
+        "data": null
+    }
+    ```
+
 ## `GET /api/config` Get config info
 - Request:  
     ```text

@@ -67,6 +67,90 @@ func getLive(writer http.ResponseWriter, r *http.Request) {
 	writeJSON(writer, parseInfo(r.Context(), live))
 }
 
+func getLiveStreamUrls(writer http.ResponseWriter, r *http.Request) {
+	inst := instance.GetInstance(r.Context())
+	vars := mux.Vars(r)
+	live, ok := inst.Lives[types.LiveID(vars["id"])]
+	if !ok {
+		writeJsonWithStatusCode(writer, http.StatusNotFound, commonResp{
+			ErrNo:  http.StatusNotFound,
+			ErrMsg: fmt.Sprintf("live id: %s can not find", vars["id"]),
+		})
+		return
+	}
+
+	// Check if the live room is currently being monitored
+	info := parseInfo(r.Context(), live)
+	if !info.Listening && !info.Recording {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "直播间未在监控中，无法获取直播源",
+		})
+		return
+	}
+
+	// Try to get stream info first (newer method)
+	if streamInfos, err := live.GetStreamInfos(); err == nil && len(streamInfos) > 0 {
+		type StreamUrlResponse struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			Url         string `json:"url"`
+			Resolution  int    `json:"resolution"`
+			Vbitrate    int    `json:"vbitrate"`
+		}
+		
+		response := make([]StreamUrlResponse, 0, len(streamInfos))
+		for _, info := range streamInfos {
+			response = append(response, StreamUrlResponse{
+				Name:        info.Name,
+				Description: info.Description,
+				Url:         info.Url.String(),
+				Resolution:  info.Resolution,
+				Vbitrate:    info.Vbitrate,
+			})
+		}
+		writeJSON(writer, map[string]interface{}{
+			"stream_urls": response,
+			"platform":    live.GetPlatformCNName(),
+		})
+		return
+	}
+
+	// Fallback to deprecated GetStreamUrls method
+	//nolint:staticcheck
+	if urls, err := live.GetStreamUrls(); err == nil && len(urls) > 0 {
+		type StreamUrlResponse struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			Url         string `json:"url"`
+			Resolution  int    `json:"resolution"`
+			Vbitrate    int    `json:"vbitrate"`
+		}
+		
+		response := make([]StreamUrlResponse, 0, len(urls))
+		for i, u := range urls {
+			response = append(response, StreamUrlResponse{
+				Name:        fmt.Sprintf("Stream %d", i+1),
+				Description: "直播源",
+				Url:         u.String(),
+				Resolution:  0,
+				Vbitrate:    0,
+			})
+		}
+		writeJSON(writer, map[string]interface{}{
+			"stream_urls": response,
+			"platform":    live.GetPlatformCNName(),
+		})
+		return
+	}
+
+	// If both methods fail
+	writeJsonWithStatusCode(writer, http.StatusServiceUnavailable, commonResp{
+		ErrNo:  http.StatusServiceUnavailable,
+		ErrMsg: "无法获取直播源URL，直播可能已结束或出现错误",
+	})
+}
+
 func parseLiveAction(writer http.ResponseWriter, r *http.Request) {
 	inst := instance.GetInstance(r.Context())
 	vars := mux.Vars(r)
