@@ -61,6 +61,28 @@ type Log struct {
 	SaveEveryLog bool   `yaml:"save_every_log"`
 }
 
+// 通知服务所需配置
+type Notify struct {
+	Telegram Telegram `yaml:"telegram"`
+	Email    Email    `yaml:"email"`
+}
+
+type Telegram struct {
+	Enable           bool   `yaml:"enable"`
+	WithNotification bool   `yaml:"withNotification"`
+	BotToken         string `yaml:"botToken"`
+	ChatID           string `yaml:"chatID"`
+}
+
+type Email struct {
+	Enable         bool   `yaml:"enable"`
+	SMTPHost       string `yaml:"smtpHost"`
+	SMTPPort       int    `yaml:"smtpPort"`
+	SenderEmail    string `yaml:"senderEmail"`
+	SenderPassword string `yaml:"senderPassword"`
+	RecipientEmail string `yaml:"recipientEmail"`
+}
+
 // Config content all config info.
 type Config struct {
 	File                 string               `yaml:"-"`
@@ -77,6 +99,8 @@ type Config struct {
 	Cookies              map[string]string    `yaml:"cookies"`
 	OnRecordFinished     OnRecordFinished     `yaml:"on_record_finished"`
 	TimeoutInUs          int                  `yaml:"timeout_in_us"`
+	// 通知服务配置
+	Notify Notify `yaml:"notify"`
 
 	liveRoomIndexCache map[string]int
 }
@@ -158,6 +182,22 @@ var defaultConfig = Config{
 		DeleteFlvAfterConvert: false,
 	},
 	TimeoutInUs: 60000000,
+	Notify: Notify{
+		Telegram: Telegram{
+			Enable:           false,
+			WithNotification: true,
+			BotToken:         "",
+			ChatID:           "",
+		},
+		Email: Email{
+			Enable:         false,
+			SMTPHost:       "smtp.qq.com",
+			SMTPPort:       465,
+			SenderEmail:    "",
+			SenderPassword: "",
+			RecipientEmail: "",
+		},
+	},
 }
 
 func NewConfig() *Config {
