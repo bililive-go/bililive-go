@@ -37,6 +37,12 @@ cookies: {}
 on_record_finished:
   convert_to_mp4: false
   delete_flv_after_convert: false
+  # Generate NFO metadata file for media servers like Emby/Jellyfin
+  generate_nfo: false
+  # Generate poster image from video frame
+  generate_poster: false  
+  # Time offset for poster generation (e.g., "00:00:30" for 30 seconds)
+  poster_time: "00:00:30"
 #  当 custom_commandline 的值 不为空时，convert_to_mp4 的值会被无视，
 #  而是在录制结束后直接执行 custom_commandline 中的命令。
 #  在 custom_commandline 执行结束后，程序还会继续查看 delete_flv_after_convert 的值，

@@ -169,3 +169,5 @@ node_modules
 .vscode
 
 !src/cmd/build/
+demo.sh
+demo_simple.go

@@ -25,6 +25,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/interfaces"
 	"github.com/bililive-go/bililive-go/src/live"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
+	"github.com/bililive-go/bililive-go/src/pkg/media"
 	"github.com/bililive-go/bililive-go/src/pkg/parser"
 	"github.com/bililive-go/bililive-go/src/pkg/parser/ffmpeg"
 	"github.com/bililive-go/bililive-go/src/pkg/parser/native/flv"
@@ -239,6 +240,26 @@ func (r *recorder) tryRecord(ctx context.Context) {
 			r.getLogger().Debugln(err)
 		} else if r.config.OnRecordFinished.DeleteFlvAfterConvert {
 			os.Remove(fileName)
+		}
+	}
+
+	// Generate NFO and poster files if enabled
+	finalFileName := fileName
+	if r.config.OnRecordFinished.ConvertToMp4 && !strings.HasSuffix(strings.ToLower(fileName), ".mp4") {
+		finalFileName = fileName[0:strings.LastIndex(fileName, ".")] + ".mp4"
+	}
+
+	// Generate NFO file
+	if r.config.OnRecordFinished.GenerateNFO {
+		if err := media.GenerateNFO(finalFileName, info, r.getLogger()); err != nil {
+			r.getLogger().WithError(err).Error("failed to generate NFO file")
+		}
+	}
+
+	// Generate poster image
+	if r.config.OnRecordFinished.GeneratePoster {
+		if err := media.GeneratePoster(finalFileName, ffmpegPath, r.config.OnRecordFinished.PosterTime, r.getLogger()); err != nil {
+			r.getLogger().WithError(err).Error("failed to generate poster image")
 		}
 	}
 }

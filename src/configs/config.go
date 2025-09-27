@@ -53,6 +53,9 @@ type OnRecordFinished struct {
 	ConvertToMp4          bool   `yaml:"convert_to_mp4"`
 	DeleteFlvAfterConvert bool   `yaml:"delete_flv_after_convert"`
 	CustomCommandline     string `yaml:"custom_commandline"`
+	GenerateNFO           bool   `yaml:"generate_nfo"`
+	GeneratePoster        bool   `yaml:"generate_poster"`
+	PosterTime            string `yaml:"poster_time"` // Time offset for poster generation, e.g., "00:00:30"
 }
 
 type Log struct {
@@ -156,6 +159,9 @@ var defaultConfig = Config{
 	OnRecordFinished: OnRecordFinished{
 		ConvertToMp4:          false,
 		DeleteFlvAfterConvert: false,
+		GenerateNFO:           false,
+		GeneratePoster:        false,
+		PosterTime:            "00:00:30",
 	},
 	TimeoutInUs: 60000000,
 }
