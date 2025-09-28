@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"time"
 
+	"github.com/bililive-go/bililive-go/src/pkg/ratelimit"
 	"github.com/bililive-go/bililive-go/src/types"
 	"gopkg.in/yaml.v2"
 )
@@ -83,6 +85,26 @@ type Email struct {
 	RecipientEmail string `yaml:"recipientEmail"`
 }
 
+// OverridableConfig 包含可以在不同层级被覆盖的设置
+type OverridableConfig struct {
+	Interval             *int                  `yaml:"interval,omitempty"`               // 检测间隔(秒)
+	OutPutPath           *string               `yaml:"out_put_path,omitempty"`           // 输出路径
+	FfmpegPath           *string               `yaml:"ffmpeg_path,omitempty"`            // FFmpeg可执行文件路径
+	Log                  *Log                  `yaml:"log,omitempty"`                    // 日志配置
+	Feature              *Feature              `yaml:"feature,omitempty"`                // 功能特性配置
+	OutputTmpl           *string               `yaml:"out_put_tmpl,omitempty"`           // 输出文件名模板
+	VideoSplitStrategies *VideoSplitStrategies `yaml:"video_split_strategies,omitempty"` // 视频分割策略
+	OnRecordFinished     *OnRecordFinished     `yaml:"on_record_finished,omitempty"`     // 录制完成后的动作
+	TimeoutInUs          *int                  `yaml:"timeout_in_us,omitempty"`          // 超时设置(微秒)
+}
+
+// PlatformConfig 包含平台特定的设置
+type PlatformConfig struct {
+	OverridableConfig    `yaml:",inline"`
+	Name                 string `yaml:"name"`                              // 平台中文名称
+	MinAccessIntervalSec int    `yaml:"min_access_interval_sec,omitempty"` // 平台访问最小间隔(秒)，用于防风控
+}
+
 // Config content all config info.
 type Config struct {
 	File                 string               `yaml:"-"`
@@ -102,6 +124,9 @@ type Config struct {
 	// 通知服务配置
 	Notify Notify `yaml:"notify"`
 
+	// 新的层级配置字段
+	PlatformConfigs map[string]PlatformConfig `yaml:"platform_configs,omitempty"` // 平台特定配置
+
 	liveRoomIndexCache map[string]int
 }
 
@@ -109,6 +134,8 @@ var config *Config
 
 func SetCurrentConfig(cfg *Config) {
 	config = cfg
+	// 配置更新时同步平台访问频率限制器
+	cfg.syncPlatformRateLimits()
 }
 
 func GetCurrentConfig() *Config {
@@ -122,6 +149,9 @@ type LiveRoom struct {
 	Quality     int          `yaml:"quality,omitempty"`
 	AudioOnly   bool         `yaml:"audio_only,omitempty"`
 	NickName    string       `yaml:"nick_name,omitempty"`
+
+	// 房间级可覆盖配置
+	OverridableConfig `yaml:",inline"` // 房间级配置覆盖
 }
 
 type liveRoomAlias LiveRoom
@@ -198,11 +228,13 @@ var defaultConfig = Config{
 			RecipientEmail: "",
 		},
 	},
+	PlatformConfigs: map[string]PlatformConfig{},
 }
 
 func NewConfig() *Config {
 	config := defaultConfig
 	config.liveRoomIndexCache = map[string]int{}
+	config.PlatformConfigs = map[string]PlatformConfig{}
 	return &config
 }
 
@@ -226,6 +258,12 @@ func (c *Config) Verify() error {
 	if !c.RPC.Enable && len(c.LiveRooms) == 0 {
 		return fmt.Errorf("the RPC is not enabled, and no live room is set. the program has nothing to do using this setting")
 	}
+
+	// 验证平台配置
+	if err := c.ValidatePlatformConfigs(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -273,7 +311,15 @@ func NewConfigWithBytes(b []byte) (*Config, error) {
 	if err := yaml.Unmarshal(b, &config); err != nil {
 		return nil, err
 	}
+
+	// 确保映射在向后兼容时被初始化
+	if config.PlatformConfigs == nil {
+		config.PlatformConfigs = map[string]PlatformConfig{}
+	}
+
 	config.RefreshLiveRoomIndexCache()
+	// 在配置加载时同步平台访问频率限制器
+	config.syncPlatformRateLimits()
 	return &config, nil
 }
 
@@ -306,4 +352,180 @@ func (c Config) GetFilePath() (string, error) {
 		return "", errors.New("config path not set")
 	}
 	return c.File, nil
+}
+
+// ResolveConfigForRoom 为指定房间解析最终的配置值
+// 通过合并 全局 -> 平台 -> 房间 级别的配置
+func (c *Config) ResolveConfigForRoom(room *LiveRoom, platformName string) ResolvedConfig {
+	resolved := ResolvedConfig{
+		Interval:             c.Interval,
+		OutPutPath:           c.OutPutPath,
+		FfmpegPath:           c.FfmpegPath,
+		Log:                  c.Log,
+		Feature:              c.Feature,
+		OutputTmpl:           c.OutputTmpl,
+		VideoSplitStrategies: c.VideoSplitStrategies,
+		OnRecordFinished:     c.OnRecordFinished,
+		TimeoutInUs:          c.TimeoutInUs,
+	}
+
+	// 应用平台级覆盖
+	if platformConfig, exists := c.PlatformConfigs[platformName]; exists {
+		resolved.applyOverrides(&platformConfig.OverridableConfig)
+	}
+
+	// 应用房间级覆盖
+	resolved.applyOverrides(&room.OverridableConfig)
+
+	return resolved
+}
+
+// GetPlatformMinAccessInterval 返回指定平台的最小访问间隔
+func (c *Config) GetPlatformMinAccessInterval(platformName string) int {
+	if platformConfig, exists := c.PlatformConfigs[platformName]; exists {
+		return platformConfig.MinAccessIntervalSec
+	}
+	return 0 // 未指定时无限制
+}
+
+// syncPlatformRateLimits 同步平台访问频率限制到全局限制器
+func (c *Config) syncPlatformRateLimits() {
+	rateLimiter := ratelimit.GetGlobalRateLimiter()
+	
+	// 清除已有限制
+	currentLimits := rateLimiter.GetAllPlatformLimits()
+	
+	// 设置新的平台限制
+	for platformKey, platformConfig := range c.PlatformConfigs {
+		if platformConfig.MinAccessIntervalSec > 0 {
+			rateLimiter.SetPlatformLimit(platformKey, platformConfig.MinAccessIntervalSec)
+		}
+		// 从当前限制列表中移除此平台（标记为已处理）
+		delete(currentLimits, platformKey)
+	}
+	
+	// 清除配置中不再存在的平台限制
+	for platformKey := range currentLimits {
+		rateLimiter.RemovePlatformLimit(platformKey)
+	}
+}
+
+// ResolvedConfig 包含房间的最终解析配置值
+type ResolvedConfig struct {
+	Interval             int
+	OutPutPath           string
+	FfmpegPath           string
+	Log                  Log
+	Feature              Feature
+	OutputTmpl           string
+	VideoSplitStrategies VideoSplitStrategies
+	OnRecordFinished     OnRecordFinished
+	TimeoutInUs          int
+}
+
+// applyOverrides 将可覆盖配置中的非空值应用到解析配置中
+func (r *ResolvedConfig) applyOverrides(override *OverridableConfig) {
+	if override.Interval != nil {
+		r.Interval = *override.Interval
+	}
+	if override.OutPutPath != nil {
+		r.OutPutPath = *override.OutPutPath
+	}
+	if override.FfmpegPath != nil {
+		r.FfmpegPath = *override.FfmpegPath
+	}
+	if override.Log != nil {
+		r.Log = *override.Log
+	}
+	if override.Feature != nil {
+		r.Feature = *override.Feature
+	}
+	if override.OutputTmpl != nil {
+		r.OutputTmpl = *override.OutputTmpl
+	}
+	if override.VideoSplitStrategies != nil {
+		r.VideoSplitStrategies = *override.VideoSplitStrategies
+	}
+	if override.OnRecordFinished != nil {
+		r.OnRecordFinished = *override.OnRecordFinished
+	}
+	if override.TimeoutInUs != nil {
+		r.TimeoutInUs = *override.TimeoutInUs
+	}
+}
+
+// GetPlatformKeyFromUrl 从URL中提取平台键，用于配置查找
+func GetPlatformKeyFromUrl(urlStr string) string {
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return ""
+	}
+
+	// 将域名映射到一致的平台键
+	domainToPlatformMap := map[string]string{
+		"live.bilibili.com":   "bilibili",
+		"live.douyin.com":     "douyin",
+		"v.douyin.com":        "douyin",
+		"www.douyu.com":       "douyu",
+		"www.huya.com":        "huya",
+		"live.kuaishou.com":   "kuaishou",
+		"www.yy.com":          "yy",
+		"live.acfun.cn":       "acfun",
+		"www.lang.live":       "lang",
+		"fm.missevan.com":     "missevan",
+		"www.openrec.tv":      "openrec",
+		"weibo.com":           "weibolive",
+		"live.weibo.com":      "weibolive",
+		"www.xiaohongshu.com": "xiaohongshu",
+		"xhslink.com":         "xiaohongshu",
+		"www.yizhibo.com":     "yizhibo",
+		"www.hongdoufm.com":   "hongdoufm",
+		"live.kilakila.cn":    "hongdoufm",
+		"www.zhanqi.tv":       "zhanqi",
+		"cc.163.com":          "cc",
+		"www.twitch.tv":       "twitch",
+		"egame.qq.com":        "qq",
+		"www.huajiao.com":     "huajiao",
+	}
+
+	if platform, exists := domainToPlatformMap[u.Host]; exists {
+		return platform
+	}
+
+	// 备用方案：使用主机名
+	return u.Host
+}
+
+// GetEffectiveConfigForRoom 返回房间的有效配置
+func (c *Config) GetEffectiveConfigForRoom(roomUrl string) ResolvedConfig {
+	platformKey := GetPlatformKeyFromUrl(roomUrl)
+	room, err := c.GetLiveRoomByUrl(roomUrl)
+	if err != nil {
+		// 如果未找到房间，创建最小房间用于解析
+		room = &LiveRoom{Url: roomUrl}
+	}
+	return c.ResolveConfigForRoom(room, platformKey)
+}
+
+// ValidatePlatformConfigs 验证平台配置的一致性
+func (c *Config) ValidatePlatformConfigs() error {
+	for platformKey, platformConfig := range c.PlatformConfigs {
+		// 验证间隔值
+		if platformConfig.Interval != nil && *platformConfig.Interval <= 0 {
+			return fmt.Errorf("平台 '%s': 检测间隔必须大于 0", platformKey)
+		}
+
+		// 验证最小访问间隔
+		if platformConfig.MinAccessIntervalSec < 0 {
+			return fmt.Errorf("平台 '%s': 最小访问间隔不能为负数", platformKey)
+		}
+
+		// 验证路径（如果指定）
+		if platformConfig.OutPutPath != nil {
+			if _, err := os.Stat(*platformConfig.OutPutPath); os.IsNotExist(err) {
+				return fmt.Errorf("平台 '%s': 输出路径 '%s' 不存在", platformKey, *platformConfig.OutPutPath)
+			}
+		}
+	}
+	return nil
 }

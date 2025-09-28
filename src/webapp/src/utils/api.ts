@@ -121,8 +121,25 @@ class API {
      * 保存Cookie
      * @param json {"Host":"","Cookie":""}
      */
-    saveCookie(json:any){
-        return utils.requestPut(`${BASE_URL}/cookies`,json);
+    saveCookie(json: any) {
+        return utils.requestPut(`${BASE_URL}/cookies`, json);
+    }
+
+    /**
+     * 获取直播间详细信息和有效配置
+     * @param id 直播间id
+     */
+    getLiveDetail(id: string) {
+        return utils.requestGet(`${BASE_URL}/lives/${id}`);
+    }
+
+    /**
+     * 获取直播间最近日志
+     * @param id 直播间id
+     * @param lines 日志行数，默认100行
+     */
+    getLiveLogs(id: string, lines: number = 100) {
+        return utils.requestGet(`${BASE_URL}/lives/${id}/logs?lines=${lines}`);
     }
 }
 

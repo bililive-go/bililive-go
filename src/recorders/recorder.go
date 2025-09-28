@@ -89,9 +89,27 @@ type recorder struct {
 
 func NewRecorder(ctx context.Context, live live.Live) (Recorder, error) {
 	inst := instance.GetInstance(ctx)
+	
+	// 获取解析后的配置
+	var resolvedConfig configs.ResolvedConfig
+	room, err := inst.Config.GetLiveRoomByUrl(live.GetRawUrl())
+	if err == nil {
+		platformKey := configs.GetPlatformKeyFromUrl(live.GetRawUrl())
+		resolvedConfig = inst.Config.ResolveConfigForRoom(room, platformKey)
+	} else {
+		// 回退到全局配置
+		resolvedConfig = configs.ResolvedConfig{
+			Interval:     inst.Config.Interval,
+			OutPutPath:   inst.Config.OutPutPath,
+			FfmpegPath:   inst.Config.FfmpegPath,
+			TimeoutInUs:  inst.Config.TimeoutInUs,
+			Feature:      inst.Config.Feature,
+		}
+	}
+	
 	return &recorder{
 		Live:       live,
-		OutPutPath: instance.GetInstance(ctx).Config.OutPutPath,
+		OutPutPath: resolvedConfig.OutPutPath, // 使用解析后的输出路径
 		config:     inst.Config,
 		cache:      inst.Cache,
 		startTime:  time.Now(),
@@ -171,7 +189,7 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	r.getLogger().Println(r.parser.ParseLiveStream(ctx, streamInfo, r.Live, fileName))
 	r.getLogger().Debugln("End ParseLiveStream(" + url.String() + ", " + fileName + ")")
 	removeEmptyFile(fileName)
-	ffmpegPath, err := utils.GetFFmpegPath(ctx)
+	ffmpegPath, err := utils.GetFFmpegPathForLive(ctx, r.Live)
 	if err != nil {
 		r.getLogger().WithError(err).Error("failed to find ffmpeg")
 		return

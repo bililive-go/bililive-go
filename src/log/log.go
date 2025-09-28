@@ -12,6 +12,7 @@ import (
 
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/interfaces"
+	"github.com/bililive-go/bililive-go/src/pkg/logstore"
 )
 
 func New(ctx context.Context) *interfaces.Logger {
@@ -54,7 +55,15 @@ func New(ctx context.Context) *interfaces.Logger {
 		TimestampFormat: "2006-01-02 15:04:05",
 	})
 
-	// logrus.AddHook(make(logrus.LevelHooks)) // 添加自定义 hook
+	// 初始化LogStore，默认保存100行日志
+	maxLogLines := 100
+	// TODO: 可以从配置中读取最大日志行数
+	inst.LogStore = logstore.New(maxLogLines)
+
+	// 添加直播间日志钩子
+	liveLogHook := NewLiveLogHook(inst.LogStore)
+	logrus.AddHook(liveLogHook)
+
 	inst.Logger = &interfaces.Logger{Logger: logrus.StandardLogger()}
 	logrus.SetLevel(logLevel)
 

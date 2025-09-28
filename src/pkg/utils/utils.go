@@ -14,6 +14,7 @@ import (
 	"runtime/debug"
 	"strings"
 
+	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/live"
 	"github.com/sirupsen/logrus"
@@ -37,6 +38,39 @@ func GetFFmpegPath(ctx context.Context) (string, error) {
 	path, err := exec.LookPath("ffmpeg")
 	if errors.Is(err, exec.ErrDot) {
 		// put ffmpeg.exe and binary like bililive-windows-amd64.exe to the same folder is allowed
+		path, err = exec.LookPath("./ffmpeg")
+	}
+	return path, err
+}
+
+// GetFFmpegPathForLive 获取特定直播间的FFmpeg路径（使用解析后的配置）
+func GetFFmpegPathForLive(ctx context.Context, liveInstance live.Live) (string, error) {
+	inst := instance.GetInstance(ctx)
+	
+	// 获取解析后的配置
+	room, err := inst.Config.GetLiveRoomByUrl(liveInstance.GetRawUrl())
+	var ffmpegPath string
+	if err == nil {
+		platformKey := configs.GetPlatformKeyFromUrl(liveInstance.GetRawUrl())
+		resolvedConfig := inst.Config.ResolveConfigForRoom(room, platformKey)
+		ffmpegPath = resolvedConfig.FfmpegPath
+	} else {
+		// 回退到全局配置
+		ffmpegPath = inst.Config.FfmpegPath
+	}
+	
+	if ffmpegPath != "" {
+		_, err := os.Stat(ffmpegPath)
+		if err == nil {
+			return ffmpegPath, nil
+		} else {
+			return "", err
+		}
+	}
+	
+	// 如果没有配置FFmpeg路径，尝试从环境变量查找
+	path, err := exec.LookPath("ffmpeg")
+	if errors.Is(err, exec.ErrDot) {
 		path, err = exec.LookPath("./ffmpeg")
 	}
 	return path, err

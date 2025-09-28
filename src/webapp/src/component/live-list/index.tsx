@@ -1,5 +1,5 @@
 import React from "react";
-import {Button, Divider, PageHeader, Table, Tag, Tabs, Row, Col, Tooltip} from 'antd';
+import { Button, Divider, PageHeader, Table, Tag, Tabs, Row, Col, Tooltip, Card, Badge, message, List, Typography } from 'antd';
 import PopDialog from '../pop-dialog/index';
 import AddRoomDialog from '../add-room-dialog/index';
 import API from '../../utils/api';
@@ -10,6 +10,7 @@ import EditCookieDialog from "../edit-cookie/index";
 
 const api = new API();
 const { TabPane } = Tabs;
+const { Text } = Typography;
 
 const REFRESH_TIME = 3 * 60 * 1000;
 
@@ -21,7 +22,10 @@ interface IState {
     list: ItemData[],
     cookieList: CookieItemData[],
     addRoomDialogVisible: boolean,
-    window: any
+    window: any,
+    expandedRowKeys: string[],  // 展开的行
+    expandedDetails: { [key: string]: any }, // 直播间详细信息缓存
+    expandedLogs: { [key: string]: string[] }, // 直播间日志缓存
 }
 
 interface ItemData {
@@ -34,9 +38,9 @@ interface ItemData {
     roomId: string
 }
 interface CookieItemData {
-    Platform_cn_name:string,
-    Host:string,
-    Cookie:string
+    Platform_cn_name: string,
+    Host: string,
+    Cookie: string
 }
 
 interface Room {
@@ -148,6 +152,10 @@ class LiveList extends React.Component<Props, IState> {
                 <Button type="link" size="small" onClick={(e) => {
                     this.props.history.push(`/fileList/${data.address}/${data.name}`);
                 }}>文件</Button>
+                <Divider type="vertical" />
+                <Button type="link" size="small" onClick={(e) => {
+                    this.toggleExpandRow(data.roomId);
+                }}>详情</Button>
             </span>
         ),
     };
@@ -189,18 +197,18 @@ class LiveList extends React.Component<Props, IState> {
         this.runStatus,
         this.runAction
     ];
-    cookieColumns=[
+    cookieColumns = [
         {
-            title:'直播平台',
-            dataIndex:'livename',
-            key:'livename',
-            render:(name: String, data: CookieItemData) => data.Platform_cn_name+'('+data.Host+')'
-        },{
+            title: '直播平台',
+            dataIndex: 'livename',
+            key: 'livename',
+            render: (name: String, data: CookieItemData) => data.Platform_cn_name + '(' + data.Host + ')'
+        }, {
             title: 'Cookie',
             dataIndex: 'Cookie',
             key: 'Cookie',
-            ellipsis:true,
-            render:(name: String, data: CookieItemData) => {
+            ellipsis: true,
+            render: (name: String, data: CookieItemData) => {
                 // return <div>
                 //     <label className="cookieString">{data.Cookie}</label>
                 //     <Button type="primary" shape="circle" icon="edit" onClick={()=>{
@@ -215,9 +223,9 @@ class LiveList extends React.Component<Props, IState> {
                     </Col>
                     <Col className="gutter-row" span={4}>
                         <div className="gutter-box">
-                            <Button type="primary" shape="circle" icon="edit" onClick={()=>{
+                            <Button type="primary" shape="circle" icon="edit" onClick={() => {
                                 this.onEditCookitClick(data)
-                            }}/>
+                            }} />
                         </div>
                     </Col>
                 </Row>
@@ -229,9 +237,12 @@ class LiveList extends React.Component<Props, IState> {
         super(props);
         this.state = {
             list: [],
-            cookieList:[],
+            cookieList: [],
             addRoomDialogVisible: false,
-            window: window
+            window: window,
+            expandedRowKeys: [],
+            expandedDetails: {},
+            expandedLogs: {},
         }
     }
 
@@ -263,7 +274,7 @@ class LiveList extends React.Component<Props, IState> {
         this.child.showModal()
     }
 
-    onEditCookitClick = (data:any)=>{
+    onEditCookitClick = (data: any) => {
         this.cookieChild.showModal(data)
     }
 
@@ -344,19 +355,19 @@ class LiveList extends React.Component<Props, IState> {
             });
     }
 
-    requestCookieData(){
+    requestCookieData() {
         api.getCookieList()
-            .then(function (rsp:any){
+            .then(function (rsp: any) {
                 return rsp
             }).then((data: CookieItemData[]) => {
-            this.setState({
-                cookieList: data
-            });
-        })
+                this.setState({
+                    cookieList: data
+                });
+            })
     }
 
-    requestData= (targetKey:string) => {
-        switch (targetKey){
+    requestData = (targetKey: string) => {
+        switch (targetKey) {
             case "livelist":
                 this.requestListData()
                 break
@@ -366,8 +377,137 @@ class LiveList extends React.Component<Props, IState> {
         }
     }
 
-    test(){
-        console.log()
+    toggleExpandRow = (roomId: string) => {
+        const { expandedRowKeys } = this.state;
+        const isExpanded = expandedRowKeys.includes(roomId);
+
+        if (isExpanded) {
+            // 收起
+            this.setState({
+                expandedRowKeys: expandedRowKeys.filter(key => key !== roomId)
+            });
+        } else {
+            // 展开 - 获取详细信息和日志
+            this.setState({
+                expandedRowKeys: [...expandedRowKeys, roomId]
+            });
+            this.loadRoomDetail(roomId);
+            this.loadRoomLogs(roomId);
+        }
+    }
+
+    loadRoomDetail = (roomId: string) => {
+        api.getLiveDetail(roomId)
+            .then((detail: any) => {
+                this.setState({
+                    expandedDetails: {
+                        ...this.state.expandedDetails,
+                        [roomId]: detail
+                    }
+                });
+            })
+            .catch(err => {
+                message.error(`获取直播间详情失败: ${err}`);
+            });
+    }
+
+    loadRoomLogs = (roomId: string) => {
+        api.getLiveLogs(roomId, 100)
+            .then((logs: any) => {
+                this.setState({
+                    expandedLogs: {
+                        ...this.state.expandedLogs,
+                        [roomId]: logs.lines || []
+                    }
+                });
+            })
+            .catch(err => {
+                message.warning(`获取直播间日志失败: ${err}`);
+            });
+    }
+
+    renderExpandedRow = (record: ItemData): JSX.Element => {
+        const { expandedDetails, expandedLogs } = this.state;
+        const detail = expandedDetails[record.roomId];
+        const logs = expandedLogs[record.roomId] || [];
+
+        return (
+            <div style={{ padding: '16px', backgroundColor: '#fafafa' }}>
+                <Row gutter={16}>
+                    <Col span={12}>
+                        <Card title="配置信息" size="small" style={{ height: '300px', overflow: 'auto' }}>
+                            {detail ? (
+                                <div>
+                                    <div style={{ marginBottom: 8 }}>
+                                        <Text strong>有效检测间隔: </Text>
+                                        <Badge
+                                            count={`${detail.effectiveInterval || '30'}秒`}
+                                            style={{ backgroundColor: '#52c41a' }}
+                                        />
+                                        <Text type="secondary" style={{ marginLeft: 8 }}>
+                                            {this.getConfigSource(detail, 'interval')}
+                                        </Text>
+                                    </div>
+                                    <div style={{ marginBottom: 8 }}>
+                                        <Text strong>输出路径: </Text>
+                                        <Text code>{detail.effectiveOutPath || './'}</Text>
+                                        <Text type="secondary" style={{ marginLeft: 8 }}>
+                                            {this.getConfigSource(detail, 'out_put_path')}
+                                        </Text>
+                                    </div>
+                                    <div style={{ marginBottom: 8 }}>
+                                        <Text strong>录制质量: </Text>
+                                        <Text>{detail.quality === 0 ? 'HEVC原画PRO' : 'FLV原画'}</Text>
+                                    </div>
+                                    <div style={{ marginBottom: 8 }}>
+                                        <Text strong>平台访问限制: </Text>
+                                        <Text>{detail.platformRateLimit ? `${detail.platformRateLimit}秒` : '无限制'}</Text>
+                                    </div>
+                                    <div style={{ marginBottom: 8 }}>
+                                        <Text strong>开播时间: </Text>
+                                        <Text>{detail.liveStartTime || '未知'}</Text>
+                                    </div>
+                                    <div style={{ marginBottom: 8 }}>
+                                        <Text strong>上次录制: </Text>
+                                        <Text>{detail.lastRecordTime || '无'}</Text>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div>加载详细信息中...</div>
+                            )}
+                        </Card>
+                    </Col>
+                    <Col span={12}>
+                        <Card title="最近日志" size="small" style={{ height: '300px' }}>
+                            <List
+                                size="small"
+                                dataSource={logs.slice(-10)} // 显示最新10条
+                                style={{ height: '240px', overflow: 'auto' }}
+                                renderItem={(item: string) => (
+                                    <List.Item style={{ padding: '4px 0' }}>
+                                        <Text code style={{ fontSize: '12px', wordBreak: 'break-all' }}>
+                                            {item}
+                                        </Text>
+                                    </List.Item>
+                                )}
+                                locale={{ emptyText: logs.length === 0 ? '暂无日志' : '日志加载中...' }}
+                            />
+                        </Card>
+                    </Col>
+                </Row>
+            </div>
+        );
+    }
+
+    getConfigSource = (detail: any, configKey: string): string => {
+        if (!detail.configSources) return '';
+        const source = detail.configSources[configKey];
+        switch (source) {
+            case 'room': return '(房间级设置)';
+            case 'platform': return '(平台级设置)';
+            case 'global': return '(全局设置)';
+            default: return '(默认值)';
+        }
     }
 
     render() {
@@ -408,6 +548,9 @@ class LiveList extends React.Component<Props, IState> {
                             dataSource={this.state.list}
                             size={(this.state.window.screen.width > 768) ? "default" : "middle"}
                             pagination={false}
+                            expandedRowKeys={this.state.expandedRowKeys}
+                            expandedRowRender={this.renderExpandedRow}
+                            rowKey={record => record.roomId}
                         />
                     </TabPane>
                     <TabPane tab="Cookie管理" key="cookielist">
@@ -416,9 +559,9 @@ class LiveList extends React.Component<Props, IState> {
                                 ghost={false}
                                 title="Cookie管理"
                                 subTitle="Cookie List"
-                            extra={[
-                                <EditCookieDialog key="1" ref={this.onCookieRef} refresh={this.refreshCookie}/>
-                            ]}>
+                                extra={[
+                                    <EditCookieDialog key="1" ref={this.onCookieRef} refresh={this.refreshCookie} />
+                                ]}>
                             </PageHeader>
                         </div>
                         <Table

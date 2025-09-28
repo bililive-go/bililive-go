@@ -158,8 +158,25 @@ func (l *listener) refresh() {
 }
 
 func (l *listener) run() {
+	// 获取房间配置信息以使用解析后的配置
+	room, err := l.config.GetLiveRoomByUrl(l.Live.GetRawUrl())
+	var resolvedConfig configs.ResolvedConfig
+	if err == nil {
+		platformKey := configs.GetPlatformKeyFromUrl(l.Live.GetRawUrl())
+		resolvedConfig = l.config.ResolveConfigForRoom(room, platformKey)
+	} else {
+		// 如果找不到房间配置，使用全局配置作为回退
+		resolvedConfig = configs.ResolvedConfig{
+			Interval:     l.config.Interval,
+			OutPutPath:   l.config.OutPutPath,
+			FfmpegPath:   l.config.FfmpegPath,
+			TimeoutInUs:  l.config.TimeoutInUs,
+			Feature:      l.config.Feature,
+		}
+	}
+	
 	ticker := jitterbug.New(
-		time.Duration(l.config.Interval)*time.Second,
+		time.Duration(resolvedConfig.Interval)*time.Second,
 		jitterbug.Norm{
 			Stdev: time.Second * 3,
 		},
