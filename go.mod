@@ -1,10 +1,8 @@
 module github.com/bililive-go/bililive-go
 
-go 1.23.0
+go 1.24.0
 
-// 暂时注释掉，不然本地运行 `golangci-lint-v2.exe run --path-mode=abs --build-tags=dev` 会报错：
-// The command is terminated due to an error: can't load config: the Go language version (go1.23) used to build golangci-lint is lower than the targeted Go version (1.24.4)
-// toolchain go1.24.4
+toolchain go1.24.7
 
 require (
 	github.com/Masterminds/sprig v2.22.0+incompatible
@@ -12,6 +10,7 @@ require (
 	github.com/bluele/gcache v0.0.0-20190518031135-bc40bd653833
 	github.com/gorilla/mux v1.7.4
 	github.com/hr3lxphr6j/requests v0.0.1
+	github.com/kira1928/remotetools v0.2.1
 	github.com/lthibault/jitterbug v2.0.0+incompatible
 	github.com/prometheus/client_golang v1.11.0
 	github.com/robertkrimen/otto v0.0.0-20191219234010-c382bd3c16ff
@@ -24,6 +23,8 @@ require (
 	gopkg.in/yaml.v2 v2.3.0
 )
 
+require github.com/blang/semver/v4 v4.0.0 // indirect
+
 require (
 	github.com/Masterminds/goutils v1.1.0 // indirect
 	github.com/Masterminds/semver v1.5.0 // indirect
@@ -34,7 +35,7 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/golang/protobuf v1.4.3 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
-	github.com/google/uuid v1.1.2 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/huandu/xstrings v1.3.2 // indirect
 	github.com/imdario/mergo v0.3.11 // indirect
 	github.com/konsorten/go-windows-terminal-sequences v1.0.3 // indirect
@@ -47,6 +48,7 @@ require (
 	github.com/prometheus/procfs v0.6.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.0 // indirect
+	github.com/ulikunitz/xz v0.5.15 // indirect
 	golang.org/x/crypto v0.39.0 // indirect
 	golang.org/x/sys v0.33.0 // indirect
 	google.golang.org/protobuf v1.26.0-rc.1 // indirect

@@ -35,6 +35,7 @@ class RootLayout extends React.Component {
                                     <Menu.Item key="2"><Link to="/liveInfo">系统状态</Link></Menu.Item>
                                     <Menu.Item key="3"><Link to="/configInfo">设置</Link></Menu.Item>
                                     <Menu.Item key="4"><Link to="/fileList">文件</Link></Menu.Item>
+                                    <Menu.Item key="5"><a href="/tools/">工具</a></Menu.Item>
                                 </SubMenu>
                             </Menu>
                         </Sider>

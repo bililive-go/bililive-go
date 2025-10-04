@@ -53,6 +53,9 @@ func New(ctx context.Context) *interfaces.Logger {
 		FullTimestamp:   true,
 		TimestampFormat: "2006-01-02 15:04:05",
 	})
+	if config.Debug {
+		logrus.SetReportCaller(true)
+	}
 
 	// logrus.AddHook(make(logrus.LevelHooks)) // 添加自定义 hook
 	inst.Logger = &interfaces.Logger{Logger: logrus.StandardLogger()}

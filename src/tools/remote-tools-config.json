@@ -1,0 +1,84 @@
+{
+  "bililive-recorder": {
+    "v2.17.3": {
+      "downloadUrl": "https://github.com/BililiveRecorder/BililiveRecorder/releases/download/v2.17.3/BililiveRecorder-CLI-any.zip",
+      "pathToEntry": "BililiveRecorder.Cli.dll",
+      "printInfoCmd": [
+        ""
+      ]
+    }
+  },
+  "ffmpeg": {
+    "n8.0-gpl": {
+      "downloadUrl": {
+        "linux": {
+          "amd64": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2025-10-03-13-23/ffmpeg-n8.0-16-gd8605a6b55-linux64-gpl-8.0.tar.xz",
+          "arm64": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2025-10-03-13-23/ffmpeg-n8.0-16-gd8605a6b55-linuxarm64-gpl-8.0.tar.xz"
+        },
+        "windows": {
+          "amd64": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2025-10-03-13-23/ffmpeg-n8.0-16-gd8605a6b55-win64-gpl-8.0.zip",
+          "arm64": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2025-10-03-13-23/ffmpeg-n8.0-16-gd8605a6b55-winarm64-gpl-8.0.zip"
+        }
+      },
+      "pathToEntry": {
+        "linux": "bin/ffmpeg",
+        "windows": "bin/ffmpeg.exe"
+      },
+      "printInfoCmd": [
+        "-version"
+      ]
+    }
+  },
+  "dotnet": {
+    "8.0.5": {
+      "downloadUrl": {
+        "darwin": {
+          "amd64": "https://download.visualstudio.microsoft.com/download/pr/0dabe69f-fa99-4b53-96d1-9f9791bb0b6b/f72acbfd3b0e60528d9494b43bcf21ca/dotnet-runtime-8.0.5-osx-x64.tar.gz",
+          "arm64": "https://download.visualstudio.microsoft.com/download/pr/fac90ccb-5864-4d4a-a116-67387aaee61e/df82eea80efffad3c9ec8b0522847e68/dotnet-runtime-8.0.5-osx-arm64.tar.gz"
+        },
+        "linux": {
+          "amd64": "https://download.visualstudio.microsoft.com/download/pr/baeb5da3-4b77-465b-8816-b29f0bc3e1a9/b04b17a2aae79e5f5635a3ceffbd4645/dotnet-runtime-8.0.5-linux-x64.tar.gz",
+          "arm": "https://download.visualstudio.microsoft.com/download/pr/b52720a7-9dc4-4b9c-97fa-d1caebdaf946/443750ad6f47c855a395abbd36bb3b3a/dotnet-runtime-8.0.5-linux-arm.tar.gz",
+          "arm64": "https://download.visualstudio.microsoft.com/download/pr/00ca4d7a-e529-4384-8ad4-acb8237d540f/a7df4c26e3c0e1dcf8e17d2abb79aad5/dotnet-runtime-8.0.5-linux-arm64.tar.gz"
+        },
+        "windows": {
+          "386": "https://download.visualstudio.microsoft.com/download/pr/2f8a6349-c15b-47d6-a45a-7b59e21edc39/78c224dcc55cc2684f30ccda1f029ee1/dotnet-runtime-8.0.5-win-x86.zip",
+          "amd64": "https://download.visualstudio.microsoft.com/download/pr/77650902-a341-4f4c-934f-db7056cbfa78/176d961f8bbc798596f8d498ede4cc73/dotnet-runtime-8.0.5-win-x64.zip"
+        }
+      },
+      "pathToEntry": {
+        "darwin": "dotnet",
+        "linux": "dotnet",
+        "windows": "dotnet.exe"
+      },
+      "printInfoCmd": [
+        "--info"
+      ]
+    },
+    "8.0.4": {
+      "downloadUrl": {
+        "darwin": {
+          "amd64": "https://download.visualstudio.microsoft.com/download/pr/c999e42b-38c9-4d9a-9816-9a0ebece8afe/8e4471db5aa0756d812af23817b14259/dotnet-runtime-8.0.4-osx-x64.tar.gz",
+          "arm64": "https://download.visualstudio.microsoft.com/download/pr/d2cd56cc-5a78-460d-a45d-3893b020949d/8cf9653a23c91ac2b10c70f58edae60e/dotnet-runtime-8.0.4-osx-arm64.tar.gz"
+        },
+        "linux": {
+          "amd64": "https://download.visualstudio.microsoft.com/download/pr/a3ca3d31-f45b-4e53-ab4d-0f2f221cbc5b/47382078b4b72a66387d0fd6ed9ff963/dotnet-runtime-8.0.4-linux-x64.tar.gz",
+          "arm": "https://download.visualstudio.microsoft.com/download/pr/a299eeb3-a9c8-42d4-a0ff-61713365c715/0f4d4139df6c700efd4c0d172c2c28eb/dotnet-runtime-8.0.4-linux-arm.tar.gz",
+          "arm64": "https://download.visualstudio.microsoft.com/download/pr/761b252b-a0d9-41cd-b1ec-2dc33159c11c/b8285cf82db4ef340a191bfba9a9a73e/dotnet-runtime-8.0.4-linux-arm64.tar.gz"
+        },
+        "windows": {
+          "386": "https://download.visualstudio.microsoft.com/download/pr/2f00ad36-c625-4e11-b6e1-d91eef43488e/b6ec44780ed852fa498d4c4b7a43cf73/dotnet-runtime-8.0.4-win-x86.zip",
+          "amd64": "https://download.visualstudio.microsoft.com/download/pr/1ed8f8a2-7bb8-41cd-b256-63e0e7102742/d0c4851d34ddd0abf041188553a3acae/dotnet-runtime-8.0.4-win-x64.zip"
+        }
+      },
+      "pathToEntry": {
+        "darwin": "dotnet",
+        "linux": "dotnet",
+        "windows": "dotnet.exe"
+      },
+      "printInfoCmd": [
+        "--info"
+      ]
+    }
+  }
+}

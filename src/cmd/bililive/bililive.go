@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/bluele/gcache"
+	kiratools "github.com/kira1928/remotetools/pkg/tools"
 
 	_ "github.com/bililive-go/bililive-go/src/cmd/bililive/internal"
 	"github.com/bililive-go/bililive-go/src/cmd/bililive/internal/flag"
@@ -24,6 +25,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
 	"github.com/bililive-go/bililive-go/src/recorders"
 	"github.com/bililive-go/bililive-go/src/servers"
+	"github.com/bililive-go/bililive-go/src/tools"
 	"github.com/bililive-go/bililive-go/src/types"
 )
 
@@ -90,8 +92,29 @@ func main() {
 	logger.Debugf("%+v", inst.Config)
 
 	if !utils.IsFFmpegExist(ctx) {
-		logger.Fatalln("FFmpeg binary not found, Please Check.")
+		hasFoundFfmpeg := false
+		// try to get from remotetools
+		if err = tools.Init(); err == nil {
+			var toolFfmpeg kiratools.Tool
+			if toolFfmpeg, err = tools.Get().GetTool("ffmpeg"); err == nil {
+				if toolFfmpeg.DoesToolExist() {
+					logger.Infof("FFmpeg found from remotetools: %s", toolFfmpeg.GetToolPath())
+					hasFoundFfmpeg = true
+				} else {
+					if err = toolFfmpeg.Install(); err != nil {
+						logger.Fatalln(err.Error() + "\nFFmpeg binary not found and install failed from " + toolFfmpeg.GetInstallSource() + ", Please Check.")
+					} else {
+						logger.Infof("FFmpeg found from remotetools: %s", toolFfmpeg.GetToolPath())
+						hasFoundFfmpeg = true
+					}
+				}
+			}
+		}
+		if !hasFoundFfmpeg {
+			logger.Fatalln("FFmpeg binary not found, Please Check.")
+		}
 	}
+	tools.AsyncInit()
 
 	events.NewDispatcher(ctx)
 
@@ -99,9 +122,9 @@ func main() {
 	for index := range inst.Config.LiveRooms {
 		room := &inst.Config.LiveRooms[index]
 
-		l, err := live.New(ctx, room, inst.Cache)
-		if err != nil {
-			logger.WithField("url", room).Error(err.Error())
+		l, liveErr := live.New(ctx, room, inst.Cache)
+		if liveErr != nil {
+			logger.WithField("url", room).Error(liveErr.Error())
 			continue
 		}
 		if _, ok := inst.Lives[l.GetLiveId()]; ok {
@@ -114,10 +137,10 @@ func main() {
 
 	lm := listeners.NewManager(ctx)
 	rm := recorders.NewManager(ctx)
-	if err := lm.Start(ctx); err != nil {
+	if err = lm.Start(ctx); err != nil {
 		logger.Fatalf("failed to init listener manager, error: %s", err)
 	}
-	if err := rm.Start(ctx); err != nil {
+	if err = rm.Start(ctx); err != nil {
 		logger.Fatalf("failed to init recorder manager, error: %s", err)
 	}
 
@@ -127,7 +150,7 @@ func main() {
 
 	// 启动 server 要在上面的 manager 初始化之后，否则可能会出现空指针异常
 	if inst.Config.RPC.Enable {
-		if err := servers.NewServer(ctx).Start(ctx); err != nil {
+		if err = servers.NewServer(ctx).Start(ctx); err != nil {
 			logger.WithError(err).Fatalf("failed to init server")
 		}
 	}
@@ -143,7 +166,7 @@ func main() {
 				logger.WithFields(map[string]any{"url": _live.GetRawUrl()}).Error(err)
 			}
 		}
-		time.Sleep(time.Second * 5)
+		time.Sleep(time.Second * 1)
 	}
 
 	c := make(chan os.Signal, 1)
@@ -160,7 +183,7 @@ func main() {
 	if inst.Config.Debug {
 		go func() {
 			for {
-				time.Sleep(time.Second * 5)
+				time.Sleep(time.Second * 30)
 				utils.ConnCounterManager.PrintMap()
 			}
 		}()
