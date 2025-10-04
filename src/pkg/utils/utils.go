@@ -128,7 +128,7 @@ func GenUrlInfos(urls []*url.URL, headersForDownloader map[string]string) []*liv
 }
 
 func PrintStack() {
-	logrus.Debugf(string(debug.Stack()))
+	logrus.Debugf("%s", string(debug.Stack()))
 }
 
 func ExecCommands(commands [][]string) error {

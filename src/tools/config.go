@@ -2,6 +2,10 @@
 
 package tools
 
+import (
+	_ "embed"
+)
+
 //go:embed remote-tools-config.json
 var configData []byte
 
