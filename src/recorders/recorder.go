@@ -224,7 +224,7 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		}
 		r.getLogger().Debugf("end executing custom_commandline: %s", args[1])
 	} else {
-		var outputFiles []string = []string{fileName}
+		outputFiles := []string{fileName}
 		if r.config.OnRecordFinished.FixFlvAtFirst {
 			outputFiles, err = tools.FixFlvByBililiveRecorder(ctx, fileName)
 			if err != nil {
