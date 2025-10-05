@@ -170,5 +170,5 @@ node_modules
 
 !src/cmd/build/
 build-custom-docker.sh
-external_tools/
+.appdata/
 coverage.txt

@@ -143,7 +143,15 @@ func (p *Parser) ParseLiveStream(ctx context.Context, streamUrlInfo *live.Stream
 	args := []string{
 		"-nostats",
 		"-progress", "-",
-		"-y", "-re",
+		"-y",
+	}
+
+	// 为了测试方便，本地地址不需要限速
+	if url.Hostname() != "localhost" {
+		args = append(args, "-re")
+	}
+
+	args = append(args,
 		"-user_agent", ffUserAgent,
 		"-referer", referer,
 		"-rw_timeout", p.timeoutInUs,
@@ -154,7 +162,7 @@ func (p *Parser) ParseLiveStream(ctx context.Context, streamUrlInfo *live.Stream
 		// 	-	view log via `-v verbose`
 		// 	-	Automatically inserted bitstream filter 'aac_adtstoasc'; args=''
 		// "-bsf:a", "aac_adtstoasc",
-	}
+	)
 	for k, v := range headers {
 		if k == "User-Agent" || k == "Referer" {
 			continue
