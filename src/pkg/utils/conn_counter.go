@@ -4,7 +4,6 @@ import (
 	"net"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -64,8 +63,11 @@ func (m *ConnCounterManagerType) PrintMap() {
 }
 
 func CreateConnCounterClient() (*http.Client, error) {
+	// Use the reliable dialer to fix DNS resolution issues
+	reliableDialer := CreateReliableDialer()
+	
 	dialer := func(network, addr string) (net.Conn, error) {
-		conn, err := net.DialTimeout(network, addr, 10*time.Second)
+		conn, err := reliableDialer.Dial(network, addr)
 		if err != nil {
 			return nil, err
 		}

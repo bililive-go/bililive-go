@@ -31,12 +31,18 @@ func genLiveIdByString(value string) types.LiveID {
 }
 
 func NewBaseLive(url *url.URL) BaseLive {
-	requestSession := requests.DefaultSession
 	config := configs.GetCurrentConfig()
+	var requestSession *requests.Session
+	
 	if config != nil && config.Debug {
 		client, _ := utils.CreateConnCounterClient()
 		requestSession = requests.NewSession(client)
+	} else {
+		// Use reliable HTTP client for better DNS resolution
+		client := utils.CreateReliableHTTPClient()
+		requestSession = requests.NewSession(client)
 	}
+	
 	return BaseLive{
 		Url:            url,
 		LiveId:         genLiveId(url),
