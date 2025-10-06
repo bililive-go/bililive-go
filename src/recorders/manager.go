@@ -108,6 +108,9 @@ func (m *manager) AddRecorder(ctx context.Context, live live.Live) error {
 	m.savers[live.GetLiveId()] = recorder
 
 	if maxDur := m.cfg.VideoSplitStrategies.MaxDuration; maxDur != 0 {
+		if m.cfg.Debug {
+			instance.GetInstance(ctx).Logger.Debugf("Starting cronRestart goroutine for maxDuration split: duration=%v, liveId=%s", maxDur, live.GetLiveId())
+		}
 		go m.cronRestart(ctx, live)
 	}
 	return recorder.Start(ctx)
@@ -118,13 +121,26 @@ func (m *manager) cronRestart(ctx context.Context, live live.Live) {
 	if err != nil {
 		return
 	}
-	if time.Since(recorder.StartTime()) < m.cfg.VideoSplitStrategies.MaxDuration {
+	elapsed := time.Since(recorder.StartTime())
+	maxDuration := m.cfg.VideoSplitStrategies.MaxDuration
+	
+	if m.cfg.Debug {
+		instance.GetInstance(ctx).Logger.Debugf("cronRestart check: elapsed=%v, maxDuration=%v, liveId=%s", elapsed, maxDuration, live.GetLiveId())
+	}
+	
+	if elapsed < maxDuration {
 		time.AfterFunc(time.Minute/4, func() {
 			m.cronRestart(ctx, live)
 		})
 		return
 	}
+	
+	if m.cfg.Debug {
+		instance.GetInstance(ctx).Logger.Debugf("Restarting recorder due to max duration reached: elapsed=%v >= maxDuration=%v, liveId=%s", elapsed, maxDuration, live.GetLiveId())
+	}
+	
 	if err := m.RestartRecorder(ctx, live); err != nil {
+		instance.GetInstance(ctx).Logger.Errorf("failed to restart recorder for maxDuration split, err: %v", err)
 		return
 	}
 }

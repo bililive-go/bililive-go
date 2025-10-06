@@ -167,7 +167,6 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		return
 	}
 	r.setAndCloseParser(p)
-	r.startTime = time.Now()
 	r.getLogger().Debugln("Start ParseLiveStream(" + url.String() + ", " + fileName + ")")
 	r.getLogger().Println(r.parser.ParseLiveStream(ctx, streamInfo, r.Live, fileName))
 	r.getLogger().Debugln("End ParseLiveStream(" + url.String() + ", " + fileName + ")")
