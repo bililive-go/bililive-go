@@ -17,6 +17,11 @@ type Parser interface {
 	Stop() error
 }
 
+type FileSwitchableParser interface {
+	Parser
+	SwitchOutputFile(file string) error
+}
+
 type StatusParser interface {
 	Parser
 	Status() (map[string]string, error)

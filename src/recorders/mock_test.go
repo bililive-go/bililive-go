@@ -98,6 +98,20 @@ func (mr *MockRecorderMockRecorder) StartTime() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartTime", reflect.TypeOf((*MockRecorder)(nil).StartTime))
 }
 
+// SwitchFile mocks base method.
+func (m *MockRecorder) SwitchFile(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SwitchFile", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SwitchFile indicates an expected call of SwitchFile.
+func (mr *MockRecorderMockRecorder) SwitchFile(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SwitchFile", reflect.TypeOf((*MockRecorder)(nil).SwitchFile), ctx)
+}
+
 // MockManager is a mock of Manager interface.
 type MockManager struct {
 	ctrl     *gomock.Controller

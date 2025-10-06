@@ -124,8 +124,16 @@ func (m *manager) cronRestart(ctx context.Context, live live.Live) {
 		})
 		return
 	}
-	if err := m.RestartRecorder(ctx, live); err != nil {
-		return
+	
+	// Try seamless file switching first
+	if err := recorder.SwitchFile(ctx); err != nil {
+		// If seamless switching fails, fall back to restart
+		if err := m.RestartRecorder(ctx, live); err != nil {
+			return
+		}
+	} else {
+		// Successfully switched files, continue monitoring
+		go m.cronRestart(ctx, live)
 	}
 }
 
