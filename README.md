@@ -227,6 +227,9 @@ NAS 用户使用系统自带 GUI 创建 docker compose 的情况请参考群晖�
       GOOS=windows GOARCH=amd64 CGO_ENABLED=0 UPX_ENABLE=0 TAGS=release ./src/hack/build.sh bililive
 ```
 
+## Windows构建
+请参考[Windows构建指南](docs/Windows_Build_Guide.md)
+
 ## Wiki
 [Wiki](https://github.com/bililive-go/bililive-go/wiki)
 
