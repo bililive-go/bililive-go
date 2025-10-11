@@ -188,7 +188,23 @@ func (l *Live) parseRoomInfo(body string) (info *live.Info,
 	anchorName := anchorNameMatch[1]
 
 	// 构建完整的roomStore JSON
-	roomStore = strings.Split(roomStore, `,"has_commerce_goods"`)[0] + "}}}"
+	if strings.Contains(roomStore, `has_commerce_goods`) {
+		roomStore = strings.Split(roomStore, `,"has_commerce_goods"`)[0] + "}}}"
+	} else {
+		// 解析JSON数据
+		var roomData map[string]interface{}
+		if err = json.Unmarshal([]byte(roomStore), &roomData); err != nil {
+			err = fmt.Errorf(errorMessageForErrorf+". Failed to parse roomStore JSON: %v", stepNumberForLog, err)
+			return
+		}
+		info = &live.Info{
+			Live:     l,
+			HostName: anchorName,
+			RoomName: "无法获取直播间名称，可能久未开播",
+			Status:   false,
+		}
+		return
+	}
 
 	// 解析JSON数据
 	var roomData map[string]interface{}
