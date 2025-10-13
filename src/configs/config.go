@@ -54,6 +54,7 @@ type OnRecordFinished struct {
 	ConvertToMp4          bool   `yaml:"convert_to_mp4"`
 	DeleteFlvAfterConvert bool   `yaml:"delete_flv_after_convert"`
 	CustomCommandline     string `yaml:"custom_commandline"`
+	FixFlvAtFirst         bool   `yaml:"fix_flv_at_first"`
 }
 
 type Log struct {
@@ -120,8 +121,8 @@ type Config struct {
 	Cookies              map[string]string    `yaml:"cookies"`
 	OnRecordFinished     OnRecordFinished     `yaml:"on_record_finished"`
 	TimeoutInUs          int                  `yaml:"timeout_in_us"`
-	// 通知服务配置
-	Notify Notify `yaml:"notify"`
+	Notify               Notify               `yaml:"notify"` // 通知服务配置
+	AppDataPath          string               `yaml:"app_data_path"`
 
 	// 新的层级配置字段
 	PlatformConfigs map[string]PlatformConfig `yaml:"platform_configs,omitempty"` // 平台特定配置
@@ -207,6 +208,7 @@ var defaultConfig = Config{
 	OnRecordFinished: OnRecordFinished{
 		ConvertToMp4:          false,
 		DeleteFlvAfterConvert: false,
+		FixFlvAtFirst:         true,
 	},
 	TimeoutInUs: 60000000,
 	Notify: Notify{
@@ -226,6 +228,7 @@ var defaultConfig = Config{
 		},
 	},
 	PlatformConfigs: map[string]PlatformConfig{},
+	AppDataPath:     "./.appdata/",
 }
 
 func NewConfig() *Config {

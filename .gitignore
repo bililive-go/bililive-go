@@ -169,6 +169,5 @@ node_modules
 .vscode
 
 !src/cmd/build/
-
-# Build artifacts
+.appdata/
 coverage.txt

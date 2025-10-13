@@ -16,6 +16,7 @@ import (
 
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/live"
+	"github.com/kira1928/remotetools"
 	"github.com/sirupsen/logrus"
 )
 
@@ -34,6 +35,14 @@ func GetFFmpegPath(ctx context.Context) (string, error) {
 			return "", err
 		}
 	}
+
+	// try to get from remotetools
+	if toolFfmpeg, err := remotetools.Get().GetTool("ffmpeg"); err == nil {
+		if toolFfmpeg.DoesToolExist() {
+			return toolFfmpeg.GetToolPath(), nil
+		}
+	}
+
 	path, err := exec.LookPath("ffmpeg")
 	if errors.Is(err, exec.ErrDot) {
 		// put ffmpeg.exe and binary like bililive-windows-amd64.exe to the same folder is allowed
@@ -119,7 +128,7 @@ func GenUrlInfos(urls []*url.URL, headersForDownloader map[string]string) []*liv
 }
 
 func PrintStack() {
-	logrus.Debugf(string(debug.Stack()))
+	logrus.Debugf("%s", string(debug.Stack()))
 }
 
 func ExecCommands(commands [][]string) error {
