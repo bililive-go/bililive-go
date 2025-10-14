@@ -70,7 +70,10 @@ func (l *Live) getDouYinStreamData(url string) (info *live.Info,
 		}
 	}()
 
-	localHeaders := headers
+	localHeaders := make(map[string]interface{})
+	for k, v := range headers {
+		localHeaders[k] = v
+	}
 	// 检查是否有自定义cookie
 	var finalCookie string
 	if l.Options.Cookies != nil {
