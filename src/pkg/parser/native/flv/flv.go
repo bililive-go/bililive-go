@@ -51,6 +51,7 @@ func (b *builder) Build(cfg map[string]string) (parser.Parser, error) {
 		Metadata:  Metadata{},
 		hc:        &http.Client{},
 		stopCh:    make(chan struct{}),
+		switchCh:  make(chan string),
 		closeOnce: new(sync.Once),
 	}, nil
 }
@@ -64,11 +65,14 @@ type Parser struct {
 
 	i              *reader.BufferedReader
 	o              io.Writer
+	oFile          *os.File // Keep reference to current output file for switching
+	oLock          sync.Mutex // Lock for output file switching
 	avcHeaderCount uint8
 	tagCount       uint32
 
 	hc        *http.Client
 	stopCh    chan struct{}
+	switchCh  chan string // Channel for file switch requests
 	closeOnce *sync.Once
 }
 
@@ -97,7 +101,10 @@ func (p *Parser) ParseLiveStream(ctx context.Context, streamUrlInfo *live.Stream
 	if err != nil {
 		return err
 	}
+	p.oLock.Lock()
 	p.o = f
+	p.oFile = f
+	p.oLock.Unlock()
 	defer f.Close()
 
 	// start parse
@@ -108,6 +115,59 @@ func (p *Parser) Stop() error {
 	p.closeOnce.Do(func() {
 		close(p.stopCh)
 	})
+	return nil
+}
+
+// SwitchOutputFile implements FileSwitchableParser interface for seamless file switching
+func (p *Parser) SwitchOutputFile(file string) error {
+	select {
+	case p.switchCh <- file:
+		return nil
+	case <-p.stopCh:
+		return errors.New("parser stopped")
+	}
+}
+
+// doSwitchFile performs the actual file switching with FLV header
+func (p *Parser) doSwitchFile(newFile string) error {
+	p.oLock.Lock()
+	defer p.oLock.Unlock()
+	
+	// Close current file
+	if p.oFile != nil {
+		if err := p.oFile.Close(); err != nil {
+			return err
+		}
+	}
+	
+	// Open new file
+	f, err := os.OpenFile(newFile, os.O_RDWR|os.O_CREATE, 0666)
+	if err != nil {
+		return err
+	}
+	
+	// Write FLV header to new file
+	flvHeader := []byte{0x46, 0x4c, 0x56, 0x01} // FLV version 01
+	flag := uint8(0)
+	if p.Metadata.HasVideo {
+		flag |= 1 << 2
+	}
+	if p.Metadata.HasAudio {
+		flag |= 1
+	}
+	flvHeader = append(flvHeader, flag)
+	flvHeader = append(flvHeader, 0, 0, 0, 9) // offset = 9
+	flvHeader = append(flvHeader, 0, 0, 0, 0) // previous tag size = 0
+	
+	if _, err := f.Write(flvHeader); err != nil {
+		f.Close()
+		return err
+	}
+	
+	// Update output references
+	p.o = f
+	p.oFile = f
+	
 	return nil
 }
 
@@ -140,6 +200,11 @@ func (p *Parser) doParse(ctx context.Context) error {
 		select {
 		case <-p.stopCh:
 			return nil
+		case newFile := <-p.switchCh:
+			// Handle seamless file switching
+			if err := p.doSwitchFile(newFile); err != nil {
+				return err
+			}
 		default:
 			if err := p.parseTag(ctx); err != nil {
 				return err
@@ -149,6 +214,9 @@ func (p *Parser) doParse(ctx context.Context) error {
 }
 
 func (p *Parser) doCopy(ctx context.Context, n uint32) error {
+	p.oLock.Lock()
+	defer p.oLock.Unlock()
+	
 	if writtenCount, err := io.CopyN(p.o, p.i, int64(n)); err != nil || writtenCount != int64(writtenCount) {
 		utils.PrintStack()
 		if err == nil {
@@ -163,6 +231,10 @@ func (p *Parser) doWrite(ctx context.Context, b []byte) error {
 	inst := instance.GetInstance(ctx)
 	logger := inst.Logger
 	leftInputSize := len(b)
+	
+	p.oLock.Lock()
+	defer p.oLock.Unlock()
+	
 	for retryLeft := ioRetryCount; retryLeft > 0 && leftInputSize > 0; retryLeft-- {
 		writtenCount, err := p.o.Write(b[len(b)-leftInputSize:])
 		leftInputSize -= writtenCount

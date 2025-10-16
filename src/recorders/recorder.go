@@ -70,6 +70,7 @@ type Recorder interface {
 	StartTime() time.Time
 	GetStatus() (map[string]string, error)
 	Close()
+	SwitchFile(ctx context.Context) error
 }
 
 type recorder struct {
@@ -310,6 +311,62 @@ func (r *recorder) Close() {
 	}
 	r.getLogger().Info("Record End")
 	r.ed.DispatchEvent(events.NewEvent(RecorderStop, r.Live))
+}
+
+func (r *recorder) SwitchFile(ctx context.Context) error {
+	if atomic.LoadUint32(&r.state) != running {
+		return fmt.Errorf("recorder not running")
+	}
+	
+	parser := r.getParser()
+	if parser == nil {
+		return fmt.Errorf("no active parser")
+	}
+	
+	// Check if parser supports file switching
+	switchableParser, ok := parser.(interface {
+		SwitchOutputFile(file string) error
+	})
+	if !ok {
+		return fmt.Errorf("parser does not support file switching")
+	}
+	
+	// Generate new file name using the same logic as tryRecord
+	obj, _ := r.cache.Get(r.Live)
+	info := obj.(*live.Info)
+	
+	tmpl := getDefaultFileNameTmpl(r.config)
+	if r.config.OutputTmpl != "" {
+		_tmpl, err := template.New("user_filename").Funcs(utils.GetFuncMap(r.config)).Parse(r.config.OutputTmpl)
+		if err == nil {
+			tmpl = _tmpl
+		}
+	}
+	
+	buf := new(bytes.Buffer)
+	if err := tmpl.Execute(buf, info); err != nil {
+		return fmt.Errorf("failed to render filename: %v", err)
+	}
+	
+	fileName := filepath.Join(r.OutPutPath, buf.String())
+	outputPath, _ := filepath.Split(fileName)
+	
+	// Handle different file extensions
+	if info.AudioOnly {
+		fileName = fileName[:strings.LastIndex(fileName, ".")] + ".aac"
+	}
+	
+	if err := mkdir(outputPath); err != nil {
+		return fmt.Errorf("failed to create output path[%s]: %v", outputPath, err)
+	}
+	
+	// Perform seamless file switch
+	if err := switchableParser.SwitchOutputFile(fileName); err != nil {
+		return fmt.Errorf("failed to switch file: %v", err)
+	}
+	
+	r.getLogger().WithField("file", fileName).Info("Successfully switched to new file")
+	return nil
 }
 
 func (r *recorder) getLogger() *logrus.Entry {
