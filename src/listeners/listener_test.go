@@ -36,28 +36,37 @@ func TestRefresh(t *testing.T) {
 
 	// false -> false
 	live.EXPECT().GetInfo().Return(&livepkg.Info{Status: false}, nil)
+	live.EXPECT().GetRawUrl().Return("").AnyTimes()                 // 添加对GetRawUrl方法的期望调用
+	live.EXPECT().GetPlatformCNName().Return("platform").AnyTimes() // 添加对GetPlatformCNName方法的期望调用
 	l.refresh()
 	assert.False(t, l.status.roomStatus)
 
 	// false -> true
 	live.EXPECT().GetInfo().Return(&livepkg.Info{Status: true}, nil)
 	live.EXPECT().SetLastStartTime(gomock.Any())
+	live.EXPECT().GetPlatformCNName().Return("platform").AnyTimes()
 	ed.EXPECT().DispatchEvent(events.NewEvent(LiveStart, live))
 	l.refresh()
 	assert.True(t, l.status.roomStatus)
 
 	// true -> true, roomName change
 	live.EXPECT().GetInfo().Return(&livepkg.Info{Status: true, RoomName: "a"}, nil)
+	live.EXPECT().GetRawUrl().Return("").AnyTimes()                 // 添加对GetRawUrl方法的期望调用
+	live.EXPECT().GetPlatformCNName().Return("platform").AnyTimes() // 添加对GetPlatformCNName方法的期望调用
 	l.refresh()
 
 	// true -> true, roomName change
 	cfg.VideoSplitStrategies.OnRoomNameChanged = true
 	live.EXPECT().GetInfo().Return(&livepkg.Info{Status: true, RoomName: "b"}, nil)
+	live.EXPECT().GetRawUrl().Return("").AnyTimes()                 // 添加对GetRawUrl方法的期望调用
+	live.EXPECT().GetPlatformCNName().Return("platform").AnyTimes() // 添加对GetPlatformCNName方法的期望调用
 	ed.EXPECT().DispatchEvent(events.NewEvent(RoomNameChanged, live))
 	l.refresh()
 
 	// true -> false
 	live.EXPECT().GetInfo().Return(&livepkg.Info{Status: false}, nil)
+	live.EXPECT().GetRawUrl().Return("").AnyTimes() // 添加对GetRawUrl方法的期望调用
+	live.EXPECT().GetPlatformCNName().Return("platform").AnyTimes()
 	ed.EXPECT().DispatchEvent(events.NewEvent(LiveEnd, live))
 	l.refresh()
 	assert.False(t, l.status.roomStatus)
@@ -79,6 +88,7 @@ func TestRefreshWithError(t *testing.T) {
 
 	live.EXPECT().GetInfo().Return(nil, errors.New("this is error"))
 	live.EXPECT().GetRawUrl().Return("")
+	live.EXPECT().GetPlatformCNName().Return("platform").AnyTimes() // 添加对GetPlatformCNName方法的期望调用
 	l.refresh()
 	assert.False(t, l.status.roomStatus)
 }
@@ -97,7 +107,9 @@ func TestListenerStartAndClose(t *testing.T) {
 	})
 	log.New(ctx)
 	live := livemock.NewMockLive(ctrl)
-	live.EXPECT().GetInfo().Return(&livepkg.Info{Status: false}, nil)
+	live.EXPECT().GetInfo().Return(&livepkg.Info{Status: false}, nil).AnyTimes()
+	live.EXPECT().GetPlatformCNName().Return("platform").AnyTimes()
+	live.EXPECT().GetRawUrl().Return("").AnyTimes() // 添加对GetRawUrl方法的期望调用
 	ed.EXPECT().DispatchEvent(gomock.Any()).Times(2)
 	l := NewListener(ctx, live)
 	assert.NoError(t, l.Start())

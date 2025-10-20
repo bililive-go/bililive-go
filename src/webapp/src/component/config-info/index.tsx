@@ -1,6 +1,7 @@
 import React from "react";
 import Editor from 'react-simple-code-editor';
 import { highlight, languages } from 'prismjs';
+import 'prismjs/components/prism-yaml';
 import 'prismjs/components/prism-clike';
 import 'prismjs/components/prism-javascript';
 import 'prismjs/themes/prism.css'; //Example style, you can use another
@@ -64,8 +65,7 @@ class ConfigInfo extends React.Component<Props, IState> {
         value={this.state.config}
         onValueChange={code => this.setState({ config: code })}
         highlight={code => {
-          const ret = highlight(code, languages.js, "js");
-          return ret;
+          return highlight(code, languages.yaml, 'yaml');
         }}
         padding={10}
         style={{

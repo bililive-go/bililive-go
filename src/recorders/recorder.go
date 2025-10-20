@@ -29,6 +29,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/pkg/parser/ffmpeg"
 	"github.com/bililive-go/bililive-go/src/pkg/parser/native/flv"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
+	"github.com/bililive-go/bililive-go/src/tools"
 )
 
 const (
@@ -127,8 +128,8 @@ func (r *recorder) tryRecord(ctx context.Context) {
 
 	tmpl := getDefaultFileNameTmpl(r.config)
 	if r.config.OutputTmpl != "" {
-		_tmpl, err := template.New("user_filename").Funcs(utils.GetFuncMap(r.config)).Parse(r.config.OutputTmpl)
-		if err == nil {
+		_tmpl, errTmpl := template.New("user_filename").Funcs(utils.GetFuncMap(r.config)).Parse(r.config.OutputTmpl)
+		if errTmpl == nil {
 			tmpl = _tmpl
 		}
 	}
@@ -178,14 +179,14 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	}
 	cmdStr := strings.Trim(r.config.OnRecordFinished.CustomCommandline, "")
 	if len(cmdStr) > 0 {
-		tmpl, err := template.New("custom_commandline").Funcs(utils.GetFuncMap(r.config)).Parse(cmdStr)
-		if err != nil {
-			r.getLogger().WithError(err).Error("custom commandline parse failure")
+		customTmpl, errCmdTmpl := template.New("custom_commandline").Funcs(utils.GetFuncMap(r.config)).Parse(cmdStr)
+		if errCmdTmpl != nil {
+			r.getLogger().WithError(errCmdTmpl).Error("custom commandline parse failure")
 			return
 		}
 
 		buf := new(bytes.Buffer)
-		if err := tmpl.Execute(buf, struct {
+		if execErr := customTmpl.Execute(buf, struct {
 			*live.Info
 			FileName string
 			Ffmpeg   string
@@ -193,8 +194,8 @@ func (r *recorder) tryRecord(ctx context.Context) {
 			Info:     info,
 			FileName: fileName,
 			Ffmpeg:   ffmpegPath,
-		}); err != nil {
-			r.getLogger().WithError(err).Errorln("failed to render custom commandline")
+		}); execErr != nil {
+			r.getLogger().WithError(execErr).Errorln("failed to render custom commandline")
 			return
 		}
 		bash := ""
@@ -222,23 +223,34 @@ func (r *recorder) tryRecord(ctx context.Context) {
 			os.Remove(fileName)
 		}
 		r.getLogger().Debugf("end executing custom_commandline: %s", args[1])
-	} else if r.config.OnRecordFinished.ConvertToMp4 {
-		//格式转换时去除原本后缀名
-		newFileName := fileName[0:strings.LastIndex(fileName, ".")]
-		convertCmd := exec.Command(
-			ffmpegPath,
-			"-hide_banner",
-			"-i",
-			fileName,
-			"-c",
-			"copy",
-			newFileName+".mp4",
-		)
-		if err = convertCmd.Run(); err != nil {
-			convertCmd.Process.Kill()
-			r.getLogger().Debugln(err)
-		} else if r.config.OnRecordFinished.DeleteFlvAfterConvert {
-			os.Remove(fileName)
+	} else {
+		outputFiles := []string{fileName}
+		if r.config.OnRecordFinished.FixFlvAtFirst {
+			outputFiles, err = tools.FixFlvByBililiveRecorder(ctx, fileName)
+			if err != nil {
+				r.getLogger().WithError(err).Error("failed to fix flv file, skip this step")
+			}
+		}
+		if r.config.OnRecordFinished.ConvertToMp4 {
+			for _, outputFile := range outputFiles {
+				//格式转换时去除原本后缀名
+				newFileName := outputFile[0:strings.LastIndex(outputFile, ".")]
+				convertCmd := exec.Command(
+					ffmpegPath,
+					"-hide_banner",
+					"-i",
+					outputFile,
+					"-c",
+					"copy",
+					newFileName+".mp4",
+				)
+				if err = convertCmd.Run(); err != nil {
+					convertCmd.Process.Kill()
+					r.getLogger().Debugln(err)
+				} else if r.config.OnRecordFinished.DeleteFlvAfterConvert {
+					os.Remove(outputFile)
+				}
+			}
 		}
 	}
 }

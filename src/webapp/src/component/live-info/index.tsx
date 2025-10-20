@@ -21,6 +21,7 @@ interface IState {
     pid: string
     platform: string
     goVersion: string
+    isInContainer: boolean
 }
 
 class LiveInfo extends React.Component<Props, IState> {
@@ -34,8 +35,9 @@ class LiveInfo extends React.Component<Props, IState> {
             gitHash: "",
             pid: "",
             platform: "",
-            goVersion: ""
-        }
+            goVersion: "",
+            isInContainer: false
+        };
     }
 
     componentDidMount() {
@@ -48,7 +50,8 @@ class LiveInfo extends React.Component<Props, IState> {
                     gitHash: rsp.git_hash,
                     pid: rsp.pid,
                     platform: rsp.platform,
-                    goVersion: rsp.go_version
+                    goVersion: rsp.go_version,
+                    isInContainer: rsp.is_in_container
                 })
             })
             .catch(err => {
@@ -65,6 +68,7 @@ Pid: ${this.state.pid}
 Platform: ${this.state.platform}
 Go Version: ${this.state.goVersion}
 Git Hash: ${this.state.gitHash}
+Is Container: ${this.state.isInContainer}
 `;
     }
 
@@ -86,6 +90,7 @@ Git Hash: ${this.state.gitHash}
                     <Descriptions.Item label="Platform">{this.state.platform}</Descriptions.Item>
                     <Descriptions.Item label="Go Version">{this.state.goVersion}</Descriptions.Item>
                     <Descriptions.Item label="Git Hash">{this.state.gitHash}</Descriptions.Item>
+                    <Descriptions.Item label="Is In Container">{this.state.isInContainer ? "是" : "否"}</Descriptions.Item>
                 </Descriptions>
                 <Button
                     type="default"

@@ -39,9 +39,11 @@ func init() {
 type builder struct{}
 
 func (b *builder) Build(url *url.URL) (live.Live, error) {
-	return &Live{
+	ret := &Live{
 		BaseLive: internal.NewBaseLive(url),
-	}, nil
+	}
+	ret.bgoLive = NewBgoLive(ret)
+	return ret, nil
 }
 
 type streamData struct {
@@ -53,6 +55,7 @@ type Live struct {
 	internal.BaseLive
 	LastAvailableStreamData streamData
 	isReTrying              bool
+	bgoLive                 bgoLive
 }
 
 func (l *Live) getDouYinStreamData(url string) (info *live.Info,
@@ -185,7 +188,23 @@ func (l *Live) parseRoomInfo(body string) (info *live.Info,
 	anchorName := anchorNameMatch[1]
 
 	// 构建完整的roomStore JSON
-	roomStore = strings.Split(roomStore, `,"has_commerce_goods"`)[0] + "}}}"
+	if strings.Contains(roomStore, `has_commerce_goods`) {
+		roomStore = strings.Split(roomStore, `,"has_commerce_goods"`)[0] + "}}}"
+	} else {
+		// 解析JSON数据
+		var roomData map[string]interface{}
+		if err = json.Unmarshal([]byte(roomStore), &roomData); err != nil {
+			err = fmt.Errorf(errorMessageForErrorf+". Failed to parse roomStore JSON: %v", stepNumberForLog, err)
+			return
+		}
+		info = &live.Info{
+			Live:     l,
+			HostName: anchorName,
+			RoomName: "无法获取直播间名称，可能久未开播",
+			Status:   false,
+		}
+		return
+	}
 
 	// 解析JSON数据
 	var roomData map[string]interface{}
@@ -414,7 +433,7 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 	var streamUrlInfo, originUrlList map[string]interface{}
 	if l.Url.Host == domainForApp { // APP
 		info, streamUrlInfo, _, err = l.getDouYinAppStreamData()
-		if err == nil {
+		if err == nil && info.HostName != "" && info.RoomName != "" {
 			l.LastAvailableStreamData = streamData{
 				streamUrlInfo: streamUrlInfo,
 			}
@@ -422,9 +441,15 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 		}
 	}
 	info, streamUrlInfo, originUrlList, err = l.getDouYinStreamData(l.Url.String())
-	l.LastAvailableStreamData = streamData{
-		streamUrlInfo: streamUrlInfo,
-		originUrlList: originUrlList,
+	if err == nil && info.HostName != "" && info.RoomName != "" {
+		l.LastAvailableStreamData = streamData{
+			streamUrlInfo: streamUrlInfo,
+			originUrlList: originUrlList,
+		}
+	} else {
+		l.LastAvailableStreamData.streamUrlInfo = nil
+		l.LastAvailableStreamData.originUrlList = nil
+		info, err = l.bgoLive.GetInfo()
 	}
 
 	return
@@ -432,10 +457,10 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 
 // 新增：支持质量选择的GetStreamUrls方法
 func (l *Live) GetStreamUrls() (us []*url.URL, err error) {
-
 	quality := "origin"
-	if l.LastAvailableStreamData.streamUrlInfo == nil { // TODO
-		return nil, fmt.Errorf("no stream URLs available")
+	if l.LastAvailableStreamData.streamUrlInfo == nil {
+		us, err = l.bgoLive.GetStreamUrls()
+		return
 	}
 	res, err := l.createStreamUrlInfos(l.LastAvailableStreamData.streamUrlInfo,
 		l.LastAvailableStreamData.originUrlList)

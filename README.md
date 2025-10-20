@@ -141,6 +141,13 @@ cookies:
 
 https://github.com/bililive-go/bililive-go/assets/2352900/6453900c-6321-417b-94f2-d65ec2ab3d7e
 
+## 新增通知服务
+
+新增了 Telegram 通知服务，用户可以在 Telegram 中收到直播开始、结束、异常等通知。
+
+有关通知服务的更多信息，请参阅 [通知服务文档](docs/notify.md)。
+
+
 ## Grafana 面板
 
 docker compose 用户可以取消项目根目录下 `docker-compose.yml` 文件中 prometheus 和 grafana 部分的注释以启用统计面板。  

@@ -54,12 +54,35 @@ type OnRecordFinished struct {
 	ConvertToMp4          bool   `yaml:"convert_to_mp4"`
 	DeleteFlvAfterConvert bool   `yaml:"delete_flv_after_convert"`
 	CustomCommandline     string `yaml:"custom_commandline"`
+	FixFlvAtFirst         bool   `yaml:"fix_flv_at_first"`
 }
 
 type Log struct {
 	OutPutFolder string `yaml:"out_put_folder"`
 	SaveLastLog  bool   `yaml:"save_last_log"`
 	SaveEveryLog bool   `yaml:"save_every_log"`
+}
+
+// 通知服务所需配置
+type Notify struct {
+	Telegram Telegram `yaml:"telegram"`
+	Email    Email    `yaml:"email"`
+}
+
+type Telegram struct {
+	Enable           bool   `yaml:"enable"`
+	WithNotification bool   `yaml:"withNotification"`
+	BotToken         string `yaml:"botToken"`
+	ChatID           string `yaml:"chatID"`
+}
+
+type Email struct {
+	Enable         bool   `yaml:"enable"`
+	SMTPHost       string `yaml:"smtpHost"`
+	SMTPPort       int    `yaml:"smtpPort"`
+	SenderEmail    string `yaml:"senderEmail"`
+	SenderPassword string `yaml:"senderPassword"`
+	RecipientEmail string `yaml:"recipientEmail"`
 }
 
 // Config content all config info.
@@ -78,6 +101,8 @@ type Config struct {
 	Cookies              map[string]string    `yaml:"cookies"`
 	OnRecordFinished     OnRecordFinished     `yaml:"on_record_finished"`
 	TimeoutInUs          int                  `yaml:"timeout_in_us"`
+	Notify               Notify               `yaml:"notify"` // 通知服务配置
+	AppDataPath          string               `yaml:"app_data_path"`
 
 	liveRoomIndexCache map[string]int
 }
@@ -158,8 +183,26 @@ var defaultConfig = Config{
 	OnRecordFinished: OnRecordFinished{
 		ConvertToMp4:          false,
 		DeleteFlvAfterConvert: false,
+		FixFlvAtFirst:         true,
 	},
 	TimeoutInUs: 60000000,
+	Notify: Notify{
+		Telegram: Telegram{
+			Enable:           false,
+			WithNotification: true,
+			BotToken:         "",
+			ChatID:           "",
+		},
+		Email: Email{
+			Enable:         false,
+			SMTPHost:       "smtp.qq.com",
+			SMTPPort:       465,
+			SenderEmail:    "",
+			SenderPassword: "",
+			RecipientEmail: "",
+		},
+	},
+	AppDataPath: "./.appdata/",
 }
 
 func NewConfig() *Config {

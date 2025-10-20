@@ -34,6 +34,12 @@ func parseInfo(ctx context.Context, l live.Live) *live.Info {
 	info := obj.(*live.Info)
 	info.Listening = inst.ListenerManager.(listeners.Manager).HasListener(ctx, l.GetLiveId())
 	info.Recording = inst.RecorderManager.(recorders.Manager).HasRecorder(ctx, l.GetLiveId())
+	if info.HostName == "" {
+		info.HostName = "获取失败"
+	}
+	if info.RoomName == "" {
+		info.RoomName = l.GetRawUrl()
+	}
 	return info
 }
 
@@ -171,15 +177,20 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool) (info *live.
 		return nil, errors.New("can't parse url: " + urlStr)
 	}
 	inst := instance.GetInstance(ctx)
-	liveRoom := configs.LiveRoom{
-		Url:         u.String(),
-		IsListening: isListen,
+	needAppend := false
+	liveRoom, err := inst.Config.GetLiveRoomByUrl(u.String())
+	if err != nil {
+		liveRoom = &configs.LiveRoom{
+			Url:         u.String(),
+			IsListening: isListen,
+		}
+		needAppend = true
 	}
-	newLive, err := live.New(ctx, &liveRoom, inst.Cache)
-	liveRoom.LiveId = newLive.GetLiveId()
+	newLive, err := live.New(ctx, liveRoom, inst.Cache)
 	if err != nil {
 		return nil, err
 	}
+	liveRoom.LiveId = newLive.GetLiveId()
 	if _, ok := inst.Lives[newLive.GetLiveId()]; !ok {
 		inst.Lives[newLive.GetLiveId()] = newLive
 		if isListen {
@@ -187,7 +198,12 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool) (info *live.
 		}
 		info = parseInfo(ctx, newLive)
 
-		inst.Config.LiveRooms = append(inst.Config.LiveRooms, liveRoom)
+		if needAppend {
+			if liveRoom == nil {
+				return nil, errors.New("liveRoom is nil, cannot append to LiveRooms")
+			}
+			inst.Config.LiveRooms = append(inst.Config.LiveRooms, *liveRoom)
+		}
 	}
 	return info, nil
 }

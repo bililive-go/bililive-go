@@ -167,7 +167,7 @@ func (p *Parser) doWrite(ctx context.Context, b []byte) error {
 		writtenCount, err := p.o.Write(b[len(b)-leftInputSize:])
 		leftInputSize -= writtenCount
 		if err != nil {
-			logger.Debugf(string(debug.Stack()))
+			logger.Debugf("%s", string(debug.Stack()))
 			return err
 		}
 		if leftInputSize != 0 {

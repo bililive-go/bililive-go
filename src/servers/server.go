@@ -4,12 +4,16 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	_ "net/http/pprof"
+	"net/url"
+	"strconv"
 
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/bililive-go/bililive-go/src/instance"
+	"github.com/bililive-go/bililive-go/src/tools"
 	"github.com/bililive-go/bililive-go/src/webapp"
 )
 
@@ -65,6 +69,23 @@ func initMux(ctx context.Context) *mux.Router {
 					),
 				),
 			),
+		),
+	)
+
+	// /tools -> /tools/ 的 301 重定向（保留查询参数）
+	m.HandleFunc("/tools", func(w http.ResponseWriter, r *http.Request) {
+		target := "/tools/"
+		if q := r.URL.RawQuery; q != "" {
+			target += "?" + q
+		}
+		http.Redirect(w, r, target, http.StatusMovedPermanently)
+	})
+
+	toolsWebUiUrl, _ := url.Parse("http://localhost:" + strconv.Itoa(tools.GetWebUIPort()))
+	m.PathPrefix("/tools/").Handler(
+		http.StripPrefix(
+			"/tools",
+			httputil.NewSingleHostReverseProxy(toolsWebUiUrl),
 		),
 	)
 

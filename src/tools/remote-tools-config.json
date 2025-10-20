@@ -1,0 +1,84 @@
+{
+  "bililive-recorder": {
+    "v2.17.3": {
+      "downloadUrl": "https://github.com/BililiveRecorder/BililiveRecorder/releases/download/v2.17.3/BililiveRecorder-CLI-any.zip",
+      "pathToEntry": "BililiveRecorder.Cli.dll",
+      "printInfoCmd": [
+        ""
+      ]
+    }
+  },
+  "ffmpeg": {
+    "n8.0-gpl": {
+      "downloadUrl": {
+        "linux": {
+          "amd64": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2025-10-03-13-23/ffmpeg-n8.0-16-gd8605a6b55-linux64-gpl-8.0.tar.xz",
+          "arm64": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2025-10-03-13-23/ffmpeg-n8.0-16-gd8605a6b55-linuxarm64-gpl-8.0.tar.xz"
+        },
+        "windows": {
+          "amd64": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2025-10-03-13-23/ffmpeg-n8.0-16-gd8605a6b55-win64-gpl-8.0.zip",
+          "arm64": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2025-10-03-13-23/ffmpeg-n8.0-16-gd8605a6b55-winarm64-gpl-8.0.zip"
+        }
+      },
+      "pathToEntry": {
+        "linux": "bin/ffmpeg",
+        "windows": "bin/ffmpeg.exe"
+      },
+      "printInfoCmd": [
+        "-version"
+      ]
+    }
+  },
+  "dotnet": {
+    "8.0.20": {
+      "downloadUrl": {
+        "darwin": {
+          "amd64": "https://builds.dotnet.microsoft.com/dotnet/aspnetcore/Runtime/8.0.20/aspnetcore-runtime-8.0.20-osx-x64.tar.gz",
+          "arm64": "https://builds.dotnet.microsoft.com/dotnet/aspnetcore/Runtime/8.0.20/aspnetcore-runtime-8.0.20-osx-arm64.tar.gz"
+        },
+        "linux": {
+          "amd64": "https://builds.dotnet.microsoft.com/dotnet/aspnetcore/Runtime/8.0.20/aspnetcore-runtime-8.0.20-linux-x64.tar.gz",
+          "arm": "https://builds.dotnet.microsoft.com/dotnet/aspnetcore/Runtime/8.0.20/aspnetcore-runtime-8.0.20-linux-arm.tar.gz",
+          "arm64": "https://builds.dotnet.microsoft.com/dotnet/aspnetcore/Runtime/8.0.20/aspnetcore-runtime-8.0.20-linux-arm64.tar.gz"
+        },
+        "windows": {
+          "386": "https://builds.dotnet.microsoft.com/dotnet/aspnetcore/Runtime/8.0.20/aspnetcore-runtime-8.0.20-win-x86.zip",
+          "amd64": "https://builds.dotnet.microsoft.com/dotnet/aspnetcore/Runtime/8.0.20/aspnetcore-runtime-8.0.20-win-x64.zip"
+        }
+      },
+      "pathToEntry": {
+        "darwin": "dotnet",
+        "linux": "dotnet",
+        "windows": "dotnet.exe"
+      },
+      "printInfoCmd": [
+        "--info"
+      ]
+    },
+    "8.0.4": {
+      "downloadUrl": {
+        "darwin": {
+          "amd64": "https://download.visualstudio.microsoft.com/download/pr/c999e42b-38c9-4d9a-9816-9a0ebece8afe/8e4471db5aa0756d812af23817b14259/dotnet-runtime-8.0.4-osx-x64.tar.gz",
+          "arm64": "https://download.visualstudio.microsoft.com/download/pr/d2cd56cc-5a78-460d-a45d-3893b020949d/8cf9653a23c91ac2b10c70f58edae60e/dotnet-runtime-8.0.4-osx-arm64.tar.gz"
+        },
+        "linux": {
+          "amd64": "https://download.visualstudio.microsoft.com/download/pr/a3ca3d31-f45b-4e53-ab4d-0f2f221cbc5b/47382078b4b72a66387d0fd6ed9ff963/dotnet-runtime-8.0.4-linux-x64.tar.gz",
+          "arm": "https://download.visualstudio.microsoft.com/download/pr/a299eeb3-a9c8-42d4-a0ff-61713365c715/0f4d4139df6c700efd4c0d172c2c28eb/dotnet-runtime-8.0.4-linux-arm.tar.gz",
+          "arm64": "https://download.visualstudio.microsoft.com/download/pr/761b252b-a0d9-41cd-b1ec-2dc33159c11c/b8285cf82db4ef340a191bfba9a9a73e/dotnet-runtime-8.0.4-linux-arm64.tar.gz"
+        },
+        "windows": {
+          "386": "https://download.visualstudio.microsoft.com/download/pr/2f00ad36-c625-4e11-b6e1-d91eef43488e/b6ec44780ed852fa498d4c4b7a43cf73/dotnet-runtime-8.0.4-win-x86.zip",
+          "amd64": "https://download.visualstudio.microsoft.com/download/pr/1ed8f8a2-7bb8-41cd-b256-63e0e7102742/d0c4851d34ddd0abf041188553a3acae/dotnet-runtime-8.0.4-win-x64.zip"
+        }
+      },
+      "pathToEntry": {
+        "darwin": "dotnet",
+        "linux": "dotnet",
+        "windows": "dotnet.exe"
+      },
+      "printInfoCmd": [
+        "--info"
+      ]
+    }
+  }
+}

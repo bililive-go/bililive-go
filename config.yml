@@ -45,3 +45,28 @@ on_record_finished:
 #  custom_commandline: '{{ .Ffmpeg }} -hide_banner -i "{{ .FileName }}" -c copy "{{ .FileName | trimSuffix (.FileName | ext)}}.mp4"'
   custom_commandline: ""
 timeout_in_us: 60000000
+
+# 通知服务配置
+notify:
+  telegram:
+    # 是否开启Telegram通知
+    enable: false
+    # 是否启用声音通知
+    withNotification: true
+    # Telegram机器人Token
+    botToken: ""
+    # Telegram聊天ID
+    chatID: ""
+  email:
+    # 是否开启Email通知
+    enable: false
+    # SMTP服务器地址 (例如: smtp.gmail.com, smtp.qq.com等)
+    smtpHost: "smtp.qq.com"
+    # SMTP服务器端口 (常用端口: 25, 465, 587)
+    smtpPort: 465
+    # 发送者邮箱地址
+    senderEmail: ""
+    # 发送者邮箱授权码或应用专用密码
+    senderPassword: ""
+    # 接收者邮箱地址 
+    recipientEmail: ""
