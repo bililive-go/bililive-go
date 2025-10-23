@@ -13,11 +13,11 @@ RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add -  && \
 #根据架构安装构建web页面所需的node.js
 RUN ARCH=$(uname -m) && \
     if [ $ARCH = 'x86_64' ]; then \
-        NODE_ARCH='x64'; \
+    NODE_ARCH='x64'; \
     elif [ $ARCH = 'aarch64' ]; then \
-        NODE_ARCH='arm64'; \
+    NODE_ARCH='arm64'; \
     else \
-        echo '不支持的架构: $ARCH'; \
+    echo '不支持的架构: $ARCH'; \
     fi && \
     wget https://nodejs.org/dist/v18.20.3/node-v18.20.3-linux-${NODE_ARCH}.tar.xz && \
     tar Jxvf /build/node-v18.20.3-linux-${NODE_ARCH}.tar.xz && \
@@ -35,7 +35,7 @@ RUN go env -w GO111MODULE=on && \
 RUN sh -c "/build/bin/bililive* --version"
 
 
-FROM alpine
+FROM ubuntu:22.04
 
 ARG tag
 
@@ -48,9 +48,15 @@ ENV PUID=0 PGID=0 UMASK=022
 
 RUN mkdir -p $OUTPUT_DIR && \
     mkdir -p $CONF_DIR && \
-    apk update && \
-    apk --no-cache add ffmpeg libc6-compat curl su-exec tzdata && \
-    cp -r -f /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    ffmpeg \
+    curl \
+    gosu \
+    tzdata \
+    ca-certificates && \
+    cp -r -f /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /build/bin/bililive* /usr/bin/bililive-go
 

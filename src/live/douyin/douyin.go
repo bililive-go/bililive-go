@@ -43,6 +43,7 @@ func (b *builder) Build(url *url.URL) (live.Live, error) {
 		BaseLive: internal.NewBaseLive(url),
 	}
 	ret.bgoLive = NewBgoLive(ret)
+	ret.btoolsLive = NewBtoolsLive(ret)
 	return ret, nil
 }
 
@@ -56,6 +57,7 @@ type Live struct {
 	LastAvailableStreamData streamData
 	isReTrying              bool
 	bgoLive                 bgoLive
+	btoolsLive              btoolsLive
 }
 
 func (l *Live) getDouYinStreamData(url string) (info *live.Info,
@@ -429,6 +431,10 @@ func (l *Live) createStreamUrlInfos(streamUrlInfo, originUrlList map[string]inte
 }
 
 func (l *Live) GetInfo() (info *live.Info, err error) {
+	return l.btoolsLive.GetInfo()
+}
+
+func (l *Live) _GetInfo() (info *live.Info, err error) {
 	l.isReTrying = false
 	var streamUrlInfo, originUrlList map[string]interface{}
 	if l.Url.Host == domainForApp { // APP
@@ -453,6 +459,10 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 	}
 
 	return
+}
+
+func (l *Live) GetStreamInfos() (us []*live.StreamUrlInfo, err error) {
+	return l.btoolsLive.GetStreamInfos()
 }
 
 // 新增：支持质量选择的GetStreamUrls方法

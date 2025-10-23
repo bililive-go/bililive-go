@@ -89,8 +89,73 @@ func Init() (err error) {
 	} {
 		AsyncDownloadIfNecessary(toolName)
 	}
+	go func() {
+		err := startBTools()
+		if err != nil {
+			logrus.WithError(err).Errorln("Failed to start bililive-tools")
+		}
+	}()
 
 	return nil
+}
+
+func startBTools() error {
+	// bililive-tools 依赖 node 环境
+	err := DownloadIfNecessary("node")
+	if err != nil {
+		return fmt.Errorf("failed to install node: %w", err)
+	}
+	api := tools.Get()
+	if api == nil {
+		return errors.New("failed to get remotetools API instance")
+	}
+
+	node, err := api.GetTool("node")
+	if err != nil {
+		return err
+	}
+	if !node.DoesToolExist() {
+		err = node.Install()
+		if err != nil {
+			return err
+		}
+	}
+
+	btools, err := api.GetTool("biliLive-tools")
+	if err != nil {
+		return err
+	}
+	if !btools.DoesToolExist() {
+		err = btools.Install()
+		if err != nil {
+			return err
+		}
+	}
+
+	nodeFolder := filepath.Dir(node.GetToolPath())
+	btoolsFolder := filepath.Dir(btools.GetToolPath())
+	env := []string{
+		"PATH=" + nodeFolder + string(os.PathListSeparator) + os.Getenv("PATH"),
+	}
+	nodePath, err := filepath.Abs(node.GetToolPath())
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(
+		nodePath,
+		"./index.cjs",
+		"server",
+		"-c",
+		"./appConfig.json",
+	)
+	cmd.Dir = btoolsFolder
+	cmd.Env = env
+	cmd.Stderr = os.Stderr
+	cmd.Stdout = os.Stdout
+
+	logrus.Infoln("Starting bililive-tools server…")
+	// 在 Windows 下使用 Job Object，确保主进程退出时子进程被一并终止
+	return runWithKillOnClose(cmd)
 }
 
 func AsyncDownloadIfNecessary(toolName string) {

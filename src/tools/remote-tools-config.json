@@ -80,5 +80,52 @@
         "--info"
       ]
     }
+  },
+  "node": {
+    "v20.10.0": {
+      "downloadUrl": {
+        "darwin": {
+          "amd64": "https://nodejs.org/dist/v20.10.0/node-v20.10.0-darwin-x64.tar.xz",
+          "arm64": "https://nodejs.org/dist/v20.10.0/node-v20.10.0-darwin-arm64.tar.xz"
+        },
+        "linux": {
+          "amd64": "https://nodejs.org/dist/v20.10.0/node-v20.10.0-linux-x64.tar.xz",
+          "arm64": "https://nodejs.org/dist/v20.10.0/node-v20.10.0-linux-arm64.tar.xz"
+        },
+        "windows": {
+          "amd64": "https://nodejs.org/dist/v20.10.0/node-v20.10.0-win-x64.zip",
+          "arm64": "https://nodejs.org/dist/v20.10.0/node-v20.10.0-win-arm64.zip"
+        }
+      },
+      "pathToEntry": {
+        "darwin": "bin/node",
+        "linux": "bin/node",
+        "windows": "node.exe"
+      },
+      "printInfoCmd": [
+        "--version"
+      ]
+    }
+  },
+  "biliLive-tools": {
+    "3.1.2-bgo.1": {
+      "downloadUrl": {
+        "darwin": {
+          "amd64": "https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.1/bililive-cli-lib-macos-x64.zip",
+          "arm64": "https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.1/bililive-cli-lib-macos-arm64.zip"
+        },
+        "linux": {
+          "amd64": "https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.1/bililive-cli-lib-ubuntu-x64.zip",
+          "arm64": "https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.1/bililive-cli-lib-ubuntu-arm64.zip"
+        },
+        "windows": {
+          "amd64": "https://github.com/kira1928/biliLive-tools/releases/download/3.1.2-bgo.1/bililive-cli-lib-windows-x64.zip"
+        }
+      },
+      "pathToEntry": "index.cjs",
+      "printInfoCmd": [
+        "--help"
+      ]
+    }
   }
 }
