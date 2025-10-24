@@ -122,6 +122,10 @@ func (l *listener) refresh() {
 		isStatusChanged = false
 	case statusToTrueEvt:
 		l.Live.SetLastStartTime(time.Now())
+		room, err := l.config.GetLiveRoomByUrl(l.Live.GetRawUrl())
+		if err == nil && room != nil {
+			room.LastStartTime = time.Now().Unix()
+		}
 		evtTyp = LiveStart
 		logInfo = "Live Start"
 		// 发送开播提醒和录像通知
@@ -142,6 +146,11 @@ func (l *listener) refresh() {
 	if isStatusChanged {
 		l.ed.DispatchEvent(events.NewEvent(evtTyp, l.Live))
 		l.logger.WithFields(fields).Info(logInfo)
+		
+		err := l.config.Marshal()
+		if err != nil {
+			l.logger.WithError(err).Error("写入配置文件失败")
+		}
 	}
 
 	if info.Initializing {

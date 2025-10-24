@@ -32,6 +32,7 @@ interface ItemData {
     tags: string[],
     listening: boolean
     roomId: string
+    lastStartTime?: number
 }
 interface CookieItemData {
     Platform_cn_name:string,
@@ -173,6 +174,18 @@ class LiveList extends React.Component<Props, IState> {
             key: 'address',
             sorter: (a: ItemData, b: ItemData) => {
                 return a.address.localeCompare(b.address);
+            },
+        },
+        {
+            title: '上次开播时间',
+            dataIndex: 'lastStartTime',
+            key: 'lastStartTime',
+            render: (ts: number) => ts ? new Date(ts * 1000).toLocaleString() : '-',
+            sorter: (a: ItemData, b: ItemData) => {
+                if (!a.lastStartTime && !b.lastStartTime) return 0;
+                if (!a.lastStartTime) return -1;
+                if (!b.lastStartTime) return 1;
+                return a.lastStartTime - b.lastStartTime;
             },
         },
         this.runStatus,
@@ -330,7 +343,8 @@ class LiveList extends React.Component<Props, IState> {
                         address: item.platform_cn_name,
                         tags,
                         listening: item.listening,
-                        roomId: item.id
+                        roomId: item.id,
+                        lastStartTime: item.last_start_time_unix
                     };
                 });
             })
