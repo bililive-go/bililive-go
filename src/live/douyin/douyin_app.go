@@ -18,7 +18,11 @@ import (
 
 func (l *Live) getDouYinAppStreamData() (info *live.Info,
 	streamUrlInfo, originUrlList map[string]interface{}, err error) {
-	localHeaders := headers
+	// Create a deep copy of headers to avoid concurrent map access
+	localHeaders := make(map[string]interface{})
+	for k, v := range headers {
+		localHeaders[k] = v
+	}
 	// 检查是否有自定义cookie
 	var finalCookie string
 	if l.Options.Cookies != nil {
@@ -269,7 +273,11 @@ func (l *Live) getUniqueID(headers map[string]interface{}) (string, error) {
 	secUserID := strings.Split(strings.SplitN(redirectURL, "?", 2)[0], "/")
 	secID := secUserID[len(secUserID)-1]
 
-	localHeaders := headers
+	// Create a deep copy of headers to avoid concurrent map access
+	localHeaders := make(map[string]interface{})
+	for k, v := range headers {
+		localHeaders[k] = v
+	}
 	localHeaders["Cookie"] = "ttwid=1%7C4ejCkU2bKY76IySQENJwvGhg1IQZrgGEupSyTKKfuyk%7C1740470403%7Cbc9ad2ee341f1a162f9e27f4641778030d1ae91e31f9df6553a8f2efa3bdb7b4; __ac_nonce=0683e59f3009cc48fbab0; __ac_signature=_02B4Z6wo00f01mG6waQAAIDB9JUCzFb6.TZhmsUAAPBf34; __ac_referer=__ac_blank"
 	resp2, err := l.asyncReq(fmt.Sprintf("https://www.iesdouyin.com/share/user/%s", secID), localHeaders, 0)
 	if err != nil {
