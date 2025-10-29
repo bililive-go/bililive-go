@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	urlpkg "net/url"
 
 	"github.com/bililive-go/bililive-go/src/live"
 )
@@ -70,7 +69,7 @@ func (l *btoolsLive) updateChannelInfo() (err error) {
 
 func (l *btoolsLive) fetchChannelInfo() (channelInfo ChannelInfo, err error) {
 	// 使用自定义请求以便添加认证Header
-	endpoint := fmt.Sprintf("http://127.0.0.1:%d/bgo/channel-info?url=%s", btoolsConsts.port, urlpkg.QueryEscape(l.Url.String()))
+	endpoint := fmt.Sprintf("http://127.0.0.1:%d/bgo/channel-info?url=%s", btoolsConsts.port, url.QueryEscape(l.Url.String()))
 	req, reqErr := http.NewRequest(http.MethodGet, endpoint, nil)
 	if reqErr != nil {
 		err = reqErr
@@ -104,7 +103,7 @@ func (l *btoolsLive) fetchLiveInfo() (liveInfo liveInfoResp, err error) {
 		}
 	}
 
-	endpoint := fmt.Sprintf("http://127.0.0.1:%d/bgo/live-info?platform=douyin&roomId=%s", btoolsConsts.port, urlpkg.QueryEscape(l.roomId))
+	endpoint := fmt.Sprintf("http://127.0.0.1:%d/bgo/live-info?platform=douyin&roomId=%s", btoolsConsts.port, url.QueryEscape(l.roomId))
 	req, reqErr := http.NewRequest(http.MethodGet, endpoint, nil)
 	if reqErr != nil {
 		return liveInfo, reqErr
@@ -133,7 +132,7 @@ func (l *btoolsLive) fetchStreamInfo() (streamInfo streamInfoResp, err error) {
 		}
 	}
 
-	endpoint := fmt.Sprintf("http://127.0.0.1:%d/bgo/stream-info?platform=douyin&roomId=%s", btoolsConsts.port, urlpkg.QueryEscape(l.roomId))
+	endpoint := fmt.Sprintf("http://127.0.0.1:%d/bgo/stream-info?platform=douyin&roomId=%s", btoolsConsts.port, url.QueryEscape(l.roomId))
 	req, reqErr := http.NewRequest(http.MethodGet, endpoint, nil)
 	if reqErr != nil {
 		return streamInfo, reqErr

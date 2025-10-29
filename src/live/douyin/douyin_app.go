@@ -16,6 +16,7 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+//nolint:unused // May be used in future implementations
 func (l *Live) getDouYinAppStreamData() (info *live.Info,
 	streamUrlInfo, originUrlList map[string]interface{}, err error) {
 	localHeaders := headers
@@ -189,6 +190,7 @@ func (l *Live) getDouYinAppStreamData() (info *live.Info,
 	return
 }
 
+//nolint:unused // May be used in future implementations
 func (l *Live) getSecUserID(headers map[string]interface{}) (
 	roomID, secUserID string, err error) {
 	var resp *requests.Response
@@ -218,6 +220,7 @@ func (l *Live) getSecUserID(headers map[string]interface{}) (
 	return "", "", errUnsupportedUrl
 }
 
+//nolint:unused // May be used in future implementations
 func (l *Live) getAppData(roomID, secUID string, headers map[string]interface{}) (
 	map[string]interface{}, error) {
 	appParams := url.Values{
@@ -254,6 +257,7 @@ func (l *Live) getAppData(roomID, secUID string, headers map[string]interface{})
 	return room, nil
 }
 
+//nolint:unused // May be used in future implementations
 func (l *Live) getUniqueID(headers map[string]interface{}) (string, error) {
 	logrus.Debug("[getUniqueID][1]")
 	resp, err := l.asyncReq(l.Url.String(), headers, 0)
@@ -291,6 +295,7 @@ func (l *Live) getUniqueID(headers map[string]interface{}) (string, error) {
 	}
 }
 
+//nolint:unused // May be used in future implementations
 func (l *Live) asyncReq(url string, headers map[string]interface{}, timeOut int) (resp *requests.Response, err error) {
 	opts := []requests.RequestOption{
 		requests.Headers(headers),

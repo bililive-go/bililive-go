@@ -40,6 +40,18 @@ class API {
     }
 
     /**
+     * 批量添加新的直播间
+     * @param urls URL数组
+     */
+    addNewRoomBatch(urls: string[]) {
+        const reqBody = urls.map(url => ({
+            "url": url,
+            "listen": true
+        }));
+        return utils.requestPost(`${BASE_URL}/lives`, reqBody);
+    }
+
+    /**
      * 删除直播间
      * @param id 直播间id
      */

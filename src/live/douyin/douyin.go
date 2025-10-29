@@ -22,8 +22,10 @@ const (
 	cnName       = "抖音"
 )
 
+//nolint:unused // May be used in future implementations
 var errUnsupportedUrl = errors.New("the redirect URL does not contain 'reflow/'")
 
+//nolint:unused // May be used in future implementations
 var headers = map[string]interface{}{
 	"User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0",
 	"Accept-Language": "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2",
@@ -55,11 +57,12 @@ type streamData struct {
 type Live struct {
 	internal.BaseLive
 	LastAvailableStreamData streamData
-	isReTrying              bool
+	isReTrying              bool //nolint:unused // May be used in future implementations
 	bgoLive                 bgoLive
 	btoolsLive              btoolsLive
 }
 
+//nolint:unused // May be used in future implementations
 func (l *Live) getDouYinStreamData(url string) (info *live.Info,
 	streamUrlInfo, originUrlList map[string]interface{}, err error) {
 	defer func() {
@@ -135,6 +138,7 @@ func getQualityIndex(quality string) (string, int) {
 	return "hd", 2 // 默认返回hd质量
 }
 
+//nolint:unused // May be used in future implementations
 func (l *Live) parseRoomInfo(body string) (info *live.Info,
 	streamUrlInfo, originUrlList map[string]interface{}, err error) {
 	const errorMessageForErrorf = "getDouYinStreamUrl() failed on step %d"
@@ -434,6 +438,7 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 	return l.btoolsLive.GetInfo()
 }
 
+//nolint:unused // May be used in future implementations
 func (l *Live) _GetInfo() (info *live.Info, err error) {
 	l.isReTrying = false
 	var streamUrlInfo, originUrlList map[string]interface{}
