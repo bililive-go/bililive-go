@@ -152,6 +152,66 @@ class LiveList extends React.Component<Props, IState> {
         ),
     };
 
+    mobileRunAction: ColumnProps<ItemData> = {
+        title: '操作',
+        key: 'action',
+        dataIndex: 'listening',
+        width: 120,
+        render: (listening: boolean, data: ItemData) => (
+            <span className="mobile-actions">
+                <PopDialog
+                    title={listening ? "确定停止监控？" : "确定开启监控？"}
+                    onConfirm={(e) => {
+                        if (listening) {
+                            //停止监控
+                            api.stopRecord(data.roomId)
+                                .then(rsp => {
+                                    api.saveSettingsInBackground();
+                                    this.refresh();
+                                })
+                                .catch(err => {
+                                    alert(`停止监控失败:\n${err}`);
+                                });
+                        } else {
+                            //开启监控
+                            api.startRecord(data.roomId)
+                                .then(rsp => {
+                                    api.saveSettingsInBackground();
+                                    this.refresh();
+                                })
+                                .catch(err => {
+                                    alert(`开启监控失败:\n${err}`);
+                                });
+                        }
+                    }}>
+                    <Tooltip title={listening ? "停止监控" : "开启监控"}>
+                        <Button type="link" size="small" icon={listening ? "pause-circle" : "play-circle"} />
+                    </Tooltip>
+                </PopDialog>
+                <PopDialog title="确定删除当前直播间？"
+                    onConfirm={(e) => {
+                        api.deleteRoom(data.roomId)
+                            .then(rsp => {
+                                api.saveSettingsInBackground();
+                                this.refresh();
+                            })
+                            .catch(err => {
+                                alert(`删除直播间失败:\n${err}`);
+                            });
+                    }}>
+                    <Tooltip title="删除">
+                        <Button type="link" size="small" icon="delete" />
+                    </Tooltip>
+                </PopDialog>
+                <Tooltip title="文件">
+                    <Button type="link" size="small" icon="folder" onClick={(e) => {
+                        this.props.history.push(`/fileList/${data.address}/${data.name}`);
+                    }} />
+                </Tooltip>
+            </span>
+        ),
+    };
+
     columns = [
         {
             title: '主播名称',
@@ -187,7 +247,7 @@ class LiveList extends React.Component<Props, IState> {
             render: (name: String, data: ItemData) => <a href={data.room.url} rel="noopener noreferrer" target="_blank">{name}</a>
         },
         this.runStatus,
-        this.runAction
+        this.mobileRunAction
     ];
     cookieColumns=[
         {

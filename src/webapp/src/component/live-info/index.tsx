@@ -89,16 +89,17 @@ Is In Container: ${inContainer ? "是" : "否"}${extra}
     }
 
     render() {
+        const isMobile = window.innerWidth <= 768;
         return (
             <div>
                 <div style={{ backgroundColor: '#F5F5F5', }}>
                     <PageHeader
                         ghost={false}
                         title="系统状态"
-                        subTitle="System Info">
+                        subTitle={!isMobile ? "System Info" : undefined}>
                     </PageHeader>
                 </div>
-                <Descriptions bordered>
+                <Descriptions bordered column={{ xs: 1, sm: 2, md: 3 }}>
                     <Descriptions.Item label="App Name">{this.state.appName}</Descriptions.Item>
                     <Descriptions.Item label="App Version">{this.state.appVersion}</Descriptions.Item>
                     <Descriptions.Item label="Build Time">{this.state.buildTime}</Descriptions.Item>
