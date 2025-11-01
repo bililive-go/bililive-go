@@ -25,6 +25,7 @@ interface IState {
     puid: string
     pgid: string
     umask: string
+    isMobile: boolean
 }
 
 class LiveInfo extends React.Component<Props, IState> {
@@ -42,7 +43,8 @@ class LiveInfo extends React.Component<Props, IState> {
             isDocker: "",
             puid: "",
             pgid: "",
-            umask: ""
+            umask: "",
+            isMobile: window.innerWidth <= 768
         };
     }
 
@@ -89,14 +91,13 @@ Is In Container: ${inContainer ? "是" : "否"}${extra}
     }
 
     render() {
-        const isMobile = window.innerWidth <= 768;
         return (
             <div>
                 <div style={{ backgroundColor: '#F5F5F5', }}>
                     <PageHeader
                         ghost={false}
                         title="系统状态"
-                        subTitle={!isMobile ? "System Info" : undefined}>
+                        subTitle={!this.state.isMobile ? "System Info" : undefined}>
                     </PageHeader>
                 </div>
                 <Descriptions bordered column={{ xs: 1, sm: 2, md: 3 }}>
