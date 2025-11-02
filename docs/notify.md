@@ -5,6 +5,7 @@
 该模块提供统一的通知发送功能，支持以下通知方式：
 - Telegram 消息通知
 - Email 邮件通知
+- ntfy 推送通知
 
 ## 使用方法
 
@@ -28,6 +29,12 @@ https://wx.mail.qq.com/list/readtemplate?name=app_intro.html#/agreement/authoriz
 
 ![wechat_2025-09-22_055510_164](./assets/wechat_2025-09-22_055510_164.png)
 
+
+
+### 发送ntfy通知
+
+ntfy是一个开源的推送通知服务，您可以使用公共服务器 https://ntfy.sh 或者搭建自己的ntfy服务器
+
 ## 配置说明
 
 在配置文件中启用相应的通知服务：
@@ -48,6 +55,12 @@ notify:
     senderEmail: "sender@example.com"    # 发送者邮箱
     senderPassword: "password"  # 发送者邮箱密码或授权码
     recipientEmail: "recipient@example.com"  # 接收者邮箱
+
+  ntfy:
+    enable: true                # 是否启用ntfy通知
+    URL: "https://ntfy.sh/your-topic"  # ntfy服务器地址和主题
+    token: "tk_xxxx"            # 如果需要认证，填写tk_开头的访问令牌
+    tag: "new"                  # 消息emoji标签。支持列表：https://docs.ntfy.sh/emojis/
 ```
 
 ## 注意事项

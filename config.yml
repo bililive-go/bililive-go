@@ -70,3 +70,12 @@ notify:
     senderPassword: ""
     # 接收者邮箱地址 
     recipientEmail: ""
+  ntfy:
+    # 是否开启ntfy通知
+    enable: false
+    # ntfy服务器地址和主题
+    URL: https://ntfy.sh/your-topic
+    # 如果需要认证，填写tk_开头的访问令牌
+    token: ""
+    # 消息emoji标签。支持列表：https://docs.ntfy.sh/emojis/
+    tag: new
