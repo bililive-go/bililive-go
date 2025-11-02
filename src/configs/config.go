@@ -68,6 +68,7 @@ type Log struct {
 type Notify struct {
 	Telegram Telegram `yaml:"telegram"`
 	Email    Email    `yaml:"email"`
+	Gotify   Gotify   `yaml:"gotify"`
 }
 
 type Telegram struct {
@@ -84,6 +85,13 @@ type Email struct {
 	SenderEmail    string `yaml:"senderEmail"`
 	SenderPassword string `yaml:"senderPassword"`
 	RecipientEmail string `yaml:"recipientEmail"`
+}
+
+type Gotify struct {
+	Enable    bool   `yaml:"enable"`
+	ServerURL string `yaml:"serverURL"`
+	Token     string `yaml:"token"`
+	Priority  int    `yaml:"priority"`
 }
 
 // Config content all config info.
@@ -205,6 +213,12 @@ var defaultConfig = Config{
 			SenderEmail:    "",
 			SenderPassword: "",
 			RecipientEmail: "",
+		},
+		Gotify: Gotify{
+			Enable:    false,
+			ServerURL: "",
+			Token:     "",
+			Priority:  5,
 		},
 	},
 	AppDataPath:        "",

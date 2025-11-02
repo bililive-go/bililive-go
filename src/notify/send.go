@@ -8,11 +8,12 @@ import (
 	"github.com/bililive-go/bililive-go/src/consts"
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/notify/email"
+	"github.com/bililive-go/bililive-go/src/notify/gotify"
 	"github.com/bililive-go/bililive-go/src/notify/telegram"
 )
 
 // SendNotification 发送统一通知函数
-// 检测用户是否开启了telegram和email通知服务，然后分别发送通知
+// 检测用户是否开启了telegram、email和gotify通知服务，然后分别发送通知
 // 参数: ctx(context上下文), hostName(主播姓名), platform(直播平台), liveURL(直播地址), status(直播状态: consts.LiveStatusStart/consts.LiveStatusStop)
 func SendNotification(ctx context.Context, hostName, platform, liveURL, status string) error {
 	// 获取当前配置
@@ -79,6 +80,30 @@ func SendNotification(ctx context.Context, hostName, platform, liveURL, status s
 				logger.Logger.WithError(err).Error("Failed to send email")
 			} else {
 				fmt.Printf("[ERROR] Failed to send email: %v\n", err)
+			}
+		}
+	}
+
+	// 构造Gotify消息标题和内容
+	gotifyTitle := fmt.Sprintf("%s - %s", hostInfo, platform)
+	gotifyMessage := fmt.Sprintf("主播：%s\n平台：%s\n直播地址：%s", hostInfo, platform, liveURL)
+
+	// 检查是否开启了Gotify通知服务
+	if cfg.Notify.Gotify.Enable {
+		// 发送Gotify通知
+		err := gotify.SendMessage(
+			cfg.Notify.Gotify.ServerURL,
+			cfg.Notify.Gotify.Token,
+			gotifyTitle,
+			gotifyMessage,
+			cfg.Notify.Gotify.Priority,
+		)
+		if err != nil {
+			// 使用项目原来的日志打印方式打印错误
+			if logger != nil && logger.Logger != nil {
+				logger.Logger.WithError(err).Error("Failed to send Gotify message")
+			} else {
+				fmt.Printf("[ERROR] Failed to send Gotify message: %v\n", err)
 			}
 		}
 	}
