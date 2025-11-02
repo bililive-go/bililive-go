@@ -114,6 +114,12 @@ Bililive-go是一个支持多种直播平台的直播录制工具
         <td>滋瓷</td>
         <td></td>
     </tr>
+    <tr align="center">
+        <td>自定义M3U8</td>
+        <td>custom.m3u8</td>
+        <td>滋瓷</td>
+        <td></td>
+    </tr>
 </table>
 
 ### cookie 在 config.yml 中的设置方法
@@ -125,6 +131,49 @@ cookies:
 ```
 这里 name 和 value 只是随便举的例子，用来说明当添加超过一条 cookie 的键值对时应该用分号隔开。
 至于具体应该添加哪些键，就需要用户针对不同网站自己获取了。
+
+## 自定义M3U8流录制
+
+bililive-go现在支持录制自定义的M3U8流，这让你可以录制任何提供M3U8格式的直播流。
+
+### 使用方法
+
+对于自定义M3U8流，请使用以下URL格式：
+```
+https://custom.m3u8/?url=<实际的M3U8链接>&name=<自定义平台名称>
+```
+
+### 参数说明
+
+- `url`: 实际的M3U8流地址（必需）
+- `name`: 自定义的平台名称（可选，用于显示和文件命名）
+
+### 示例
+
+假设你有一个M3U8流地址：`https://example.com/stream/live.m3u8`，想要以"自定义直播"为平台名称进行录制，那么在bililive-go中应该使用：
+
+```
+https://custom.m3u8/?url=https://example.com/stream/live.m3u8&name=自定义直播
+```
+
+这样配置后，录制的文件将会显示为来自"自定义直播"平台。如果不提供`name`参数，将使用默认的"自定义M3U8"作为平台名称。
+
+### 在配置文件中使用
+
+在`config.yml`中可以这样配置：
+
+```yaml
+live_rooms:
+  - url: "https://custom.m3u8/?url=https://example.com/stream/live.m3u8&name=MyStream"
+    is_listening: true
+    nick_name: "我的自定义流"
+```
+
+### 注意事项
+
+- 确保M3U8链接是可访问的
+- 如果M3U8流需要特殊的请求头或认证，可能需要额外配置
+- 自定义平台不会进行在线状态检测，始终假定为在线状态
 
 ## 在网页中修改设置
 
