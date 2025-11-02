@@ -7,3 +7,11 @@
     height: 100%;
     padding: 8px;
 }
+
+/* 移动端优化 */
+@media(max-device-width: 768px) {
+    .ant-descriptions-item-label,
+    .ant-descriptions-item-content {
+        padding: 8px !important;
+    }
+}
