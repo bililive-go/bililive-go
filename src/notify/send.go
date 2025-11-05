@@ -7,6 +7,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/consts"
 	"github.com/bililive-go/bililive-go/src/instance"
+	"github.com/bililive-go/bililive-go/src/notify/bark"
 	"github.com/bililive-go/bililive-go/src/notify/email"
 	"github.com/bililive-go/bililive-go/src/notify/telegram"
 )
@@ -79,6 +80,24 @@ func SendNotification(ctx context.Context, hostName, platform, liveURL, status s
 				logger.Logger.WithError(err).Error("Failed to send email")
 			} else {
 				fmt.Printf("[ERROR] Failed to send email: %v\n", err)
+			}
+		}
+	}
+
+	// 构造Bark消息标题和内容
+	barkTitle := fmt.Sprintf("%s - %s", hostInfo, platform)
+	barkBody := fmt.Sprintf("主播：%s\n平台：%s\n直播地址：%s", hostInfo, platform, liveURL)
+
+	// 检查是否开启了Bark通知服务
+	if cfg.Notify.Bark.Enable {
+		// 发送Bark通知
+		err := bark.SendMessage(cfg.Notify.Bark.ServerURL, barkTitle, barkBody)
+		if err != nil {
+			// 使用项目原来的日志打印方式打印错误
+			if logger != nil && logger.Logger != nil {
+				logger.Logger.WithError(err).Error("Failed to send Bark message")
+			} else {
+				fmt.Printf("[ERROR] Failed to send Bark message: %v\n", err)
 			}
 		}
 	}

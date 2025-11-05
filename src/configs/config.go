@@ -68,6 +68,7 @@ type Log struct {
 type Notify struct {
 	Telegram Telegram `yaml:"telegram"`
 	Email    Email    `yaml:"email"`
+	Bark     Bark     `yaml:"bark"`
 }
 
 type Telegram struct {
@@ -84,6 +85,11 @@ type Email struct {
 	SenderEmail    string `yaml:"senderEmail"`
 	SenderPassword string `yaml:"senderPassword"`
 	RecipientEmail string `yaml:"recipientEmail"`
+}
+
+type Bark struct {
+	Enable    bool   `yaml:"enable"`
+	ServerURL string `yaml:"serverURL"`
 }
 
 // Config content all config info.
@@ -205,6 +211,10 @@ var defaultConfig = Config{
 			SenderEmail:    "",
 			SenderPassword: "",
 			RecipientEmail: "",
+		},
+		Bark: Bark{
+			Enable:    false,
+			ServerURL: "",
 		},
 	},
 	AppDataPath:        "",

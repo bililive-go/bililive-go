@@ -70,3 +70,8 @@ notify:
     senderPassword: ""
     # 接收者邮箱地址 
     recipientEmail: ""
+  bark:
+    # 是否开启Bark通知
+    enable: false
+    # Bark服务器地址 (例如: https://api.day.app/your_device_key)
+    serverURL: ""
