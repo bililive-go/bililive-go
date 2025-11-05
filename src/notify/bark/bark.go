@@ -5,12 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 )
+
+var httpClient = &http.Client{
+	Timeout: 10 * time.Second,
+}
 
 type BarkMessage struct {
 	Title string `json:"title,omitempty"`
 	Body  string `json:"body"`
-	Sound string `json:"sound,omitempty"`
 }
 
 // SendMessage 发送Bark消息
@@ -38,8 +42,7 @@ func SendMessage(serverURL, title, body string) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}

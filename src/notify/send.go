@@ -13,7 +13,7 @@ import (
 )
 
 // SendNotification 发送统一通知函数
-// 检测用户是否开启了telegram和email通知服务，然后分别发送通知
+// 检测用户是否开启了telegram、email和bark通知服务，然后分别发送通知
 // 参数: ctx(context上下文), hostName(主播姓名), platform(直播平台), liveURL(直播地址), status(直播状态: consts.LiveStatusStart/consts.LiveStatusStop)
 func SendNotification(ctx context.Context, hostName, platform, liveURL, status string) error {
 	// 获取当前配置
@@ -42,8 +42,9 @@ func SendNotification(ctx context.Context, hostName, platform, liveURL, status s
 	// 统一主播信息格式
 	hostInfo := fmt.Sprintf("%s,%s", hostName, messageStatus)
 
-	// 构造Telegram消息内容 (包含所有信息)
-	telegramMessage := fmt.Sprintf("主播：%s\n平台：%s\n直播地址：%s", hostInfo, platform, liveURL)
+	// 构造通用消息内容
+	notificationTitle := fmt.Sprintf("%s - %s", hostInfo, platform)
+	notificationBody := fmt.Sprintf("主播：%s\n平台：%s\n直播地址：%s", hostInfo, platform, liveURL)
 
 	// 检查是否开启了Telegram通知服务
 	if cfg.Notify.Telegram.Enable {
@@ -51,7 +52,7 @@ func SendNotification(ctx context.Context, hostName, platform, liveURL, status s
 		err := telegram.SendMessage(
 			cfg.Notify.Telegram.BotToken,
 			cfg.Notify.Telegram.ChatID,
-			telegramMessage,
+			notificationBody,
 			cfg.Notify.Telegram.WithNotification, // 发送带提醒的消息
 		)
 		if err != nil {
@@ -66,14 +67,10 @@ func SendNotification(ctx context.Context, hostName, platform, liveURL, status s
 		}
 	}
 
-	// 构造邮件主题和内容
-	emailSubject := fmt.Sprintf("%s - %s", hostInfo, platform)
-	emailBody := fmt.Sprintf("主播：%s\n平台：%s\n直播地址：%s", hostInfo, platform, liveURL)
-
 	// 检查是否开启了Email通知服务
 	if cfg.Notify.Email.Enable {
 		// 发送Email通知
-		err := email.SendEmail(emailSubject, emailBody)
+		err := email.SendEmail(notificationTitle, notificationBody)
 		if err != nil {
 			// 使用项目原来的日志打印方式打印错误
 			if logger != nil && logger.Logger != nil {
@@ -84,14 +81,10 @@ func SendNotification(ctx context.Context, hostName, platform, liveURL, status s
 		}
 	}
 
-	// 构造Bark消息标题和内容
-	barkTitle := fmt.Sprintf("%s - %s", hostInfo, platform)
-	barkBody := fmt.Sprintf("主播：%s\n平台：%s\n直播地址：%s", hostInfo, platform, liveURL)
-
 	// 检查是否开启了Bark通知服务
 	if cfg.Notify.Bark.Enable {
 		// 发送Bark通知
-		err := bark.SendMessage(cfg.Notify.Bark.ServerURL, barkTitle, barkBody)
+		err := bark.SendMessage(cfg.Notify.Bark.ServerURL, notificationTitle, notificationBody)
 		if err != nil {
 			// 使用项目原来的日志打印方式打印错误
 			if logger != nil && logger.Logger != nil {
