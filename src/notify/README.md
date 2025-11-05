@@ -5,6 +5,7 @@
 该模块提供统一的通知发送功能，支持以下通知方式：
 - Telegram 消息通知
 - Email 邮件通知
+- Bark iOS 推送通知
 
 ## 使用方法
 
@@ -28,6 +29,23 @@ https://wx.mail.qq.com/list/readtemplate?name=app_intro.html#/agreement/authoriz
 
 ![image-20250922002456095](./assets/image-20250922002456095.png)
 
+### 发送Bark通知
+
+Bark 是一个简单的 iOS 推送通知应用。
+
+1. 在 iOS 设备上安装 Bark 应用
+2. 打开应用获取你的设备密钥（Device Key）
+3. 服务器地址通常为：`https://api.day.app/你的设备密钥`
+
+#### 配置示例
+
+```yaml
+notify:
+  bark:
+    enable: true
+    serverURL: "https://api.day.app/your_device_key"
+```
+
 ## 配置说明
 
 在配置文件中启用相应的通知服务：
@@ -48,6 +66,10 @@ notify:
     senderEmail: "sender@example.com"    # 发送者邮箱
     senderPassword: "password"  # 发送者邮箱密码或授权码
     recipientEmail: "recipient@example.com"  # 接收者邮箱
+  
+  bark:
+    enable: true                # 是否启用Bark通知
+    serverURL: "https://api.day.app/your_device_key"  # Bark服务器地址
 ```
 
 ## 注意事项
