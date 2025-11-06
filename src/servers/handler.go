@@ -123,6 +123,51 @@ func stopListening(ctx context.Context, liveId types.LiveID) error {
 	return inst.ListenerManager.(listeners.Manager).RemoveListener(ctx, liveId)
 }
 
+func parseRecordAction(writer http.ResponseWriter, r *http.Request) {
+	inst := instance.GetInstance(r.Context())
+	vars := mux.Vars(r)
+	resp := commonResp{}
+	live, ok := inst.Lives[types.LiveID(vars["id"])]
+	if !ok {
+		resp.ErrNo = http.StatusNotFound
+		resp.ErrMsg = fmt.Sprintf("live id: %s can not find", vars["id"])
+		writeJsonWithStatusCode(writer, http.StatusNotFound, resp)
+		return
+	}
+	switch vars["action"] {
+	case "start-record":
+		if err := startRecording(r.Context(), live); err != nil {
+			resp.ErrNo = http.StatusBadRequest
+			resp.ErrMsg = err.Error()
+			writeJsonWithStatusCode(writer, http.StatusBadRequest, resp)
+			return
+		}
+	case "stop-record":
+		if err := stopRecording(r.Context(), live.GetLiveId()); err != nil {
+			resp.ErrNo = http.StatusBadRequest
+			resp.ErrMsg = err.Error()
+			writeJsonWithStatusCode(writer, http.StatusBadRequest, resp)
+			return
+		}
+	default:
+		resp.ErrNo = http.StatusBadRequest
+		resp.ErrMsg = fmt.Sprintf("invalid Action: %s", vars["action"])
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, resp)
+		return
+	}
+	writeJSON(writer, parseInfo(r.Context(), live))
+}
+
+func startRecording(ctx context.Context, live live.Live) error {
+	inst := instance.GetInstance(ctx)
+	return inst.RecorderManager.(recorders.Manager).AddRecorder(ctx, live)
+}
+
+func stopRecording(ctx context.Context, liveId types.LiveID) error {
+	inst := instance.GetInstance(ctx)
+	return inst.RecorderManager.(recorders.Manager).RemoveRecorder(ctx, liveId)
+}
+
 /*
 	Post data example
 

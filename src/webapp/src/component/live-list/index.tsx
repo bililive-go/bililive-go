@@ -31,6 +31,7 @@ interface ItemData {
     address: string,
     tags: string[],
     listening: boolean
+    recording: boolean
     roomId: string
 }
 interface CookieItemData {
@@ -129,6 +130,32 @@ class LiveList extends React.Component<Props, IState> {
                         }
                     }}>
                     <Button type="link" size="small">{listening ? "停止监控" : "开启监控"}</Button>
+                </PopDialog>
+                <Divider type="vertical" />
+                <PopDialog
+                    title={data.recording ? "确定停止录制？" : "确定开始录制？"}
+                    onConfirm={(e) => {
+                        if (data.recording) {
+                            //停止录制
+                            api.stopRecording(data.roomId)
+                                .then(rsp => {
+                                    this.refresh();
+                                })
+                                .catch(err => {
+                                    alert(`停止录制失败:\n${err}`);
+                                });
+                        } else {
+                            //开始录制
+                            api.startRecording(data.roomId)
+                                .then(rsp => {
+                                    this.refresh();
+                                })
+                                .catch(err => {
+                                    alert(`开始录制失败:\n${err}`);
+                                });
+                        }
+                    }}>
+                    <Button type="link" size="small">{data.recording ? "停止录制" : "开始录制"}</Button>
                 </PopDialog>
                 <Divider type="vertical" />
                 <PopDialog title="确定删除当前直播间？"
@@ -330,6 +357,7 @@ class LiveList extends React.Component<Props, IState> {
                         address: item.platform_cn_name,
                         tags,
                         listening: item.listening,
+                        recording: item.recording,
                         roomId: item.id
                     };
                 });
