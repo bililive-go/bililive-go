@@ -64,6 +64,22 @@ class API {
     }
 
     /**
+     * 手动开始录制
+     * @param id 直播间id
+     */
+    startRecording(id: string) {
+        return utils.requestGet(`${BASE_URL}/lives/${id}/record/start-record`);
+    }
+
+    /**
+     * 手动停止录制
+     * @param id 直播间id
+     */
+    stopRecording(id: string) {
+        return utils.requestGet(`${BASE_URL}/lives/${id}/record/stop-record`);
+    }
+
+    /**
      * 保存设置至config文件
      */
     saveSettings() {
