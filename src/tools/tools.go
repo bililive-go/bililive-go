@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 
 	"github.com/bililive-go/bililive-go/src/configs"
+	"github.com/bililive-go/bililive-go/src/db"
 	"github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 
@@ -162,6 +163,10 @@ func Init() (err error) {
 		err := startBTools()
 		if err != nil {
 			logrus.WithError(err).Errorln("Failed to start bililive-tools")
+			db.CreateNotification(&db.Notification{
+				Type:    "bililive_tools_startup_error",
+				Message: fmt.Sprintf("Failed to start bililive-tools: %v", err),
+			})
 		}
 	}()
 

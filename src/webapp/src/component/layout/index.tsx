@@ -1,6 +1,7 @@
 import React from 'react';
 import { HashRouter as Router, Link } from 'react-router-dom';
 import { Layout, Menu, Icon } from 'antd';
+import NotificationPanel from '../NotificationPanel';
 import './layout.css';
 
 const { SubMenu } = Menu;
@@ -48,6 +49,7 @@ class RootLayout extends React.Component {
                                     minHeight: 280,
                                     overflow: "auto",
                                 }}>
+                                <NotificationPanel />
                                 {this.props.children}
                             </Content>
                         </Layout>
