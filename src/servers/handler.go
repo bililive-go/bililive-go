@@ -24,6 +24,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/listeners"
 	"github.com/bililive-go/bililive-go/src/live"
 	"github.com/bililive-go/bililive-go/src/recorders"
+	"github.com/bililive-go/bililive-go/src/db"
 	"github.com/bililive-go/bililive-go/src/types"
 )
 
@@ -222,6 +223,46 @@ func removeLive(writer http.ResponseWriter, r *http.Request) {
 	if err := removeLiveImpl(r.Context(), live); err != nil {
 		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
 			ErrNo:  http.StatusBadRequest,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
+	writeJSON(writer, commonResp{
+		Data: "OK",
+	})
+}
+
+func getNotifications(writer http.ResponseWriter, r *http.Request) {
+	notifications, err := db.GetPendingNotifications()
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
+	if notifications == nil {
+		notifications = []db.Notification{}
+	}
+	writeJSON(writer, notifications)
+}
+
+func resolveNotification(writer http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	idStr := vars["id"]
+	var id int64
+	if _, err := fmt.Sscanf(idStr, "%d", &id); err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "invalid notification id",
+		})
+		return
+	}
+
+	err := db.ResolveNotification(id)
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
 			ErrMsg: err.Error(),
 		})
 		return
