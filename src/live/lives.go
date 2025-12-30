@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/bililive-go/bililive-go/src/configs"
+	"github.com/bililive-go/bililive-go/src/pkg/simplecache"
 	"github.com/bililive-go/bililive-go/src/types"
-	"github.com/bluele/gcache"
 )
 
 var (
@@ -133,10 +133,10 @@ type Live interface {
 
 type WrappedLive struct {
 	Live
-	cache gcache.Cache
+	cache simplecache.Cache
 }
 
-func newWrappedLive(live Live, cache gcache.Cache) Live {
+func newWrappedLive(live Live, cache simplecache.Cache) Live {
 	return &WrappedLive{
 		Live:  live,
 		cache: cache,
@@ -157,7 +157,7 @@ func (w *WrappedLive) GetInfo() (*Info, error) {
 	return i, nil
 }
 
-func New(ctx context.Context, room *configs.LiveRoom, cache gcache.Cache) (live Live, err error) {
+func New(ctx context.Context, room *configs.LiveRoom, cache simplecache.Cache) (live Live, err error) {
 	url, err := url.Parse(room.Url)
 	if err != nil {
 		return nil, err

@@ -7,7 +7,6 @@ toolchain go1.24.7
 require (
 	github.com/Masterminds/sprig v2.22.0+incompatible
 	github.com/alecthomas/kingpin v2.2.7-0.20180312062423-a39589180ebd+incompatible
-	github.com/bluele/gcache v0.0.0-20190518031135-bc40bd653833
 	github.com/gorilla/mux v1.7.4
 	github.com/hr3lxphr6j/requests v0.0.1
 	github.com/kira1928/remotetools v0.3.3

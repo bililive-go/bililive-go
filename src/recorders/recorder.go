@@ -17,7 +17,6 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/bluele/gcache"
 	"github.com/sirupsen/logrus"
 
 	"github.com/bililive-go/bililive-go/src/configs"
@@ -28,6 +27,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/pkg/parser"
 	"github.com/bililive-go/bililive-go/src/pkg/parser/ffmpeg"
 	"github.com/bililive-go/bililive-go/src/pkg/parser/native/flv"
+	"github.com/bililive-go/bililive-go/src/pkg/simplecache"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
 	"github.com/bililive-go/bililive-go/src/tools"
 )
@@ -79,7 +79,7 @@ type recorder struct {
 	config     *configs.Config
 	ed         events.Dispatcher
 	logger     *interfaces.Logger
-	cache      gcache.Cache
+	cache      simplecache.Cache
 	startTime  time.Time
 	parser     parser.Parser
 	parserLock *sync.RWMutex
