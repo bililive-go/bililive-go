@@ -9,7 +9,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bluele/gcache"
 	kiratools "github.com/kira1928/remotetools/pkg/tools"
 
 	_ "github.com/bililive-go/bililive-go/src/cmd/bililive/internal"
@@ -22,6 +21,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/metrics"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
+	"github.com/bililive-go/bililive-go/src/pkg/simplecache"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
 	"github.com/bililive-go/bililive-go/src/recorders"
 	"github.com/bililive-go/bililive-go/src/servers"
@@ -83,9 +83,7 @@ func main() {
 
 	inst := new(instance.Instance)
 	inst.Config = config
-	// TODO: Replace gcache with hashmap.
-	// LRU seems not necessary here.
-	inst.Cache = gcache.New(4096).LRU().Build()
+	inst.Cache = simplecache.New()
 	ctx := context.WithValue(context.Background(), instance.Key, inst)
 
 	logger := log.New(ctx)

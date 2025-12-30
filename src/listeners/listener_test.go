@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/bluele/gcache"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/bililive-go/bililive-go/src/configs"
@@ -15,6 +14,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
 	evtmock "github.com/bililive-go/bililive-go/src/pkg/events/mock"
+	"github.com/bililive-go/bililive-go/src/pkg/simplecache"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -76,7 +76,7 @@ func TestRefreshWithError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	ed := evtmock.NewMockDispatcher(ctrl)
-	cache := gcache.New(4).LRU().Build()
+	cache := simplecache.New()
 	ctx := context.WithValue(context.Background(), instance.Key, &instance.Instance{
 		EventDispatcher: ed,
 		Cache:           cache,
@@ -97,7 +97,7 @@ func TestListenerStartAndClose(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	ed := evtmock.NewMockDispatcher(ctrl)
-	cache := gcache.New(4).LRU().Build()
+	cache := simplecache.New()
 	config := configs.NewConfig()
 	config.Interval = 5
 	ctx := context.WithValue(context.Background(), instance.Key, &instance.Instance{
