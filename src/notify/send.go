@@ -6,7 +6,7 @@ import (
 
 	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/consts"
-	"github.com/bililive-go/bililive-go/src/instance"
+	blog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/notify/email"
 	"github.com/bililive-go/bililive-go/src/notify/telegram"
 )
@@ -19,12 +19,6 @@ func SendNotification(ctx context.Context, hostName, platform, liveURL, status s
 	cfg := configs.GetCurrentConfig()
 	if cfg == nil {
 		return fmt.Errorf("configuration is nil")
-	}
-
-	// 获取logger实例
-	var logger *instance.Instance
-	if ctx != nil {
-		logger = instance.GetInstance(ctx)
 	}
 
 	// 根据状态设置消息内容
@@ -54,13 +48,7 @@ func SendNotification(ctx context.Context, hostName, platform, liveURL, status s
 			cfg.Notify.Telegram.WithNotification, // 发送带提醒的消息
 		)
 		if err != nil {
-			// 使用项目原来的日志打印方式打印错误
-			if logger != nil && logger.Logger != nil {
-				logger.Logger.WithError(err).Error("Failed to send Telegram message")
-				// 保留了 fallback 机制
-			} else {
-				fmt.Printf("[ERROR] Failed to send Telegram message: %v\n", err)
-			}
+			blog.GetLogger().WithError(err).Error("Failed to send Telegram message")
 			// 注意：即使Telegram发送失败，我们仍然继续尝试发送邮件
 		}
 	}
@@ -74,12 +62,7 @@ func SendNotification(ctx context.Context, hostName, platform, liveURL, status s
 		// 发送Email通知
 		err := email.SendEmail(emailSubject, emailBody)
 		if err != nil {
-			// 使用项目原来的日志打印方式打印错误
-			if logger != nil && logger.Logger != nil {
-				logger.Logger.WithError(err).Error("Failed to send email")
-			} else {
-				fmt.Printf("[ERROR] Failed to send email: %v\n", err)
-			}
+			blog.GetLogger().WithError(err).Error("Failed to send email")
 		}
 	}
 
@@ -91,30 +74,12 @@ func SendTestNotification(ctx context.Context) {
 	// 测试开始直播通知
 	err := SendNotification(ctx, "测试主播", "测试平台", "https://example.com/live", consts.LiveStatusStart)
 	if err != nil {
-		// 获取logger实例
-		var logger *instance.Instance
-		if ctx != nil {
-			logger = instance.GetInstance(ctx)
-		}
-		if logger != nil && logger.Logger != nil {
-			logger.Logger.WithError(err).Error("Failed to send start live test notification")
-		} else {
-			fmt.Printf("[ERROR] Failed to send start live test notification: %v\n", err)
-		}
+		blog.GetLogger().WithError(err).Error("Failed to send start live test notification")
 	}
 
 	// 测试结束直播通知
 	err = SendNotification(ctx, "测试主播", "测试平台", "https://example.com/live", consts.LiveStatusStop)
 	if err != nil {
-		// 获取logger实例
-		var logger *instance.Instance
-		if ctx != nil {
-			logger = instance.GetInstance(ctx)
-		}
-		if logger != nil && logger.Logger != nil {
-			logger.Logger.WithError(err).Error("Failed to send stop live test notification")
-		} else {
-			fmt.Printf("[ERROR] Failed to send stop live test notification: %v\n", err)
-		}
+		blog.GetLogger().WithError(err).Error("Failed to send stop live test notification")
 	}
 }

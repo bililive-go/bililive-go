@@ -12,15 +12,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bililive-go/bililive-go/src/instance"
+	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/live"
+	applog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/pkg/parser"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
 )
 
 const (
-	Name = "ffmpeg"
-
+	Name      = "ffmpeg"
 	userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/59.0.3071.115 Safari/537.36"
 )
 
@@ -31,12 +31,7 @@ func init() {
 type builder struct{}
 
 func (b *builder) Build(cfg map[string]string) (parser.Parser, error) {
-	debug := false
-	if debugFlag, ok := cfg["debug"]; ok && debugFlag != "" {
-		debug = true
-	}
 	return &Parser{
-		debug:       debug,
 		closeOnce:   new(sync.Once),
 		statusReq:   make(chan struct{}, 1),
 		statusResp:  make(chan map[string]string, 1),
@@ -49,7 +44,6 @@ type Parser struct {
 	cmdStdIn    io.WriteCloser
 	cmdStdout   io.ReadCloser
 	closeOnce   *sync.Once
-	debug       bool
 	timeoutInUs string
 
 	statusReq  chan struct{}
@@ -170,10 +164,13 @@ func (p *Parser) ParseLiveStream(ctx context.Context, streamUrlInfo *live.Stream
 		args = append(args, "-headers", k+": "+v)
 	}
 
-	inst := instance.GetInstance(ctx)
-	MaxFileSize := inst.Config.VideoSplitStrategies.MaxFileSize
+	cfg := configs.GetCurrentConfig()
+	MaxFileSize := 0
+	if cfg != nil {
+		MaxFileSize = cfg.VideoSplitStrategies.MaxFileSize
+	}
 	if MaxFileSize < 0 {
-		inst.Logger.Infof("Invalid MaxFileSize: %d", MaxFileSize)
+		applog.GetLogger().Infof("Invalid MaxFileSize: %d", MaxFileSize)
 	} else if MaxFileSize > 0 {
 		args = append(args, "-fs", strconv.Itoa(MaxFileSize))
 	}
@@ -191,9 +188,8 @@ func (p *Parser) ParseLiveStream(ctx context.Context, streamUrlInfo *live.Stream
 		if p.cmdStdout, err = p.cmd.StdoutPipe(); err != nil {
 			return
 		}
-		if p.debug {
-			p.cmd.Stderr = os.Stderr
-		}
+		// 始终包裹一层可动态开关的 writer，但保留错误信息
+		p.cmd.Stderr = utils.NewLogFilterWriter(os.Stderr)
 		if err = p.cmd.Start(); err != nil {
 			if p.cmd.Process != nil {
 				p.cmd.Process.Kill()

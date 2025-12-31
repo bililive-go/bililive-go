@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/bililive-go/bililive-go/src/configs"
-	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/live"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
 	"github.com/bililive-go/bililive-go/src/types"
@@ -45,14 +44,15 @@ func NewBaseLive(url *url.URL) BaseLive {
 }
 
 func (a *BaseLive) UpdateLiveOptionsbyConfig(ctx context.Context, room *configs.LiveRoom) (err error) {
-	inst := instance.GetInstance(ctx)
 	url, err := url.Parse(room.Url)
 	if err != nil {
 		return
 	}
 	opts := make([]live.Option, 0)
-	if v, ok := inst.Config.Cookies[url.Host]; ok {
-		opts = append(opts, live.WithKVStringCookies(url, v))
+	if cfg := configs.GetCurrentConfig(); cfg != nil {
+		if v, ok := cfg.Cookies[url.Host]; ok {
+			opts = append(opts, live.WithKVStringCookies(url, v))
+		}
 	}
 	opts = append(opts, live.WithQuality(room.Quality))
 	opts = append(opts, live.WithAudioOnly(room.AudioOnly))

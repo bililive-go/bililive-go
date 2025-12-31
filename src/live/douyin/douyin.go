@@ -1,10 +1,14 @@
 package douyin
 
 import (
+<<<<<<< HEAD
 	"fmt"
 	"net/http"
 	"net/url"
 	"sort"
+=======
+	"net/url"
+>>>>>>> origin/master
 
 	"github.com/bililive-go/bililive-go/src/live"
 	"github.com/bililive-go/bililive-go/src/live/internal"
@@ -27,18 +31,13 @@ func (b *builder) Build(url *url.URL) (live.Live, error) {
 	ret := &Live{
 		BaseLive: internal.NewBaseLive(url),
 	}
-	ret.bgoLive = NewBgoLive(ret)
 	ret.btoolsLive = NewBtoolsLive(ret)
 	return ret, nil
 }
 
-type streamData struct {
-	streamUrlInfo map[string]interface{}
-	originUrlList map[string]interface{}
-}
-
 type Live struct {
 	internal.BaseLive
+<<<<<<< HEAD
 	LastAvailableStreamData streamData
 	bgoLive                 bgoLive
 	btoolsLive              btoolsLive
@@ -194,6 +193,9 @@ func (l *Live) createStreamUrlInfos(streamUrlInfo, originUrlList map[string]inte
 	//nolint:ineffassign
 
 	return streamUrlInfos, nil
+=======
+	btoolsLive btoolsLive
+>>>>>>> origin/master
 }
 
 func (l *Live) GetInfo() (info *live.Info, err error) {
@@ -202,44 +204,6 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 
 func (l *Live) GetStreamInfos() (us []*live.StreamUrlInfo, err error) {
 	return l.btoolsLive.GetStreamInfos()
-}
-
-// 新增：支持质量选择的GetStreamUrls方法
-func (l *Live) GetStreamUrls() (us []*url.URL, err error) {
-	quality := "origin"
-	if l.LastAvailableStreamData.streamUrlInfo == nil {
-		us, err = l.bgoLive.GetStreamUrls()
-		return
-	}
-	res, err := l.createStreamUrlInfos(l.LastAvailableStreamData.streamUrlInfo,
-		l.LastAvailableStreamData.originUrlList)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get stream URL for quality:  ")
-	}
-
-	qualityName, qualityIndex := getQualityIndex(quality)
-
-	// 获取指定质量的URL
-	if qualityIndex < len(res) {
-		selectedUrl := res[qualityIndex].Url
-
-		// 检查URL可用性
-		if l.checkUrlAvailability(selectedUrl.String()) {
-			return []*url.URL{selectedUrl}, nil
-		} else {
-			// 如果当前质量不可用，尝试下一个质量
-			nextIndex := qualityIndex + 1
-			if nextIndex >= len(res) {
-				nextIndex = qualityIndex - 1
-			}
-			if nextIndex >= 0 && nextIndex < len(res) {
-				fallbackUrl := res[nextIndex].Url
-				return []*url.URL{fallbackUrl}, nil
-			}
-		}
-	}
-
-	return nil, fmt.Errorf("failed to get stream URL for quality: %s", qualityName)
 }
 
 func (l *Live) GetPlatformCNName() string {

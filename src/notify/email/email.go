@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/bililive-go/bililive-go/src/configs"
+	blog "github.com/bililive-go/bililive-go/src/log"
 	"gopkg.in/gomail.v2"
 )
 
@@ -35,7 +36,6 @@ func SendEmail(subject, body string) error {
 	if err := d.DialAndSend(m); err != nil {
 		return fmt.Errorf("failed to send email: %w", err)
 	}
-
-	fmt.Println("Email sent successfully!")
+	blog.GetLogger().Info("Email sent successfully!")
 	return nil
 }

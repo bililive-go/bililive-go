@@ -12,6 +12,8 @@ import (
 	"runtime/debug"
 	"sync"
 
+	applog "github.com/bililive-go/bililive-go/src/log"
+
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/live"
 	"github.com/bililive-go/bililive-go/src/pkg/parser"
@@ -160,8 +162,8 @@ func (p *Parser) doCopy(ctx context.Context, n uint32) error {
 }
 
 func (p *Parser) doWrite(ctx context.Context, b []byte) error {
-	inst := instance.GetInstance(ctx)
-	logger := inst.Logger
+	_ = instance.GetInstance(ctx) // keep context link if needed
+	logger := applog.GetLogger()
 	leftInputSize := len(b)
 	for retryLeft := ioRetryCount; retryLeft > 0 && leftInputSize > 0; retryLeft-- {
 		writtenCount, err := p.o.Write(b[len(b)-leftInputSize:])

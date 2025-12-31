@@ -12,7 +12,8 @@ import (
 	"sync/atomic"
 
 	"github.com/bililive-go/bililive-go/src/configs"
-	"github.com/sirupsen/logrus"
+	blog "github.com/bililive-go/bililive-go/src/log"
+	"github.com/bililive-go/bililive-go/src/pkg/utils"
 	"github.com/tidwall/gjson"
 
 	"github.com/kira1928/remotetools/pkg/tools"
@@ -32,7 +33,7 @@ func AsyncInit() {
 	go func() {
 		err := Init()
 		if err != nil {
-			logrus.Errorln("Failed to initialize RemoteTools:", err)
+			blog.GetLogger().Errorln("Failed to initialize RemoteTools:", err)
 		}
 	}()
 }
@@ -66,26 +67,26 @@ func SyncBuiltInTools(targetToolFolder string) (err error) {
 		var tool tools.Tool
 		tool, err = api.GetTool(toolName)
 		if err != nil {
-			logrus.WithError(err).Warn("failed to get built-in tool:", toolName)
+			blog.GetLogger().WithError(err).Warn("failed to get built-in tool:", toolName)
 			continue
 		}
 		if !tool.DoesToolExist() {
-			logrus.Infoln("Installing built-in tool:", toolName)
+			blog.GetLogger().Infoln("Installing built-in tool:", toolName)
 			err = tool.Install()
 			if err != nil {
 				return err
 			}
 		}
-		logrus.Infoln("Built-in tool is ready:", toolName, "version:", tool.GetVersion())
+		blog.GetLogger().Infoln("Built-in tool is ready:", toolName, "version:", tool.GetVersion())
 		toolsToKeep = append(toolsToKeep, tool)
 	}
 
 	_, err = api.DeleteAllExceptToolsInRoot(toolsToKeep)
 	if err != nil {
-		logrus.WithError(err).Warn("failed to clean up unused built-in tools")
+		blog.GetLogger().WithError(err).Warn("failed to clean up unused built-in tools")
 		return
 	}
-	logrus.Infoln("Built-in tools synchronized to", targetToolFolder)
+	blog.GetLogger().Infoln("Built-in tools synchronized to", targetToolFolder)
 
 	return err
 }
@@ -149,7 +150,7 @@ func Init() (err error) {
 	if err != nil {
 		return
 	}
-	logrus.Infoln("RemoteTools Web UI started")
+	blog.GetLogger().Infoln("RemoteTools Web UI started")
 
 	for _, toolName := range []string{
 		"ffmpeg",
@@ -161,7 +162,7 @@ func Init() (err error) {
 	go func() {
 		err := startBTools()
 		if err != nil {
-			logrus.WithError(err).Errorln("Failed to start bililive-tools")
+			blog.GetLogger().WithError(err).Errorln("Failed to start bililive-tools")
 		}
 	}()
 
@@ -219,10 +220,11 @@ func startBTools() error {
 	)
 	cmd.Dir = btoolsFolder
 	cmd.Env = env
-	cmd.Stderr = os.Stderr
-	cmd.Stdout = os.Stdout
+	// 动态决定是否输出，保留错误信息
+	cmd.Stdout = utils.NewDebugControlledWriter(os.Stdout)
+	cmd.Stderr = utils.NewLogFilterWriter(os.Stderr)
 
-	logrus.Infoln("Starting bililive-tools server…")
+	blog.GetLogger().Infoln("Starting bililive-tools server…")
 	// 在 Windows 下使用 Job Object，确保主进程退出时子进程被一并终止
 	return runWithKillOnClose(cmd)
 }
@@ -231,7 +233,7 @@ func AsyncDownloadIfNecessary(toolName string) {
 	go func() {
 		err := DownloadIfNecessary(toolName)
 		if err != nil {
-			logrus.Errorln("Failed to download", toolName, "tool:", err)
+			blog.GetLogger().Errorln("Failed to download", toolName, "tool:", err)
 		}
 	}()
 }
@@ -252,7 +254,7 @@ func DownloadIfNecessary(toolName string) (err error) {
 			return err
 		}
 	}
-	logrus.Infoln(toolName, "tool is ready to use, version:", tool.GetVersion())
+	blog.GetLogger().Infoln(toolName, "tool is ready to use, version:", tool.GetVersion())
 	return nil
 }
 
@@ -267,7 +269,7 @@ func Get() *tools.API {
 func FixFlvByBililiveRecorder(ctx context.Context, fileName string) (outputFiles []string, err error) {
 	defer func() {
 		if err != nil {
-			logrus.WithError(err).Warn("failed to fix flv file by bililive-recorder")
+			blog.GetLogger().WithError(err).Warn("failed to fix flv file by bililive-recorder")
 		}
 	}()
 
@@ -396,7 +398,7 @@ func FixFlvByBililiveRecorder(ctx context.Context, fileName string) (outputFiles
 	if total*10 >= origSize*9 {
 		// 成功：删除原始文件
 		if remErr := os.Remove(fileName); remErr != nil {
-			logrus.WithError(remErr).Warnf("failed to remove original file: %s", fileName)
+			blog.GetLogger().WithError(remErr).Warnf("failed to remove original file: %s", fileName)
 		}
 		// 重命名输出文件, 去掉中间的 .fix_p 部分
 		// 如果输出文件只有一个，则直接使用原文件名

@@ -43,3 +43,7 @@ build-web:
 .PHONY: run
 run:
 	foreman start || exit 0
+
+.PHONY: lint
+lint:
+	golangci-lint run --path-mode=abs --build-tags=dev
