@@ -145,7 +145,7 @@ func initMux(ctx context.Context) *mux.Router {
 
 	fs, err := webapp.FS()
 	if err != nil {
-		instance.GetInstance(ctx).Logger.Fatal(err)
+		applog.GetLogger().Fatal(err)
 	}
 	m.PathPrefix("/").Handler(http.FileServer(fs))
 

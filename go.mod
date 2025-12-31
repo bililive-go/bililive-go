@@ -21,7 +21,7 @@ require (
 	go.uber.org/mock v0.5.2
 	golang.org/x/sys v0.33.0
 	gopkg.in/gomail.v2 v2.0.0-20160411212932-81ebce5c23df
-	gopkg.in/yaml.v2 v2.3.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require github.com/blang/semver/v4 v4.0.0 // indirect
@@ -54,5 +54,4 @@ require (
 	google.golang.org/protobuf v1.26.0-rc.1 // indirect
 	gopkg.in/alexcesaro/quotedprintable.v3 v3.0.0-20150716171945-2caba252f4dc // indirect
 	gopkg.in/sourcemap.v1 v1.0.5 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

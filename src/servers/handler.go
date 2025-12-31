@@ -16,7 +16,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/tidwall/gjson"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 
 	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/consts"

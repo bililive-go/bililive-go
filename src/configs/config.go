@@ -1,6 +1,7 @@
 package configs
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net"
@@ -12,7 +13,7 @@ import (
 	"time"
 
 	"github.com/bililive-go/bililive-go/src/types"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 // RPC info.
@@ -554,11 +555,32 @@ func (c *Config) Marshal() error {
 	if c.File == "" {
 		return errors.New("config path not set")
 	}
-	b, err := yaml.Marshal(c)
+
+	// 1. 将当前配置结构体序列化为新 Node
+	var newNode yaml.Node
+	// 我们先序列化为字节，然后反序列化为 Node，因为 yaml.Marshal 返回字节。
+	// 另外也可以使用 Encoder，但 Unmarshal 更容易获得干净的 Node 树。
+	tempBytes, err := yaml.Marshal(c)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(c.File, b, os.ModeAppend)
+	if err := yaml.Unmarshal(tempBytes, &newNode); err != nil {
+		return err
+	}
+
+	// 2. 注入硬编码的注释
+	DecorateConfigNode(&newNode)
+
+	// 3. 将 Node 序列化回字节
+	// 使用 Encoder 以设置缩进为 2 空格
+	var buf bytes.Buffer
+	encoder := yaml.NewEncoder(&buf)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(&newNode); err != nil {
+		return err
+	}
+
+	return os.WriteFile(c.File, buf.Bytes(), os.ModeAppend)
 }
 
 func (c Config) GetFilePath() (string, error) {
