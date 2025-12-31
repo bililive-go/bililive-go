@@ -16,7 +16,7 @@ feature:
   use_native_flv_parser: false
   remove_symbol_other_character: false
 live_rooms:
-  # qulity参数目前仅B站启用，默认为0
+  # quality参数目前仅B站启用，默认为0
   # (B站)0代表原画PRO(HEVC)优先, 其他数值为原画(AVC)
   # 原画PRO会保存为.ts文件, 原画为.flv
   # HEVC相比AVC体积更小, 减少35%体积, 画质相当, 但是B站转码有时候会崩

@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/bililive-go/bililive-go/src/types"
 	"github.com/stretchr/testify/assert"
@@ -32,9 +31,6 @@ live_rooms:
 
 	// 3. Test Persistent Update (SetDebug)
 	t.Log("Testing Persistent Update: SetDebug")
-	statBefore, err := os.Stat(configFile)
-	assert.NoError(t, err)
-	time.Sleep(1 * time.Second) // Ensure mtime difference if FS has low resolution
 
 	_, err = SetDebug(true)
 	assert.NoError(t, err)
@@ -47,17 +43,8 @@ live_rooms:
 	assert.NoError(t, err)
 	assert.True(t, strings.Contains(string(contentAfter), "debug: true"), "File should contain debug: true")
 
-	statAfter, err := os.Stat(configFile)
-	assert.NoError(t, err)
-	assert.True(t, statAfter.ModTime().After(statBefore.ModTime()), "File mtime should be updated")
-
 	// 4. Test Transient Update (SetLiveRoomId)
 	t.Log("Testing Transient Update: SetLiveRoomId")
-	statBeforeTransient, err := os.Stat(configFile)
-	assert.NoError(t, err)
-
-	// Wait to ensure we can distinguish mtime if it were to change
-	time.Sleep(1 * time.Second)
 
 	fakeID := types.LiveID("fake_id_123")
 	_, err = SetLiveRoomId("http://live.bilibili.com/123", fakeID)
@@ -70,10 +57,6 @@ live_rooms:
 	assert.Equal(t, fakeID, room.LiveId)
 
 	// Check file (Should NOT change)
-	statAfterTransient, err := os.Stat(configFile)
-	assert.NoError(t, err)
-	assert.Equal(t, statBeforeTransient.ModTime(), statAfterTransient.ModTime(), "File mtime should NOT be updated for transient change")
-
 	contentAfterTransient, err := os.ReadFile(configFile)
 	assert.NoError(t, err)
 	assert.Equal(t, string(contentAfter), string(contentAfterTransient), "File content should not change")

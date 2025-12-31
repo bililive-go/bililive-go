@@ -18,7 +18,6 @@ import (
 func NewManager(ctx context.Context) Manager {
 	rm := &manager{
 		savers: make(map[types.LiveID]Recorder),
-		cfg:    configs.GetCurrentConfig(),
 	}
 	instance.GetInstance(ctx).RecorderManager = rm
 
@@ -42,7 +41,6 @@ var (
 type manager struct {
 	lock   sync.RWMutex
 	savers map[types.LiveID]Recorder
-	cfg    *configs.Config
 }
 
 func (m *manager) registryListener(ctx context.Context, ed events.Dispatcher) {
@@ -108,8 +106,11 @@ func (m *manager) AddRecorder(ctx context.Context, live live.Live) error {
 	}
 	m.savers[live.GetLiveId()] = recorder
 
-	if maxDur := m.cfg.VideoSplitStrategies.MaxDuration; maxDur != 0 {
-		go m.cronRestart(ctx, live)
+	cfg := configs.GetCurrentConfig()
+	if cfg != nil {
+		if maxDur := cfg.VideoSplitStrategies.MaxDuration; maxDur != 0 {
+			go m.cronRestart(ctx, live)
+		}
 	}
 	return recorder.Start(ctx)
 }
@@ -119,7 +120,11 @@ func (m *manager) cronRestart(ctx context.Context, live live.Live) {
 	if err != nil {
 		return
 	}
-	if time.Since(recorder.StartTime()) < m.cfg.VideoSplitStrategies.MaxDuration {
+	cfg := configs.GetCurrentConfig()
+	if cfg == nil {
+		return
+	}
+	if time.Since(recorder.StartTime()) < cfg.VideoSplitStrategies.MaxDuration {
 		time.AfterFunc(time.Minute/4, func() {
 			m.cronRestart(ctx, live)
 		})

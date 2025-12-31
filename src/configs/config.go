@@ -194,7 +194,7 @@ func updateImpl(mutator func(c *Config) error, persist bool) (*Config, error) {
 
 	if persist && newCfg.File != "" {
 		if err := newCfg.Marshal(); err != nil {
-			// 如果持久化失败，我们选择记录错误但不阻止内存更新??
+			// 如果持久化失败，我们选择记录错误但不阻止内存更新
 			// 或者返回错误？这里选择返回错误，因为用户期望保存成功。
 			return nil, fmt.Errorf("failed to save config: %w", err)
 		}
@@ -574,7 +574,7 @@ func (c *Config) Marshal() error {
 		return err
 	}
 
-	return os.WriteFile(c.File, buf.Bytes(), os.ModeAppend)
+	return os.WriteFile(c.File, buf.Bytes(), 0644)
 }
 
 func (c Config) GetFilePath() (string, error) {

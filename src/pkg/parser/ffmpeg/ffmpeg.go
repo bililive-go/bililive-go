@@ -188,8 +188,8 @@ func (p *Parser) ParseLiveStream(ctx context.Context, streamUrlInfo *live.Stream
 		if p.cmdStdout, err = p.cmd.StdoutPipe(); err != nil {
 			return
 		}
-		// 始终包裹一层可动态开关的 writer，避免默认继承父进程 stderr 导致无法抑制输出
-		p.cmd.Stderr = utils.NewDebugControlledWriter(os.Stderr)
+		// 始终包裹一层可动态开关的 writer，但保留错误信息
+		p.cmd.Stderr = utils.NewLogFilterWriter(os.Stderr)
 		if err = p.cmd.Start(); err != nil {
 			if p.cmd.Process != nil {
 				p.cmd.Process.Kill()

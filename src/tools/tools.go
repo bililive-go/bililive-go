@@ -220,9 +220,9 @@ func startBTools() error {
 	)
 	cmd.Dir = btoolsFolder
 	cmd.Env = env
-	// 根据配置的 Debug 动态决定是否输出到控制台
+	// 动态决定是否输出，保留错误信息
 	cmd.Stdout = utils.NewDebugControlledWriter(os.Stdout)
-	cmd.Stderr = utils.NewDebugControlledWriter(os.Stderr)
+	cmd.Stderr = utils.NewLogFilterWriter(os.Stderr)
 
 	blog.GetLogger().Infoln("Starting bililive-tools server…")
 	// 在 Windows 下使用 Job Object，确保主进程退出时子进程被一并终止
