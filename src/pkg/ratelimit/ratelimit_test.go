@@ -51,6 +51,9 @@ func TestPlatformRateLimiterUpdate(t *testing.T) {
 	// 更新限制
 	limiter.SetPlatformLimit("update_test", 1)
 
+	// 第一次访问应该立即通过
+	limiter.WaitForPlatform("update_test")
+
 	// 验证新的限制生效
 	start := time.Now()
 	limiter.WaitForPlatform("update_test")
