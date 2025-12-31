@@ -93,18 +93,18 @@ func parseLiveAction(writer http.ResponseWriter, r *http.Request) {
 			resp.ErrNo = http.StatusBadRequest
 			resp.ErrMsg = err.Error()
 			writeJsonWithStatusCode(writer, http.StatusBadRequest, resp)
-			return
-		} else {
-			configs.SetLiveRoomListening(live.GetRawUrl(), true)
+		}
+		if _, err := configs.SetLiveRoomListening(live.GetRawUrl(), true); err != nil {
+			applog.GetLogger().Error("failed to set live room listening: " + err.Error())
 		}
 	case "stop":
 		if err := stopListening(r.Context(), live.GetLiveId()); err != nil {
 			resp.ErrNo = http.StatusBadRequest
 			resp.ErrMsg = err.Error()
 			writeJsonWithStatusCode(writer, http.StatusBadRequest, resp)
-			return
-		} else {
-			configs.SetLiveRoomListening(live.GetRawUrl(), false)
+		}
+		if _, err := configs.SetLiveRoomListening(live.GetRawUrl(), false); err != nil {
+			applog.GetLogger().Error("failed to set live room listening: " + err.Error())
 		}
 	default:
 		resp.ErrNo = http.StatusBadRequest
@@ -205,7 +205,9 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool) (info *live.
 				return nil, errors.New("liveRoom is nil, cannot append to LiveRooms")
 			}
 			// 使用统一的 Update 接口做 COW 并原子替换
-			configs.AppendLiveRoom(*liveRoom)
+			if _, err := configs.AppendLiveRoom(*liveRoom); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return info, nil
@@ -243,7 +245,9 @@ func removeLiveImpl(ctx context.Context, live live.Live) error {
 		}
 	}
 	delete(inst.Lives, live.GetLiveId())
-	configs.RemoveLiveRoomByUrl(live.GetRawUrl())
+	if _, err := configs.RemoveLiveRoomByUrl(live.GetRawUrl()); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -322,7 +326,9 @@ func putRawConfig(writer http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	_ = newConfig.Marshal()
+	if err := newConfig.Marshal(); err != nil {
+		applog.GetLogger().Error("failed to save config: " + err.Error())
+	}
 	writeJSON(writer, commonResp{
 		Data: "OK",
 	})
@@ -500,7 +506,14 @@ func putLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// 使用统一 Update 接口更新 Cookies
-	newCfg := configs.SetCookie(host, cookie)
+	newCfg, err := configs.SetCookie(host, cookie)
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
 	for _, v := range newCfg.LiveRooms {
 		tmpurl, _ := url.Parse(v.Url)
 		if tmpurl.Host != host {
@@ -516,7 +529,9 @@ func putLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 		}
 		live.UpdateLiveOptionsbyConfig(ctx, &v)
 	}
-	_ = newCfg.Marshal()
+	if err := newCfg.Marshal(); err != nil {
+		applog.GetLogger().Error("failed to persistence config: " + err.Error())
+	}
 	writeJSON(writer, commonResp{
 		Data: "OK",
 	})

@@ -128,7 +128,13 @@ func (l *listener) refresh() {
 		// 发送结束直播提醒和录像通知
 		l.sendLiveNotification(hostName, consts.LiveStatusStop)
 	case roomNameChangedEvt:
-		if cfg := configs.GetCurrentConfig(); cfg == nil || !cfg.VideoSplitStrategies.OnRoomNameChanged {
+		cfg := configs.GetCurrentConfig()
+		if cfg == nil {
+			// 如果配置为空，可能是系统正在初始化或关闭，这不一定是错误，但在这里返回是安全的
+			// 为了防止 NPE，我们需要显式检查
+			return
+		}
+		if !cfg.VideoSplitStrategies.OnRoomNameChanged {
 			return
 		}
 		evtTyp = RoomNameChanged
@@ -154,8 +160,13 @@ func (l *listener) refresh() {
 
 func (l *listener) run() {
 	interval := 30
-	if cfg := configs.GetCurrentConfig(); cfg != nil && cfg.Interval > 0 {
-		interval = cfg.Interval
+	cfg := configs.GetCurrentConfig()
+	if cfg != nil {
+		if cfg.Interval > 0 {
+			interval = cfg.Interval
+		} else {
+			applog.GetLogger().Warn("config interval is <= 0, using default 30s")
+		}
 	}
 	ticker := jitterbug.New(
 		time.Duration(interval)*time.Second,

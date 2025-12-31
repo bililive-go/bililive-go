@@ -17,6 +17,11 @@ import (
 	"github.com/bililive-go/bililive-go/src/interfaces"
 )
 
+var (
+	stopDebugWatcher context.CancelFunc
+	watcherMu        sync.Mutex
+)
+
 func New(ctx context.Context) *interfaces.Logger {
 	_ = instance.GetInstance(ctx)
 	cfg := configs.GetCurrentConfig()
@@ -68,13 +73,21 @@ func New(ctx context.Context) *interfaces.Logger {
 	logrus.SetLevel(logLevel)
 
 	// 动态监听 Debug 变化，实时调整日志级别与是否打印调用方
+	watcherMu.Lock()
+	if stopDebugWatcher != nil {
+		stopDebugWatcher()
+	}
+	watcherCtx, cancel := context.WithCancel(ctx)
+	stopDebugWatcher = cancel
+	watcherMu.Unlock()
+
 	go func() {
 		ticker := time.NewTicker(500 * time.Millisecond)
 		defer ticker.Stop()
 		prev := config.Debug
 		for {
 			select {
-			case <-ctx.Done():
+			case <-watcherCtx.Done():
 				return
 			case <-ticker.C:
 				now := configs.IsDebug()

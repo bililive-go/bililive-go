@@ -34,9 +34,10 @@ live_rooms:
 	t.Log("Testing Persistent Update: SetDebug")
 	statBefore, err := os.Stat(configFile)
 	assert.NoError(t, err)
-	time.Sleep(100 * time.Millisecond) // Ensure mtime difference if FS has low resolution
+	time.Sleep(1 * time.Second) // Ensure mtime difference if FS has low resolution
 
-	SetDebug(true)
+	_, err = SetDebug(true)
+	assert.NoError(t, err)
 
 	// Check memory
 	assert.True(t, GetCurrentConfig().Debug)
@@ -56,10 +57,11 @@ live_rooms:
 	assert.NoError(t, err)
 
 	// Wait to ensure we can distinguish mtime if it were to change
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 
 	fakeID := types.LiveID("fake_id_123")
-	SetLiveRoomId("http://live.bilibili.com/123", fakeID)
+	_, err = SetLiveRoomId("http://live.bilibili.com/123", fakeID)
+	assert.NoError(t, err)
 
 	// Check memory
 	current := GetCurrentConfig()

@@ -1,4 +1,4 @@
-//go:build release
+//go:build !dev
 
 package tools
 

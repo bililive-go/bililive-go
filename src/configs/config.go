@@ -288,35 +288,32 @@ func MustUpdate(mutator func(c *Config)) *Config {
 }
 
 // SetDebug 原子更新 Debug 标志。
-func SetDebug(v bool) *Config {
-	cfg, _ := UpdateWithRetry(func(c *Config) error { c.Debug = v; return nil }, 3, 10*time.Millisecond)
-	return cfg
+func SetDebug(v bool) (*Config, error) {
+	return UpdateWithRetry(func(c *Config) error { c.Debug = v; return nil }, 3, 10*time.Millisecond)
 }
 
 // SetCookie 设置某个 host 的 Cookie。
-func SetCookie(host, cookie string) *Config {
-	cfg, _ := UpdateWithRetry(func(c *Config) error {
+func SetCookie(host, cookie string) (*Config, error) {
+	return UpdateWithRetry(func(c *Config) error {
 		if c.Cookies == nil {
 			c.Cookies = make(map[string]string)
 		}
 		c.Cookies[host] = cookie
 		return nil
 	}, 3, 10*time.Millisecond)
-	return cfg
 }
 
 // AppendLiveRoom 追加一个 LiveRoom。
-func AppendLiveRoom(room LiveRoom) *Config {
-	cfg, _ := UpdateWithRetry(func(c *Config) error {
+func AppendLiveRoom(room LiveRoom) (*Config, error) {
+	return UpdateWithRetry(func(c *Config) error {
 		c.LiveRooms = append(c.LiveRooms, room)
 		return nil
 	}, 3, 10*time.Millisecond)
-	return cfg
 }
 
 // RemoveLiveRoomByUrl 从配置中移除指定 URL 的房间
-func RemoveLiveRoomByUrl(url string) *Config {
-	cfg, _ := UpdateWithRetry(func(c *Config) error {
+func RemoveLiveRoomByUrl(url string) (*Config, error) {
+	return UpdateWithRetry(func(c *Config) error {
 		if len(c.LiveRooms) == 0 {
 			return nil
 		}
@@ -329,30 +326,27 @@ func RemoveLiveRoomByUrl(url string) *Config {
 		c.LiveRooms = out
 		return nil
 	}, 3, 10*time.Millisecond)
-	return cfg
 }
 
 // SetLiveRoomListening 设置指定 URL 的房间监听状态
-func SetLiveRoomListening(url string, listening bool) *Config {
-	cfg, _ := UpdateWithRetry(func(c *Config) error {
+func SetLiveRoomListening(url string, listening bool) (*Config, error) {
+	return UpdateWithRetry(func(c *Config) error {
 		if room, err := c.GetLiveRoomByUrl(url); err == nil {
 			room.IsListening = listening
 		}
 		return nil
 	}, 3, 10*time.Millisecond)
-	return cfg
 }
 
 // SetLiveRoomId 设置指定 URL 的房间的 LiveId
 // LiveId 不持久化，因此使用 Transient 更新
-func SetLiveRoomId(url string, id types.LiveID) *Config {
-	cfg, _ := UpdateWithRetryTransient(func(c *Config) error {
+func SetLiveRoomId(url string, id types.LiveID) (*Config, error) {
+	return UpdateWithRetryTransient(func(c *Config) error {
 		if room, err := c.GetLiveRoomByUrl(url); err == nil {
 			room.LiveId = id
 		}
 		return nil
 	}, 3, 10*time.Millisecond)
-	return cfg
 }
 
 type LiveRoom struct {
@@ -592,6 +586,8 @@ func (c Config) GetFilePath() (string, error) {
 
 // CloneConfigShallow 返回 Config 的浅克隆，并对常见可变字段做拷贝，便于进行“复制-更新-原子替换”以避免并发数据竞争。
 // 注意：该函数不会深拷贝嵌套结构中的所有指针字段，请根据需要扩展。
+// Config 结构体中还有其他复杂类型（如 RPC、Log、Feature、VideoSplitStrategies、OnRecordFinished、Notify 等嵌套结构体），
+// 这些结构体目前仅包含字符串和基本类型，浅拷贝足够。但如果将来这些结构体中添加了指针或切片字段，需要更新克隆逻辑。
 func CloneConfigShallow(src *Config) *Config {
 	if src == nil {
 		return nil
