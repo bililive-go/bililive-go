@@ -13,6 +13,10 @@ dev:
 release: build-web generate
 	@./src/hack/release.sh
 
+.PHONY: release-no-web
+release-no-web: generate
+	@./src/hack/release.sh
+
 .PHONY: release-docker
 release-docker:
 	@./src/hack/release-docker.sh
@@ -39,3 +43,7 @@ build-web:
 .PHONY: run
 run:
 	foreman start || exit 0
+
+.PHONY: lint
+lint:
+	golangci-lint run --path-mode=abs --build-tags=dev

@@ -64,6 +64,15 @@ func getConfigBesidesExecutable() (*configs.Config, error) {
 }
 
 func main() {
+	// 如果提供了 --sync-built-in-tools-to-path，则进行同步（下载容器内置工具并清理其他版本/其他工具）后退出
+	if flag.SyncBuiltInToolsToPath != nil && *flag.SyncBuiltInToolsToPath != "" {
+		if err := tools.SyncBuiltInTools(*flag.SyncBuiltInToolsToPath); err != nil {
+			fmt.Fprint(os.Stderr, err.Error())
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	config, err := getConfig()
 	if err != nil {
 		fmt.Fprint(os.Stderr, err.Error())
@@ -73,7 +82,6 @@ func main() {
 	configs.SetCurrentConfig(config)
 
 	inst := new(instance.Instance)
-	inst.Config = config
 	// TODO: Replace gcache with hashmap.
 	// LRU seems not necessary here.
 	inst.Cache = gcache.New(4096).LRU().Build()
@@ -89,7 +97,7 @@ func main() {
 		logger.Debugf("flag: %s used.", os.Args)
 	}
 	logger.Debugf("%+v", consts.AppInfo)
-	logger.Debugf("%+v", inst.Config)
+	logger.Debugf("%+v", configs.GetCurrentConfig())
 
 	if !utils.IsFFmpegExist(ctx) {
 		hasFoundFfmpeg := false
@@ -119,10 +127,11 @@ func main() {
 	events.NewDispatcher(ctx)
 
 	inst.Lives = make(map[types.LiveID]live.Live)
-	for index := range inst.Config.LiveRooms {
-		room := &inst.Config.LiveRooms[index]
+	cfg := configs.GetCurrentConfig()
+	for index := range cfg.LiveRooms {
+		room := cfg.LiveRooms[index]
 
-		l, liveErr := live.New(ctx, room, inst.Cache)
+		l, liveErr := live.New(ctx, &room, inst.Cache)
 		if liveErr != nil {
 			logger.WithField("url", room).Error(liveErr.Error())
 			continue
@@ -132,7 +141,7 @@ func main() {
 			continue
 		}
 		inst.Lives[l.GetLiveId()] = l
-		room.LiveId = l.GetLiveId()
+		configs.SetLiveRoomId(room.Url, l.GetLiveId())
 	}
 
 	lm := listeners.NewManager(ctx)
@@ -149,14 +158,15 @@ func main() {
 	}
 
 	// 启动 server 要在上面的 manager 初始化之后，否则可能会出现空指针异常
-	if inst.Config.RPC.Enable {
+	if cfg := configs.GetCurrentConfig(); cfg != nil && cfg.RPC.Enable {
 		if err = servers.NewServer(ctx).Start(ctx); err != nil {
 			logger.WithError(err).Fatalf("failed to init server")
 		}
 	}
 
 	for _, _live := range inst.Lives {
-		room, err := inst.Config.GetLiveRoomByUrl(_live.GetRawUrl())
+		cfg = configs.GetCurrentConfig()
+		room, err := cfg.GetLiveRoomByUrl(_live.GetRawUrl())
 		if err != nil {
 			logger.WithFields(map[string]any{"room": _live.GetRawUrl()}).Error(err)
 			panic(err)
@@ -173,21 +183,21 @@ func main() {
 	signal.Notify(c, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-c
-		if inst.Config.RPC.Enable {
+		if cfg := configs.GetCurrentConfig(); cfg != nil && cfg.RPC.Enable {
 			inst.Server.Close(ctx)
 		}
 		inst.ListenerManager.Close(ctx)
 		inst.RecorderManager.Close(ctx)
 	}()
 
-	if inst.Config.Debug {
-		go func() {
-			for {
-				time.Sleep(time.Second * 30)
+	go func() {
+		for {
+			time.Sleep(time.Second * 30)
+			if configs.IsDebug() {
 				utils.ConnCounterManager.PrintMap()
 			}
-		}()
-	}
+		}
+	}()
 	inst.WaitGroup.Wait()
 	logger.Info("Bye~")
 }

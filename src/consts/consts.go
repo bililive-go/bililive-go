@@ -16,14 +16,17 @@ const (
 )
 
 type Info struct {
-	AppName       string `json:"app_name"`
-	AppVersion    string `json:"app_version"`
-	BuildTime     string `json:"build_time"`
-	GitHash       string `json:"git_hash"`
-	Pid           int    `json:"pid"`
-	Platform      string `json:"platform"`
-	GoVersion     string `json:"go_version"`
-	IsInContainer bool   `json:"is_in_container"`
+	AppName    string `json:"app_name"`
+	AppVersion string `json:"app_version"`
+	BuildTime  string `json:"build_time"`
+	GitHash    string `json:"git_hash"`
+	Pid        int    `json:"pid"`
+	Platform   string `json:"platform"`
+	GoVersion  string `json:"go_version"`
+	IsDocker   string `json:"is_docker"`
+	PUID       string `json:"puid"`
+	PGID       string `json:"pgid"`
+	UMASK      string `json:"umask"`
 }
 
 var (
@@ -31,13 +34,16 @@ var (
 	AppVersion string
 	GitHash    string
 	AppInfo    = Info{
-		AppName:       AppName,
-		AppVersion:    AppVersion,
-		BuildTime:     BuildTime,
-		GitHash:       GitHash,
-		Pid:           os.Getpid(),
-		Platform:      fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
-		GoVersion:     runtime.Version(),
-		IsInContainer: os.Getenv("IS_DOCKER") == "true",
+		AppName:    AppName,
+		AppVersion: AppVersion,
+		BuildTime:  BuildTime,
+		GitHash:    GitHash,
+		Pid:        os.Getpid(),
+		Platform:   fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
+		GoVersion:  runtime.Version(),
+		IsDocker:   os.Getenv("IS_DOCKER"),
+		PUID:       os.Getenv("PUID"),
+		PGID:       os.Getenv("PGID"),
+		UMASK:      os.Getenv("UMASK"),
 	}
 )

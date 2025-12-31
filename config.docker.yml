@@ -5,6 +5,7 @@ debug: false
 interval: 20
 out_put_path: /srv/bililive
 app_data_path: /srv/bililive/.appdata
+read_only_tool_folder: /opt/bililive/tools
 feature:
   use_native_flv_parser: false
 live_rooms:

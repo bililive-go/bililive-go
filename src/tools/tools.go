@@ -12,7 +12,8 @@ import (
 	"sync/atomic"
 
 	"github.com/bililive-go/bililive-go/src/configs"
-	"github.com/sirupsen/logrus"
+	blog "github.com/bililive-go/bililive-go/src/log"
+	"github.com/bililive-go/bililive-go/src/pkg/utils"
 	"github.com/tidwall/gjson"
 
 	"github.com/kira1928/remotetools/pkg/tools"
@@ -32,9 +33,62 @@ func AsyncInit() {
 	go func() {
 		err := Init()
 		if err != nil {
-			logrus.Errorln("Failed to initialize RemoteTools:", err)
+			blog.GetLogger().Errorln("Failed to initialize RemoteTools:", err)
 		}
 	}()
+}
+
+func SyncBuiltInTools(targetToolFolder string) (err error) {
+	// 初始化 remotetools API 配置，避免未加载配置时获取工具失败
+	api := tools.Get()
+	if api == nil {
+		return errors.New("failed to get remotetools API instance")
+	}
+	cfgData, cfgErr := getConfigData()
+	if cfgErr != nil || cfgData == nil {
+		if cfgErr == nil {
+			cfgErr = errors.New("failed to get config data")
+		}
+		return cfgErr
+	}
+	if err = api.LoadConfigFromBytes(cfgData); err != nil {
+		return err
+	}
+
+	tools.SetRootFolder(targetToolFolder)
+	toolsToKeep := []tools.Tool{}
+	for _, toolName := range []string{
+		"ffmpeg",
+		"dotnet",
+		"bililive-recorder",
+		"node",
+		"biliLive-tools",
+	} {
+		var tool tools.Tool
+		tool, err = api.GetTool(toolName)
+		if err != nil {
+			blog.GetLogger().WithError(err).Warn("failed to get built-in tool:", toolName)
+			continue
+		}
+		if !tool.DoesToolExist() {
+			blog.GetLogger().Infoln("Installing built-in tool:", toolName)
+			err = tool.Install()
+			if err != nil {
+				return err
+			}
+		}
+		blog.GetLogger().Infoln("Built-in tool is ready:", toolName, "version:", tool.GetVersion())
+		toolsToKeep = append(toolsToKeep, tool)
+	}
+
+	_, err = api.DeleteAllExceptToolsInRoot(toolsToKeep)
+	if err != nil {
+		blog.GetLogger().WithError(err).Warn("failed to clean up unused built-in tools")
+		return
+	}
+	blog.GetLogger().Infoln("Built-in tools synchronized to", targetToolFolder)
+
+	return err
 }
 
 func Init() (err error) {
@@ -74,13 +128,29 @@ func Init() (err error) {
 		return errors.New("failed to get app config")
 	}
 
-	tools.SetToolFolder(filepath.Join(appConfig.AppDataPath, "external_tools"))
+	// 配置只读工具目录（若有），并设置可写工具目录
+	if ro := strings.TrimSpace(appConfig.ReadOnlyToolFolder); ro != "" {
+		tools.SetReadOnlyRootFolders([]string{ro})
+	}
+
+	preferredWritable := strings.TrimSpace(appConfig.ToolRootFolder)
+	if preferredWritable == "" {
+		preferredWritable = filepath.Join(appConfig.AppDataPath, "external_tools")
+	}
+
+	// 始终使用持久化目录作为存储目录（即便其不可执行），运行时由 remotetools 复制到临时目录执行
+	_ = os.MkdirAll(preferredWritable, 0o755)
+	tools.SetRootFolder(preferredWritable)
+	// 为不可执行场景指定临时执行目录（容器内目录，具备执行权限）
+	execTmp := filepath.Join(string(os.PathSeparator), "opt", "bililive", "tmp_for_exec")
+	_ = os.MkdirAll(execTmp, 0o755)
+	tools.SetTmpRootFolderForExecPermission(execTmp)
 
 	err = api.StartWebUI(0)
 	if err != nil {
 		return
 	}
-	logrus.Infoln("RemoteTools Web UI started")
+	blog.GetLogger().Infoln("RemoteTools Web UI started")
 
 	for _, toolName := range []string{
 		"ffmpeg",
@@ -89,15 +159,81 @@ func Init() (err error) {
 	} {
 		AsyncDownloadIfNecessary(toolName)
 	}
+	go func() {
+		err := startBTools()
+		if err != nil {
+			blog.GetLogger().WithError(err).Errorln("Failed to start bililive-tools")
+		}
+	}()
 
 	return nil
+}
+
+func startBTools() error {
+	// bililive-tools 依赖 node 环境
+	err := DownloadIfNecessary("node")
+	if err != nil {
+		return fmt.Errorf("failed to install node: %w", err)
+	}
+	api := tools.Get()
+	if api == nil {
+		return errors.New("failed to get remotetools API instance")
+	}
+
+	node, err := api.GetTool("node")
+	if err != nil {
+		return err
+	}
+	if !node.DoesToolExist() {
+		err = node.Install()
+		if err != nil {
+			return err
+		}
+	}
+
+	btools, err := api.GetTool("biliLive-tools")
+	if err != nil {
+		return err
+	}
+	if !btools.DoesToolExist() {
+		err = btools.Install()
+		if err != nil {
+			return err
+		}
+	}
+
+	nodeFolder := filepath.Dir(node.GetToolPath())
+	btoolsFolder := filepath.Dir(btools.GetToolPath())
+	env := []string{
+		"PATH=" + nodeFolder + string(os.PathListSeparator) + os.Getenv("PATH"),
+	}
+	nodePath, err := filepath.Abs(node.GetToolPath())
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(
+		nodePath,
+		"./index.cjs",
+		"server",
+		"-c",
+		"./appConfig.json",
+	)
+	cmd.Dir = btoolsFolder
+	cmd.Env = env
+	// 动态决定是否输出，保留错误信息
+	cmd.Stdout = utils.NewDebugControlledWriter(os.Stdout)
+	cmd.Stderr = utils.NewLogFilterWriter(os.Stderr)
+
+	blog.GetLogger().Infoln("Starting bililive-tools server…")
+	// 在 Windows 下使用 Job Object，确保主进程退出时子进程被一并终止
+	return runWithKillOnClose(cmd)
 }
 
 func AsyncDownloadIfNecessary(toolName string) {
 	go func() {
 		err := DownloadIfNecessary(toolName)
 		if err != nil {
-			logrus.Errorln("Failed to download", toolName, "tool:", err)
+			blog.GetLogger().Errorln("Failed to download", toolName, "tool:", err)
 		}
 	}()
 }
@@ -118,7 +254,7 @@ func DownloadIfNecessary(toolName string) (err error) {
 			return err
 		}
 	}
-	logrus.Infoln(toolName, "tool is ready to use, version:", tool.GetVersion())
+	blog.GetLogger().Infoln(toolName, "tool is ready to use, version:", tool.GetVersion())
 	return nil
 }
 
@@ -133,7 +269,7 @@ func Get() *tools.API {
 func FixFlvByBililiveRecorder(ctx context.Context, fileName string) (outputFiles []string, err error) {
 	defer func() {
 		if err != nil {
-			logrus.WithError(err).Warn("failed to fix flv file by bililive-recorder")
+			blog.GetLogger().WithError(err).Warn("failed to fix flv file by bililive-recorder")
 		}
 	}()
 
@@ -262,7 +398,7 @@ func FixFlvByBililiveRecorder(ctx context.Context, fileName string) (outputFiles
 	if total*10 >= origSize*9 {
 		// 成功：删除原始文件
 		if remErr := os.Remove(fileName); remErr != nil {
-			logrus.WithError(remErr).Warnf("failed to remove original file: %s", fileName)
+			blog.GetLogger().WithError(remErr).Warnf("failed to remove original file: %s", fileName)
 		}
 		// 重命名输出文件, 去掉中间的 .fix_p 部分
 		// 如果输出文件只有一个，则直接使用原文件名

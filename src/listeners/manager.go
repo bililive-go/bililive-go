@@ -4,9 +4,11 @@ import (
 	"context"
 	"sync"
 
+	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/interfaces"
 	"github.com/bililive-go/bililive-go/src/live"
+	applog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
 	"github.com/bililive-go/bililive-go/src/types"
 )
@@ -45,17 +47,18 @@ func (m *manager) registryListener(ctx context.Context, ed events.Dispatcher) {
 			live.SetLiveIdByString(info.CustomLiveId)
 		}
 		inst := instance.GetInstance(ctx)
-		logger := inst.Logger
+		logger := applog.GetLogger()
 		inst.Lives[live.GetLiveId()] = live
 
-		room, err := inst.Config.GetLiveRoomByUrl(live.GetRawUrl())
+		cfg := configs.GetCurrentConfig()
+		room, err := cfg.GetLiveRoomByUrl(live.GetRawUrl())
 		if err != nil {
 			logger.WithFields(map[string]any{
 				"room": live.GetRawUrl(),
 			}).Error(err)
 			panic(err)
 		}
-		room.LiveId = live.GetLiveId()
+		configs.SetLiveRoomId(live.GetRawUrl(), live.GetLiveId())
 		if room.IsListening {
 			if err := m.replaceListener(ctx, initializingLive, live); err != nil {
 				logger.WithFields(map[string]any{
@@ -68,7 +71,7 @@ func (m *manager) registryListener(ctx context.Context, ed events.Dispatcher) {
 
 func (m *manager) Start(ctx context.Context) error {
 	inst := instance.GetInstance(ctx)
-	if inst.Config.RPC.Enable || len(inst.Lives) > 0 {
+	if cfg := configs.GetCurrentConfig(); (cfg != nil && cfg.RPC.Enable) || len(inst.Lives) > 0 {
 		inst.WaitGroup.Add(1)
 	}
 	m.registryListener(ctx, inst.EventDispatcher.(events.Dispatcher))

@@ -8,11 +8,15 @@ import (
 	_ "net/http/pprof"
 	"net/url"
 	"strconv"
+	"sync/atomic"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/instance"
+	applog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/tools"
 	"github.com/bililive-go/bililive-go/src/webapp"
 )
@@ -23,6 +27,23 @@ const (
 
 type Server struct {
 	server *http.Server
+}
+
+// dynamicHandler 持有一个可热切换的 http.Handler。
+// 初始为占位 handler（例如返回 503），当 tools WebUI 端口可用时切换为反向代理。
+type handlerHolder struct{ H http.Handler }
+
+// 使用 atomic.Value 存储统一的具体类型，避免不同具体类型导致的 panic。
+type dynamicHandler struct{ h atomic.Value }
+
+func (d *dynamicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if v := d.h.Load(); v != nil {
+		if hh, ok := v.(handlerHolder); ok && hh.H != nil {
+			hh.H.ServeHTTP(w, r)
+			return
+		}
+	}
+	http.Error(w, "Tools Web UI 未就绪", http.StatusServiceUnavailable)
 }
 
 func initMux(ctx context.Context) *mux.Router {
@@ -66,7 +87,7 @@ func initMux(ctx context.Context) *mux.Router {
 				"/files/",
 				http.FileServer(
 					http.Dir(
-						instance.GetInstance(ctx).Config.OutPutPath,
+						configs.GetCurrentConfig().OutPutPath,
 					),
 				),
 			),
@@ -82,22 +103,55 @@ func initMux(ctx context.Context) *mux.Router {
 		http.Redirect(w, r, target, http.StatusMovedPermanently)
 	})
 
-	toolsWebUiUrl, _ := url.Parse("http://localhost:" + strconv.Itoa(tools.GetWebUIPort()))
+	// /tools/ 动态反向代理：当 tools WebUI 端口未就绪时返回 503，
+	// 一旦端口出现或变化，热更新为对应端口的反向代理。
+	dyn := &dynamicHandler{}
+	// 设置初始占位 handler（使用统一的包装类型）
+	dyn.h.Store(handlerHolder{H: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "Tools Web UI 未就绪", http.StatusServiceUnavailable)
+	})})
 	m.PathPrefix("/tools/").Handler(
 		http.StripPrefix(
 			"/tools",
-			httputil.NewSingleHostReverseProxy(toolsWebUiUrl),
+			dyn,
 		),
 	)
 
+	// 监控 tools WebUI 端口变化并热更新反向代理
+	go func() {
+		var lastPort int
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				port := tools.GetWebUIPort()
+				if port == 0 || port == lastPort {
+					continue
+				}
+				lastPort = port
+				target, _ := url.Parse("http://localhost:" + strconv.Itoa(port))
+				proxy := httputil.NewSingleHostReverseProxy(target)
+				// 可选：当下游未就绪时给出明确错误
+				proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+					http.Error(w, "无法连接到 Tools Web UI: "+err.Error(), http.StatusBadGateway)
+				}
+				// 热切换为新的 proxy（保持与初始 Store 相同的具体类型）
+				dyn.h.Store(handlerHolder{H: http.Handler(proxy)})
+			}
+		}
+	}()
+
 	fs, err := webapp.FS()
 	if err != nil {
-		instance.GetInstance(ctx).Logger.Fatal(err)
+		applog.GetLogger().Fatal(err)
 	}
 	m.PathPrefix("/").Handler(http.FileServer(fs))
 
 	// pprof
-	if instance.GetInstance(ctx).Config.Debug {
+	if configs.IsDebug() {
 		m.PathPrefix("/debug/").Handler(http.DefaultServeMux)
 	}
 	return m
@@ -114,7 +168,7 @@ func CORSMiddleware(h http.Handler) http.Handler {
 
 func NewServer(ctx context.Context) *Server {
 	inst := instance.GetInstance(ctx)
-	config := inst.Config
+	config := configs.GetCurrentConfig()
 	httpServer := &http.Server{
 		Addr:    config.RPC.Bind,
 		Handler: initMux(ctx),
@@ -130,16 +184,16 @@ func (s *Server) Start(ctx context.Context) error {
 	go func() {
 		listener, err := net.Listen("tcp4", s.server.Addr)
 		if err != nil {
-			inst.Logger.Error(err)
+			applog.GetLogger().Error(err)
 			return
 		}
 		switch err := s.server.Serve(listener); err {
 		case nil, http.ErrServerClosed:
 		default:
-			inst.Logger.Error(err)
+			applog.GetLogger().Error(err)
 		}
 	}()
-	inst.Logger.Infof("Server start at %s", s.server.Addr)
+	applog.GetLogger().Infof("Server start at %s", s.server.Addr)
 	return nil
 }
 
@@ -148,8 +202,8 @@ func (s *Server) Close(ctx context.Context) {
 	inst.WaitGroup.Done()
 	ctx2, cancel := context.WithCancel(ctx)
 	if err := s.server.Shutdown(ctx2); err != nil {
-		inst.Logger.WithError(err).Error("failed to shutdown server")
+		applog.GetLogger().WithError(err).Error("failed to shutdown server")
 	}
 	defer cancel()
-	inst.Logger.Infof("Server close")
+	applog.GetLogger().Infof("Server close")
 }

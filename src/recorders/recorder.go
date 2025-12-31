@@ -22,8 +22,8 @@ import (
 
 	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/instance"
-	"github.com/bililive-go/bililive-go/src/interfaces"
 	"github.com/bililive-go/bililive-go/src/live"
+	applog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
 	"github.com/bililive-go/bililive-go/src/pkg/parser"
 	"github.com/bililive-go/bililive-go/src/pkg/parser/ffmpeg"
@@ -60,8 +60,9 @@ var (
 	}
 )
 
-func getDefaultFileNameTmpl(config *configs.Config) *template.Template {
-	return template.Must(template.New("filename").Funcs(utils.GetFuncMap(config)).
+func getDefaultFileNameTmpl() *template.Template {
+	cfg := configs.GetCurrentConfig()
+	return template.Must(template.New("filename").Funcs(utils.GetFuncMap(cfg)).
 		Parse(`{{ .Live.GetPlatformCNName }}/{{ with .Live.GetOptions.NickName }}{{ . | filenameFilter }}{{ else }}{{ .HostName | filenameFilter }}{{ end }}/[{{ now | date "2006-01-02 15-04-05"}}][{{ .HostName | filenameFilter }}][{{ .RoomName | filenameFilter }}].flv`))
 }
 
@@ -74,11 +75,7 @@ type Recorder interface {
 
 type recorder struct {
 	Live       live.Live
-	OutPutPath string
-
-	config     *configs.Config
 	ed         events.Dispatcher
-	logger     *interfaces.Logger
 	cache      gcache.Cache
 	startTime  time.Time
 	parser     parser.Parser
@@ -92,12 +89,9 @@ func NewRecorder(ctx context.Context, live live.Live) (Recorder, error) {
 	inst := instance.GetInstance(ctx)
 	return &recorder{
 		Live:       live,
-		OutPutPath: instance.GetInstance(ctx).Config.OutPutPath,
-		config:     inst.Config,
 		cache:      inst.Cache,
 		startTime:  time.Now(),
 		ed:         inst.EventDispatcher.(events.Dispatcher),
-		logger:     inst.Logger,
 		state:      begin,
 		stop:       make(chan struct{}),
 		parserLock: new(sync.RWMutex),
@@ -105,6 +99,7 @@ func NewRecorder(ctx context.Context, live live.Live) (Recorder, error) {
 }
 
 func (r *recorder) tryRecord(ctx context.Context) {
+	cfg := configs.GetCurrentConfig()
 	var streamInfos []*live.StreamUrlInfo
 	var err error
 	if streamInfos, err = r.Live.GetStreamInfos(); err == live.ErrNotImplemented {
@@ -126,9 +121,9 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	obj, _ := r.cache.Get(r.Live)
 	info := obj.(*live.Info)
 
-	tmpl := getDefaultFileNameTmpl(r.config)
-	if r.config.OutputTmpl != "" {
-		_tmpl, errTmpl := template.New("user_filename").Funcs(utils.GetFuncMap(r.config)).Parse(r.config.OutputTmpl)
+	tmpl := getDefaultFileNameTmpl()
+	if cfg.OutputTmpl != "" {
+		_tmpl, errTmpl := template.New("user_filename").Funcs(utils.GetFuncMap(cfg)).Parse(cfg.OutputTmpl)
 		if errTmpl == nil {
 			tmpl = _tmpl
 		}
@@ -138,7 +133,7 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	if err = tmpl.Execute(buf, info); err != nil {
 		panic(fmt.Sprintf("failed to render filename, err: %v", err))
 	}
-	fileName := filepath.Join(r.OutPutPath, buf.String())
+	fileName := filepath.Join(cfg.OutPutPath, buf.String())
 	outputPath, _ := filepath.Split(fileName)
 	streamInfo := streamInfos[0]
 	url := streamInfo.Url
@@ -156,12 +151,9 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		return
 	}
 	parserCfg := map[string]string{
-		"timeout_in_us": strconv.Itoa(r.config.TimeoutInUs),
+		"timeout_in_us": strconv.Itoa(cfg.TimeoutInUs),
 	}
-	if r.config.Debug {
-		parserCfg["debug"] = "true"
-	}
-	p, err := newParser(url, r.config.Feature.UseNativeFlvParser, parserCfg)
+	p, err := newParser(url, cfg.Feature.UseNativeFlvParser, parserCfg)
 	if err != nil {
 		r.getLogger().WithError(err).Error("failed to init parse")
 		return
@@ -177,9 +169,9 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		r.getLogger().WithError(err).Error("failed to find ffmpeg")
 		return
 	}
-	cmdStr := strings.Trim(r.config.OnRecordFinished.CustomCommandline, "")
+	cmdStr := strings.Trim(cfg.OnRecordFinished.CustomCommandline, "")
 	if len(cmdStr) > 0 {
-		customTmpl, errCmdTmpl := template.New("custom_commandline").Funcs(utils.GetFuncMap(r.config)).Parse(cmdStr)
+		customTmpl, errCmdTmpl := template.New("custom_commandline").Funcs(utils.GetFuncMap(cfg)).Parse(cmdStr)
 		if errCmdTmpl != nil {
 			r.getLogger().WithError(errCmdTmpl).Error("custom commandline parse failure")
 			return
@@ -213,25 +205,24 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		args = append(args, buf.String())
 		r.getLogger().Debugf("start executing custom_commandline: %s", args[1])
 		cmd := exec.Command(bash, args...)
-		if r.config.Debug {
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-		}
+		// 跟随全局 Debug 开关输出
+		cmd.Stdout = utils.NewDebugControlledWriter(os.Stdout)
+		cmd.Stderr = utils.NewDebugControlledWriter(os.Stderr)
 		if err = cmd.Run(); err != nil {
 			r.getLogger().WithError(err).Debugf("custom commandline execute failure (%s %s)\n", bash, strings.Join(args, " "))
-		} else if r.config.OnRecordFinished.DeleteFlvAfterConvert {
+		} else if cfg.OnRecordFinished.DeleteFlvAfterConvert {
 			os.Remove(fileName)
 		}
 		r.getLogger().Debugf("end executing custom_commandline: %s", args[1])
 	} else {
 		outputFiles := []string{fileName}
-		if r.config.OnRecordFinished.FixFlvAtFirst {
+		if cfg.OnRecordFinished.FixFlvAtFirst {
 			outputFiles, err = tools.FixFlvByBililiveRecorder(ctx, fileName)
 			if err != nil {
 				r.getLogger().WithError(err).Error("failed to fix flv file, skip this step")
 			}
 		}
-		if r.config.OnRecordFinished.ConvertToMp4 {
+		if cfg.OnRecordFinished.ConvertToMp4 {
 			for _, outputFile := range outputFiles {
 				//格式转换时去除原本后缀名
 				newFileName := outputFile[0:strings.LastIndex(outputFile, ".")]
@@ -244,10 +235,13 @@ func (r *recorder) tryRecord(ctx context.Context) {
 					"copy",
 					newFileName+".mp4",
 				)
+				// 跟随全局 Debug 开关输出
+				convertCmd.Stdout = utils.NewDebugControlledWriter(os.Stdout)
+				convertCmd.Stderr = utils.NewDebugControlledWriter(os.Stderr)
 				if err = convertCmd.Run(); err != nil {
 					convertCmd.Process.Kill()
 					r.getLogger().Debugln(err)
-				} else if r.config.OnRecordFinished.DeleteFlvAfterConvert {
+				} else if cfg.OnRecordFinished.DeleteFlvAfterConvert {
 					os.Remove(outputFile)
 				}
 			}
@@ -313,7 +307,7 @@ func (r *recorder) Close() {
 }
 
 func (r *recorder) getLogger() *logrus.Entry {
-	return r.logger.WithFields(r.getFields())
+	return applog.WithFields(r.getFields())
 }
 
 func (r *recorder) getFields() map[string]any {
