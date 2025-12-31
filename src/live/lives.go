@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/bililive-go/bililive-go/src/configs"
+	"github.com/bililive-go/bililive-go/src/pkg/ratelimit"
 	"github.com/bililive-go/bililive-go/src/types"
 	"github.com/bluele/gcache"
 )
@@ -144,6 +145,9 @@ func newWrappedLive(live Live, cache gcache.Cache) Live {
 }
 
 func (w *WrappedLive) GetInfo() (*Info, error) {
+	// 在通用位置应用平台访问频率限制
+	w.waitForPlatformRateLimit()
+	
 	i, err := w.Live.GetInfo()
 	if err != nil {
 		if info, err2 := w.cache.Get(w); err2 == nil {
@@ -155,6 +159,14 @@ func (w *WrappedLive) GetInfo() (*Info, error) {
 		w.cache.Set(w, i)
 	}
 	return i, nil
+}
+
+// waitForPlatformRateLimit 在通用位置等待平台访问频率限制
+func (w *WrappedLive) waitForPlatformRateLimit() {
+	platformKey := configs.GetPlatformKeyFromUrl(w.GetRawUrl())
+	if platformKey != "" {
+		ratelimit.GetGlobalRateLimiter().WaitForPlatform(platformKey)
+	}
 }
 
 func New(ctx context.Context, room *configs.LiveRoom, cache gcache.Cache) (live Live, err error) {

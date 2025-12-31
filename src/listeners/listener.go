@@ -159,10 +159,16 @@ func (l *listener) refresh() {
 }
 
 func (l *listener) run() {
-	interval := 30
+	// 获取房间配置信息以使用解析后的配置
 	cfg := configs.GetCurrentConfig()
+	interval := 30
 	if cfg != nil {
-		if cfg.Interval > 0 {
+		room, err := cfg.GetLiveRoomByUrl(l.Live.GetRawUrl())
+		if err == nil {
+			platformKey := configs.GetPlatformKeyFromUrl(l.Live.GetRawUrl())
+			resolvedConfig := cfg.ResolveConfigForRoom(room, platformKey)
+			interval = resolvedConfig.Interval
+		} else if cfg.Interval > 0 {
 			interval = cfg.Interval
 		} else {
 			applog.GetLogger().Warn("config interval is <= 0, using default 30s")

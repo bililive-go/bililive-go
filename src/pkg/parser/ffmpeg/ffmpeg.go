@@ -121,7 +121,7 @@ func (p *Parser) Status() (map[string]string, error) {
 
 func (p *Parser) ParseLiveStream(ctx context.Context, streamUrlInfo *live.StreamUrlInfo, live live.Live, file string) (err error) {
 	url := streamUrlInfo.Url
-	ffmpegPath, err := utils.GetFFmpegPath(ctx)
+	ffmpegPath, err := utils.GetFFmpegPathForLive(ctx, live)
 	if err != nil {
 		return err
 	}

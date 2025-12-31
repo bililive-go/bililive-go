@@ -87,6 +87,7 @@ type recorder struct {
 
 func NewRecorder(ctx context.Context, live live.Live) (Recorder, error) {
 	inst := instance.GetInstance(ctx)
+
 	return &recorder{
 		Live:       live,
 		cache:      inst.Cache,
@@ -164,7 +165,7 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	r.getLogger().Println(r.parser.ParseLiveStream(ctx, streamInfo, r.Live, fileName))
 	r.getLogger().Debugln("End ParseLiveStream(" + url.String() + ", " + fileName + ")")
 	removeEmptyFile(fileName)
-	ffmpegPath, err := utils.GetFFmpegPath(ctx)
+	ffmpegPath, err := utils.GetFFmpegPathForLive(ctx, r.Live)
 	if err != nil {
 		r.getLogger().WithError(err).Error("failed to find ffmpeg")
 		return

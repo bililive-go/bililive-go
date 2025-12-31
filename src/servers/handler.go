@@ -14,7 +14,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/tidwall/gjson"
@@ -67,10 +66,109 @@ func getLive(writer http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	writeJSON(writer, parseInfo(r.Context(), live))
+
+	// 获取基本信息
+	info := parseInfo(r.Context(), live)
+
+	// 获取全局配置
+	cfg := configs.GetCurrentConfig()
+	if cfg == nil {
+		writeJSON(writer, info) // 如果配置为空，返回基本信息
+		return
+	}
+
+	// 获取房间配置
+	room, err := cfg.GetLiveRoomByUrl(live.GetRawUrl())
+	if err != nil {
+		writeJSON(writer, info) // 如果找不到房间配置，返回基本信息
+		return
+	}
+
+	// 获取平台key
+	platformKey := configs.GetPlatformKeyFromUrl(live.GetRawUrl())
+
+	// 解析最终生效的配置
+	resolvedConfig := cfg.ResolveConfigForRoom(room, platformKey)
+
+	// 构造详细响应
+	detailedInfo := map[string]interface{}{
+		// 基本信息
+		"host_name": info.HostName,
+		"room_name": info.RoomName,
+		"status":    info.Status,
+		"listening": info.Listening,
+		"recording": info.Recording,
+		"live_id":   info.Live.GetLiveId(),
+		"raw_url":   info.Live.GetRawUrl(),
+		"platform":  info.Live.GetPlatformCNName(),
+
+		// 有效配置信息
+		"effective_interval":    resolvedConfig.Interval,
+		"effective_out_path":    resolvedConfig.OutPutPath,
+		"effective_ffmpeg_path": resolvedConfig.FfmpegPath,
+		"quality":               room.Quality,
+		"audio_only":            room.AudioOnly,
+
+		// 平台访问限制
+		"platform_rate_limit": cfg.GetPlatformMinAccessInterval(platformKey),
+
+		// 配置来源信息
+		"config_sources": map[string]string{
+			"interval":     getConfigSource(cfg, *room, platformKey, "interval"),
+			"out_put_path": getConfigSource(cfg, *room, platformKey, "out_put_path"),
+			"ffmpeg_path":  getConfigSource(cfg, *room, platformKey, "ffmpeg_path"),
+		},
+
+		// 时间信息（目前为模拟数据，需要后续实现真实的时间跟踪）
+		"live_start_time":  "未知",
+		"last_record_time": "无",
+	}
+
+	writeJSON(writer, detailedInfo)
+}
+
+// getConfigSource 获取配置项的来源级别
+func getConfigSource(config *configs.Config, room configs.LiveRoom, platformKey, configKey string) string {
+	// 检查房间级配置
+	switch configKey {
+	case "interval":
+		if room.Interval != nil {
+			return "room"
+		}
+	case "out_put_path":
+		if room.OutPutPath != nil {
+			return "room"
+		}
+	case "ffmpeg_path":
+		if room.FfmpegPath != nil {
+			return "room"
+		}
+	}
+
+	// 检查平台级配置
+	if platformConfig, exists := config.PlatformConfigs[platformKey]; exists {
+		switch configKey {
+		case "interval":
+			if platformConfig.Interval != nil {
+				return "platform"
+			}
+		case "out_put_path":
+			if platformConfig.OutPutPath != nil {
+				return "platform"
+			}
+		case "ffmpeg_path":
+			if platformConfig.FfmpegPath != nil {
+				return "platform"
+			}
+		}
+	}
+
+	// 默认为全局配置
+	return "global"
 }
 
 func getLiveLogs(writer http.ResponseWriter, r *http.Request) {
+	inst := instance.GetInstance(r.Context())
 	vars := mux.Vars(r)
 	linesStr := r.URL.Query().Get("lines")
 	lines := 100 // 默认100行
@@ -79,20 +177,24 @@ func getLiveLogs(writer http.ResponseWriter, r *http.Request) {
 			lines = parsedLines
 		}
 	}
-	
-	// 这里暂时返回模拟数据，实际实现需要从日志系统获取
+
+	liveID := types.LiveID(vars["id"])
+
+	// 从LogStore获取真实日志
+	logs := inst.LogStore.GetLogs(liveID, lines)
+
+	// 转换为前端需要的格式
+	var logLines []string
+	for _, log := range logs {
+		logLines = append(logLines, log.Message)
+	}
+
 	logResponse := map[string]interface{}{
-		"lines": []string{
-			fmt.Sprintf("[%s] INFO: 开始监控直播间 %s", time.Now().Format("2006-01-02 15:04:05"), vars["id"]),
-			fmt.Sprintf("[%s] INFO: 检测到直播状态变化", time.Now().Add(-time.Minute).Format("2006-01-02 15:04:05")),
-			fmt.Sprintf("[%s] INFO: 开始录制直播流", time.Now().Add(-2*time.Minute).Format("2006-01-02 15:04:05")),
-			fmt.Sprintf("[%s] INFO: 录制文件保存至 ./recordings/", time.Now().Add(-3*time.Minute).Format("2006-01-02 15:04:05")),
-			fmt.Sprintf("[%s] INFO: 应用层级配置: 检测间隔=30秒", time.Now().Add(-4*time.Minute).Format("2006-01-02 15:04:05")),
-		},
-		"total": 5,
+		"lines":     logLines,
+		"total":     len(logLines),
 		"max_lines": lines,
 	}
-	
+
 	writeJSON(writer, logResponse)
 }
 
