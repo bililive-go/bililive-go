@@ -14,7 +14,9 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/instance"
+	applog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/tools"
 	"github.com/bililive-go/bililive-go/src/webapp"
 )
@@ -84,7 +86,7 @@ func initMux(ctx context.Context) *mux.Router {
 				"/files/",
 				http.FileServer(
 					http.Dir(
-						instance.GetInstance(ctx).Config.OutPutPath,
+						configs.GetCurrentConfig().OutPutPath,
 					),
 				),
 			),
@@ -148,7 +150,7 @@ func initMux(ctx context.Context) *mux.Router {
 	m.PathPrefix("/").Handler(http.FileServer(fs))
 
 	// pprof
-	if instance.GetInstance(ctx).Config.Debug {
+	if configs.IsDebug() {
 		m.PathPrefix("/debug/").Handler(http.DefaultServeMux)
 	}
 	return m
@@ -165,7 +167,7 @@ func CORSMiddleware(h http.Handler) http.Handler {
 
 func NewServer(ctx context.Context) *Server {
 	inst := instance.GetInstance(ctx)
-	config := inst.Config
+	config := configs.GetCurrentConfig()
 	httpServer := &http.Server{
 		Addr:    config.RPC.Bind,
 		Handler: initMux(ctx),
@@ -181,16 +183,16 @@ func (s *Server) Start(ctx context.Context) error {
 	go func() {
 		listener, err := net.Listen("tcp4", s.server.Addr)
 		if err != nil {
-			inst.Logger.Error(err)
+			applog.GetLogger().Error(err)
 			return
 		}
 		switch err := s.server.Serve(listener); err {
 		case nil, http.ErrServerClosed:
 		default:
-			inst.Logger.Error(err)
+			applog.GetLogger().Error(err)
 		}
 	}()
-	inst.Logger.Infof("Server start at %s", s.server.Addr)
+	applog.GetLogger().Infof("Server start at %s", s.server.Addr)
 	return nil
 }
 
@@ -199,8 +201,8 @@ func (s *Server) Close(ctx context.Context) {
 	inst.WaitGroup.Done()
 	ctx2, cancel := context.WithCancel(ctx)
 	if err := s.server.Shutdown(ctx2); err != nil {
-		inst.Logger.WithError(err).Error("failed to shutdown server")
+		applog.GetLogger().WithError(err).Error("failed to shutdown server")
 	}
 	defer cancel()
-	inst.Logger.Infof("Server close")
+	applog.GetLogger().Infof("Server close")
 }

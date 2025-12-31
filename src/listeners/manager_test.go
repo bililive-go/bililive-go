@@ -50,11 +50,11 @@ func TestManagerStartAndClose(t *testing.T) {
 	defer ctrl.Finish()
 	ed := evtmock.NewMockDispatcher(ctrl)
 	ed.EXPECT().AddEventListener(RoomInitializingFinished, gomock.Any())
+	configs.SetCurrentConfig(&configs.Config{
+		RPC: configs.RPC{Enable: true},
+	})
 	ctx := context.WithValue(context.Background(), instance.Key, &instance.Instance{
 		EventDispatcher: ed,
-		Config: &configs.Config{
-			RPC: configs.RPC{Enable: true},
-		},
 	})
 	backup := newListener
 	newListener = func(ctx context.Context, live live.Live) Listener {

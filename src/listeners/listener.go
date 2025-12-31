@@ -11,9 +11,9 @@ import (
 	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/consts"
 	"github.com/bililive-go/bililive-go/src/instance"
-	"github.com/bililive-go/bililive-go/src/interfaces"
 	"github.com/bililive-go/bililive-go/src/live"
 	"github.com/bililive-go/bililive-go/src/live/system"
+	applog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/notify"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
 )
@@ -35,10 +35,8 @@ func NewListener(ctx context.Context, live live.Live) Listener {
 	return &listener{
 		Live:   live,
 		status: status{},
-		config: inst.Config,
 		stop:   make(chan struct{}),
 		ed:     inst.EventDispatcher.(events.Dispatcher),
-		logger: inst.Logger,
 		state:  begin,
 	}
 }
@@ -46,10 +44,7 @@ func NewListener(ctx context.Context, live live.Live) Listener {
 type listener struct {
 	Live   live.Live
 	status status
-
-	config *configs.Config
 	ed     events.Dispatcher
-	logger *interfaces.Logger
 
 	state uint32
 	stop  chan struct{}
@@ -81,14 +76,14 @@ func (l *listener) sendLiveNotification(hostName, status string) {
 	ctx := context.Background()
 	// 发送通知
 	if err := notify.SendNotification(ctx, hostName, l.Live.GetPlatformCNName(), l.Live.GetRawUrl(), status); err != nil {
-		l.logger.WithError(err).WithField("host", hostName).Error("failed to send notification")
+		applog.GetLogger().WithError(err).WithField("host", hostName).Error("failed to send notification")
 	}
 }
 
 func (l *listener) refresh() {
 	info, err := l.Live.GetInfo()
 	if err != nil {
-		l.logger.
+		applog.GetLogger().
 			WithError(err).
 			WithField("url", l.Live.GetRawUrl()).
 			Error("failed to load room info")
@@ -133,7 +128,7 @@ func (l *listener) refresh() {
 		// 发送结束直播提醒和录像通知
 		l.sendLiveNotification(hostName, consts.LiveStatusStop)
 	case roomNameChangedEvt:
-		if !l.config.VideoSplitStrategies.OnRoomNameChanged {
+		if cfg := configs.GetCurrentConfig(); cfg == nil || !cfg.VideoSplitStrategies.OnRoomNameChanged {
 			return
 		}
 		evtTyp = RoomNameChanged
@@ -141,7 +136,7 @@ func (l *listener) refresh() {
 	}
 	if isStatusChanged {
 		l.ed.DispatchEvent(events.NewEvent(evtTyp, l.Live))
-		l.logger.WithFields(fields).Info(logInfo)
+		applog.GetLogger().WithFields(fields).Info(logInfo)
 	}
 
 	if info.Initializing {
@@ -158,8 +153,12 @@ func (l *listener) refresh() {
 }
 
 func (l *listener) run() {
+	interval := 30
+	if cfg := configs.GetCurrentConfig(); cfg != nil && cfg.Interval > 0 {
+		interval = cfg.Interval
+	}
 	ticker := jitterbug.New(
-		time.Duration(l.config.Interval)*time.Second,
+		time.Duration(interval)*time.Second,
 		jitterbug.Norm{
 			Stdev: time.Second * 3,
 		},

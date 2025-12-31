@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	blog "github.com/bililive-go/bililive-go/src/log"
 )
 
 type ByteCounter struct {
@@ -58,7 +58,7 @@ func (m *ConnCounterManagerType) PrintMap() {
 	m.mapLock.Lock()
 	defer m.mapLock.Unlock()
 	for url, counter := range m.bcMap {
-		logrus.Infof("host[%s] TCP bytes received: %s, sent: %s", url,
+		blog.GetLogger().Infof("host[%s] TCP bytes received: %s, sent: %s", url,
 			FormatBytes(counter.ReadBytes), FormatBytes(counter.WriteBytes))
 	}
 }

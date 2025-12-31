@@ -26,9 +26,11 @@ func TestRefresh(t *testing.T) {
 	cfg.VideoSplitStrategies = configs.VideoSplitStrategies{
 		OnRoomNameChanged: false,
 	}
-	ctx := context.WithValue(context.Background(), instance.Key, &instance.Instance{
+	configs.SetCurrentConfig(cfg)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx = context.WithValue(ctx, instance.Key, &instance.Instance{
 		EventDispatcher: ed,
-		Config:          cfg,
 	})
 	log.New(ctx)
 	live := livemock.NewMockLive(ctrl)
@@ -77,10 +79,12 @@ func TestRefreshWithError(t *testing.T) {
 	defer ctrl.Finish()
 	ed := evtmock.NewMockDispatcher(ctrl)
 	cache := gcache.New(4).LRU().Build()
-	ctx := context.WithValue(context.Background(), instance.Key, &instance.Instance{
+	configs.SetCurrentConfig(configs.NewConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx = context.WithValue(ctx, instance.Key, &instance.Instance{
 		EventDispatcher: ed,
 		Cache:           cache,
-		Config:          configs.NewConfig(),
 	})
 	log.New(ctx)
 	live := livemock.NewMockLive(ctrl)
@@ -100,10 +104,12 @@ func TestListenerStartAndClose(t *testing.T) {
 	cache := gcache.New(4).LRU().Build()
 	config := configs.NewConfig()
 	config.Interval = 5
-	ctx := context.WithValue(context.Background(), instance.Key, &instance.Instance{
+	configs.SetCurrentConfig(config)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx = context.WithValue(ctx, instance.Key, &instance.Instance{
 		EventDispatcher: ed,
 		Cache:           cache,
-		Config:          config,
 	})
 	log.New(ctx)
 	live := livemock.NewMockLive(ctrl)

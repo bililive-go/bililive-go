@@ -23,6 +23,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/listeners"
 	"github.com/bililive-go/bililive-go/src/live"
+	applog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/recorders"
 	"github.com/bililive-go/bililive-go/src/types"
 )
@@ -78,7 +79,8 @@ func parseLiveAction(writer http.ResponseWriter, r *http.Request) {
 		writeJsonWithStatusCode(writer, http.StatusNotFound, resp)
 		return
 	}
-	room, err := inst.Config.GetLiveRoomByUrl(live.GetRawUrl())
+	cfg := configs.GetCurrentConfig()
+	_, err := cfg.GetLiveRoomByUrl(live.GetRawUrl())
 	if err != nil {
 		resp.ErrNo = http.StatusNotFound
 		resp.ErrMsg = fmt.Sprintf("room : %s can not find", live.GetRawUrl())
@@ -93,7 +95,7 @@ func parseLiveAction(writer http.ResponseWriter, r *http.Request) {
 			writeJsonWithStatusCode(writer, http.StatusBadRequest, resp)
 			return
 		} else {
-			room.IsListening = true
+			configs.SetLiveRoomListening(live.GetRawUrl(), true)
 		}
 	case "stop":
 		if err := stopListening(r.Context(), live.GetLiveId()); err != nil {
@@ -102,7 +104,7 @@ func parseLiveAction(writer http.ResponseWriter, r *http.Request) {
 			writeJsonWithStatusCode(writer, http.StatusBadRequest, resp)
 			return
 		} else {
-			room.IsListening = false
+			configs.SetLiveRoomListening(live.GetRawUrl(), false)
 		}
 	default:
 		resp.ErrNo = http.StatusBadRequest
@@ -147,7 +149,6 @@ func addLives(writer http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	inst := instance.GetInstance(r.Context())
 	info := liveSlice(make([]*live.Info, 0))
 	errorMessages := make([]string, 0, 4)
 	gjson.ParseBytes(b).ForEach(func(key, value gjson.Result) bool {
@@ -155,7 +156,7 @@ func addLives(writer http.ResponseWriter, r *http.Request) {
 		urlStr := strings.Trim(value.Get("url").String(), " ")
 		if retInfo, err := addLiveImpl(r.Context(), urlStr, isListen); err != nil {
 			msg := urlStr + ": " + err.Error()
-			inst.Logger.Error(msg)
+			applog.GetLogger().Error(msg)
 			errorMessages = append(errorMessages, msg)
 			return true
 		} else {
@@ -178,7 +179,7 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool) (info *live.
 	}
 	inst := instance.GetInstance(ctx)
 	needAppend := false
-	liveRoom, err := inst.Config.GetLiveRoomByUrl(u.String())
+	liveRoom, err := configs.GetCurrentConfig().GetLiveRoomByUrl(u.String())
 	if err != nil {
 		liveRoom = &configs.LiveRoom{
 			Url:         u.String(),
@@ -190,7 +191,8 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool) (info *live.
 	if err != nil {
 		return nil, err
 	}
-	liveRoom.LiveId = newLive.GetLiveId()
+	// 记录 LiveId 到全局配置（并发安全）
+	configs.SetLiveRoomId(u.String(), newLive.GetLiveId())
 	if _, ok := inst.Lives[newLive.GetLiveId()]; !ok {
 		inst.Lives[newLive.GetLiveId()] = newLive
 		if isListen {
@@ -202,7 +204,8 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool) (info *live.
 			if liveRoom == nil {
 				return nil, errors.New("liveRoom is nil, cannot append to LiveRooms")
 			}
-			inst.Config.LiveRooms = append(inst.Config.LiveRooms, *liveRoom)
+			// 使用统一的 Update 接口做 COW 并原子替换
+			configs.AppendLiveRoom(*liveRoom)
 		}
 	}
 	return info, nil
@@ -240,16 +243,16 @@ func removeLiveImpl(ctx context.Context, live live.Live) error {
 		}
 	}
 	delete(inst.Lives, live.GetLiveId())
-	inst.Config.RemoveLiveRoomByUrl(live.GetRawUrl())
+	configs.RemoveLiveRoomByUrl(live.GetRawUrl())
 	return nil
 }
 
 func getConfig(writer http.ResponseWriter, r *http.Request) {
-	writeJSON(writer, instance.GetInstance(r.Context()).Config)
+	writeJSON(writer, configs.GetCurrentConfig())
 }
 
 func putConfig(writer http.ResponseWriter, r *http.Request) {
-	config := instance.GetInstance(r.Context()).Config
+	config := configs.GetCurrentConfig()
 	config.RefreshLiveRoomIndexCache()
 	if err := config.Marshal(); err != nil {
 		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
@@ -264,7 +267,7 @@ func putConfig(writer http.ResponseWriter, r *http.Request) {
 }
 
 func getRawConfig(writer http.ResponseWriter, r *http.Request) {
-	b, err := yaml.Marshal(instance.GetInstance(r.Context()).Config)
+	b, err := yaml.Marshal(configs.GetCurrentConfig())
 	if err != nil {
 		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
 			ErrNo:  http.StatusBadRequest,
@@ -287,7 +290,6 @@ func putRawConfig(writer http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	inst := instance.GetInstance(ctx)
 	var jsonBody map[string]any
 	json.Unmarshal(b, &jsonBody)
 	newConfig, err := configs.NewConfigWithBytes([]byte(jsonBody["config"].(string)))
@@ -298,27 +300,36 @@ func putRawConfig(writer http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	oldConfig := inst.Config
+	oldConfig := configs.GetCurrentConfig()
 	oldConfig.RefreshLiveRoomIndexCache()
-	inst.Config = newConfig
+	// 继承原配置的文件路径
 	newConfig.File = oldConfig.File
-	if err := applyLiveRoomsByConfig(ctx, oldConfig); err != nil {
+	// 预先将旧配置中的 LiveId 迁移到新配置（相同 URL）
+	oldMap := make(map[string]configs.LiveRoom, len(oldConfig.LiveRooms))
+	for _, room := range oldConfig.LiveRooms {
+		oldMap[room.Url] = room
+	}
+	for i := range newConfig.LiveRooms {
+		if rOld, ok := oldMap[newConfig.LiveRooms[i].Url]; ok {
+			newConfig.LiveRooms[i].LiveId = rOld.LiveId
+		}
+	}
+	// 先设置为当前全局配置，再驱动运行态差异变更
+	configs.SetCurrentConfig(newConfig)
+	if err := applyLiveRoomsByConfig(ctx, oldConfig, newConfig); err != nil {
 		writeJSON(writer, map[string]any{
 			"error": err.Error(),
 		})
 		return
 	}
-	newConfig.Marshal()
-	newConfig.RefreshLiveRoomIndexCache()
-	configs.SetCurrentConfig(newConfig)
+	_ = newConfig.Marshal()
 	writeJSON(writer, commonResp{
 		Data: "OK",
 	})
 }
 
-func applyLiveRoomsByConfig(ctx context.Context, oldConfig *configs.Config) error {
+func applyLiveRoomsByConfig(ctx context.Context, oldConfig *configs.Config, newConfig *configs.Config) error {
 	inst := instance.GetInstance(ctx)
-	newConfig := inst.Config
 	newLiveRooms := newConfig.LiveRooms
 	newUrlMap := make(map[string]*configs.LiveRoom)
 	for index := range newLiveRooms {
@@ -348,7 +359,6 @@ func applyLiveRoomsByConfig(ctx context.Context, oldConfig *configs.Config) erro
 					}
 				}
 			}
-			newRoom.LiveId = room.LiveId
 		}
 	}
 	loopRooms := oldConfig.LiveRooms
@@ -373,8 +383,8 @@ func getFileInfo(writer http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	path := vars["path"]
 
-	inst := instance.GetInstance(r.Context())
-	base, err := filepath.Abs(inst.Config.OutPutPath)
+	cfg := configs.GetCurrentConfig()
+	base, err := filepath.Abs(cfg.OutPutPath)
 	if err != nil {
 		writeJSON(writer, commonResp{
 			ErrMsg: "无效输出目录",
@@ -445,7 +455,7 @@ func getLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 		}
 		v1, _ := v.GetInfo()
 		host := urltmp.Host
-		if cookie, ok := inst.Config.Cookies[host]; ok {
+		if cookie, ok := configs.GetCurrentConfig().Cookies[host]; ok {
 			tmp := &live.InfoCookie{Platform_cn_name: v1.Live.GetPlatformCNName(), Host: host, Cookie: cookie}
 			hostCookieMap[host] = tmp
 		} else {
@@ -489,11 +499,9 @@ func putLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if inst.Config.Cookies == nil {
-		inst.Config.Cookies = make(map[string]string)
-	}
-	inst.Config.Cookies[host] = cookie
-	for _, v := range inst.Config.LiveRooms {
+	// 使用统一 Update 接口更新 Cookies
+	newCfg := configs.SetCookie(host, cookie)
+	for _, v := range newCfg.LiveRooms {
 		tmpurl, _ := url.Parse(v.Url)
 		if tmpurl.Host != host {
 			continue
@@ -508,7 +516,7 @@ func putLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 		}
 		live.UpdateLiveOptionsbyConfig(ctx, &v)
 	}
-	inst.Config.Marshal()
+	_ = newCfg.Marshal()
 	writeJSON(writer, commonResp{
 		Data: "OK",
 	})

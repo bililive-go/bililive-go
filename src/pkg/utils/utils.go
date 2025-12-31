@@ -14,10 +14,10 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/bililive-go/bililive-go/src/instance"
+	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/live"
+	blog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/kira1928/remotetools"
-	"github.com/sirupsen/logrus"
 )
 
 func init() {
@@ -26,7 +26,10 @@ func init() {
 }
 
 func GetFFmpegPath(ctx context.Context) (string, error) {
-	path := instance.GetInstance(ctx).Config.FfmpegPath
+	var path string
+	if cfg := configs.GetCurrentConfig(); cfg != nil {
+		path = cfg.FfmpegPath
+	}
 	if path != "" {
 		_, err := os.Stat(path)
 		if err == nil {
@@ -128,7 +131,7 @@ func GenUrlInfos(urls []*url.URL, headersForDownloader map[string]string) []*liv
 }
 
 func PrintStack() {
-	logrus.Debugf("%s", string(debug.Stack()))
+	blog.GetLogger().Debugf("%s", string(debug.Stack()))
 }
 
 func ExecCommands(commands [][]string) error {
@@ -169,7 +172,7 @@ func ExecCommandInDir(args []string, dir string) error {
 	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	logrus.Info(cmd.String())
+	blog.GetLogger().Info(cmd.String())
 	return cmd.Run()
 }
 

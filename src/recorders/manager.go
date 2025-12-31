@@ -17,7 +17,7 @@ import (
 func NewManager(ctx context.Context) Manager {
 	rm := &manager{
 		savers: make(map[types.LiveID]Recorder),
-		cfg:    instance.GetInstance(ctx).Config,
+		cfg:    configs.GetCurrentConfig(),
 	}
 	instance.GetInstance(ctx).RecorderManager = rm
 
@@ -77,7 +77,7 @@ func (m *manager) registryListener(ctx context.Context, ed events.Dispatcher) {
 
 func (m *manager) Start(ctx context.Context) error {
 	inst := instance.GetInstance(ctx)
-	if inst.Config.RPC.Enable || len(inst.Lives) > 0 {
+	if cfg := configs.GetCurrentConfig(); (cfg != nil && cfg.RPC.Enable) || len(inst.Lives) > 0 {
 		inst.WaitGroup.Add(1)
 	}
 	m.registryListener(ctx, inst.EventDispatcher.(events.Dispatcher))
