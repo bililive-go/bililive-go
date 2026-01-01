@@ -22,6 +22,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/metrics"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
+	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
 	"github.com/bililive-go/bililive-go/src/recorders"
 	"github.com/bililive-go/bililive-go/src/servers"
@@ -162,6 +163,12 @@ func main() {
 		if err = servers.NewServer(ctx).Start(ctx); err != nil {
 			logger.WithError(err).Fatalf("failed to init server")
 		}
+		// 注册 SSE 事件监听器
+		servers.RegisterSSEEventListeners(inst)
+		// 设置日志回调，将日志推送到 SSE
+		livelogger.SetLogCallback(func(roomID string, logLine string) {
+			servers.GetSSEHub().BroadcastLog(types.LiveID(roomID), logLine)
+		})
 	}
 
 	for _, _live := range inst.Lives {
@@ -190,14 +197,6 @@ func main() {
 		inst.RecorderManager.Close(ctx)
 	}()
 
-	go func() {
-		for {
-			time.Sleep(time.Second * 30)
-			if configs.IsDebug() {
-				utils.ConnCounterManager.PrintMap()
-			}
-		}
-	}()
 	inst.WaitGroup.Wait()
 	logger.Info("Bye~")
 }

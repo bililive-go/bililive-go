@@ -8,7 +8,6 @@ import (
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/interfaces"
 	"github.com/bililive-go/bililive-go/src/live"
-	applog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
 	"github.com/bililive-go/bililive-go/src/types"
 )
@@ -47,7 +46,7 @@ func (m *manager) registryListener(ctx context.Context, ed events.Dispatcher) {
 			live.SetLiveIdByString(info.CustomLiveId)
 		}
 		inst := instance.GetInstance(ctx)
-		logger := applog.GetLogger()
+		logger := live.GetLogger()
 		inst.Lives[live.GetLiveId()] = live
 
 		cfg := configs.GetCurrentConfig()

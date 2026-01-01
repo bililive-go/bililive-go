@@ -14,7 +14,7 @@ import (
 
 	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/live"
-	applog "github.com/bililive-go/bililive-go/src/log"
+	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 	"github.com/bililive-go/bililive-go/src/pkg/parser"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
 )
@@ -30,12 +30,13 @@ func init() {
 
 type builder struct{}
 
-func (b *builder) Build(cfg map[string]string) (parser.Parser, error) {
+func (b *builder) Build(cfg map[string]string, logger *livelogger.LiveLogger) (parser.Parser, error) {
 	return &Parser{
 		closeOnce:   new(sync.Once),
 		statusReq:   make(chan struct{}, 1),
 		statusResp:  make(chan map[string]string, 1),
 		timeoutInUs: cfg["timeout_in_us"],
+		logger:      logger,
 	}, nil
 }
 
@@ -49,6 +50,7 @@ type Parser struct {
 	statusReq  chan struct{}
 	statusResp chan map[string]string
 	cmdLock    sync.Mutex
+	logger     *livelogger.LiveLogger
 }
 
 func (p *Parser) scanFFmpegStatus() <-chan []byte {
@@ -170,7 +172,7 @@ func (p *Parser) ParseLiveStream(ctx context.Context, streamUrlInfo *live.Stream
 		MaxFileSize = cfg.VideoSplitStrategies.MaxFileSize
 	}
 	if MaxFileSize < 0 {
-		applog.GetLogger().Infof("Invalid MaxFileSize: %d", MaxFileSize)
+		p.logger.Infof("Invalid MaxFileSize: %d", MaxFileSize)
 	} else if MaxFileSize > 0 {
 		args = append(args, "-fs", strconv.Itoa(MaxFileSize))
 	}
@@ -188,8 +190,11 @@ func (p *Parser) ParseLiveStream(ctx context.Context, streamUrlInfo *live.Stream
 		if p.cmdStdout, err = p.cmd.StdoutPipe(); err != nil {
 			return
 		}
-		// 始终包裹一层可动态开关的 writer，但保留错误信息
-		p.cmd.Stderr = utils.NewLogFilterWriter(os.Stderr)
+		// 将 ffmpeg 的 stderr 输出写入到 live logger，同时也输出到 os.Stderr
+		p.cmd.Stderr = io.MultiWriter(
+			utils.NewLogFilterWriter(os.Stderr),
+			utils.NewLoggerWriter(p.logger),
+		)
 		if err = p.cmd.Start(); err != nil {
 			if p.cmd.Process != nil {
 				p.cmd.Process.Kill()

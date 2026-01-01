@@ -13,9 +13,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/bililive-go/bililive-go/src/configs"
-	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/interfaces"
-	"github.com/bililive-go/bililive-go/src/pkg/logstore"
 )
 
 var (
@@ -24,7 +22,6 @@ var (
 )
 
 func New(ctx context.Context) *interfaces.Logger {
-	_ = instance.GetInstance(ctx)
 	cfg := configs.GetCurrentConfig()
 	logLevel := logrus.InfoLevel
 	if cfg != nil && cfg.Debug {
@@ -68,16 +65,6 @@ func New(ctx context.Context) *interfaces.Logger {
 	if config.Debug {
 		logrus.SetReportCaller(true)
 	}
-
-	// 初始化LogStore，默认保存100行日志
-	maxLogLines := 100
-	// TODO: 可以从配置中读取最大日志行数
-	inst := instance.GetInstance(ctx)
-	inst.LogStore = logstore.New(maxLogLines)
-
-	// 添加直播间日志钩子
-	liveLogHook := NewLiveLogHook(inst.LogStore)
-	logrus.AddHook(liveLogHook)
 
 	// 全局唯一 logger 使用 logrus 标准 logger
 	logrus.SetLevel(logLevel)

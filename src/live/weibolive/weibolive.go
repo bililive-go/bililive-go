@@ -6,7 +6,6 @@ import (
 	"regexp"
 	"strings"
 
-	blog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
 	"github.com/hr3lxphr6j/requests"
 	"github.com/tidwall/gjson"
@@ -97,7 +96,7 @@ func (l *Live) GetStreamUrls() (us []*url.URL, err error) {
 		} else {
 			streamurl = strings.ReplaceAll(streamurl, ".flv", targetQuality)
 		}
-		blog.GetLogger().Info("weibo stream quality fixed: " + streamurl)
+		l.GetLogger().Info("weibo stream quality fixed: " + streamurl)
 	}
 
 	return utils.GenUrls(streamurl)

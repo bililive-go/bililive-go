@@ -18,13 +18,12 @@ import (
 	"time"
 
 	"github.com/bluele/gcache"
-	"github.com/sirupsen/logrus"
 
 	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/live"
-	applog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
+	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 	"github.com/bililive-go/bililive-go/src/pkg/parser"
 	"github.com/bililive-go/bililive-go/src/pkg/parser/ffmpeg"
 	"github.com/bililive-go/bililive-go/src/pkg/parser/native/flv"
@@ -41,12 +40,12 @@ const (
 
 // for test
 var (
-	newParser = func(u *url.URL, useNativeFlvParser bool, cfg map[string]string) (parser.Parser, error) {
+	newParser = func(u *url.URL, useNativeFlvParser bool, cfg map[string]string, logger *livelogger.LiveLogger) (parser.Parser, error) {
 		parserName := ffmpeg.Name
 		if strings.Contains(u.Path, ".flv") && useNativeFlvParser {
 			parserName = flv.Name
 		}
-		return parser.New(parserName, cfg)
+		return parser.New(parserName, cfg, logger)
 	}
 
 	mkdir = func(path string) error {
@@ -101,6 +100,16 @@ func NewRecorder(ctx context.Context, live live.Live) (Recorder, error) {
 
 func (r *recorder) tryRecord(ctx context.Context) {
 	cfg := configs.GetCurrentConfig()
+
+	// 获取层级配置
+	platformKey := configs.GetPlatformKeyFromUrl(r.Live.GetRawUrl())
+	room, roomErr := cfg.GetLiveRoomByUrl(r.Live.GetRawUrl())
+	if roomErr != nil {
+		// 如果找不到房间配置，使用空的房间配置
+		room = &configs.LiveRoom{Url: r.Live.GetRawUrl()}
+	}
+	resolvedConfig := cfg.ResolveConfigForRoom(room, platformKey)
+
 	var streamInfos []*live.StreamUrlInfo
 	var err error
 	if streamInfos, err = r.Live.GetStreamInfos(); err == live.ErrNotImplemented {
@@ -123,8 +132,9 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	info := obj.(*live.Info)
 
 	tmpl := getDefaultFileNameTmpl()
-	if cfg.OutputTmpl != "" {
-		_tmpl, errTmpl := template.New("user_filename").Funcs(utils.GetFuncMap(cfg)).Parse(cfg.OutputTmpl)
+	// 使用层级配置的 OutputTmpl
+	if resolvedConfig.OutputTmpl != "" {
+		_tmpl, errTmpl := template.New("user_filename").Funcs(utils.GetFuncMap(cfg)).Parse(resolvedConfig.OutputTmpl)
 		if errTmpl == nil {
 			tmpl = _tmpl
 		}
@@ -134,7 +144,8 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	if err = tmpl.Execute(buf, info); err != nil {
 		panic(fmt.Sprintf("failed to render filename, err: %v", err))
 	}
-	fileName := filepath.Join(cfg.OutPutPath, buf.String())
+	// 使用层级配置的 OutPutPath
+	fileName := filepath.Join(resolvedConfig.OutPutPath, buf.String())
 	outputPath, _ := filepath.Split(fileName)
 	streamInfo := streamInfos[0]
 	url := streamInfo.Url
@@ -152,9 +163,9 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		return
 	}
 	parserCfg := map[string]string{
-		"timeout_in_us": strconv.Itoa(cfg.TimeoutInUs),
+		"timeout_in_us": strconv.Itoa(resolvedConfig.TimeoutInUs),
 	}
-	p, err := newParser(url, cfg.Feature.UseNativeFlvParser, parserCfg)
+	p, err := newParser(url, resolvedConfig.Feature.UseNativeFlvParser, parserCfg, r.getLogger())
 	if err != nil {
 		r.getLogger().WithError(err).Error("failed to init parse")
 		return
@@ -162,7 +173,11 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	r.setAndCloseParser(p)
 	r.startTime = time.Now()
 	r.getLogger().Debugln("Start ParseLiveStream(" + url.String() + ", " + fileName + ")")
-	r.getLogger().Println(r.parser.ParseLiveStream(ctx, streamInfo, r.Live, fileName))
+	err = r.parser.ParseLiveStream(ctx, streamInfo, r.Live, fileName)
+	if err != nil {
+		r.getLogger().WithError(err).Error("failed to parse live stream")
+		return
+	}
 	r.getLogger().Debugln("End ParseLiveStream(" + url.String() + ", " + fileName + ")")
 	removeEmptyFile(fileName)
 	ffmpegPath, err := utils.GetFFmpegPathForLive(ctx, r.Live)
@@ -170,7 +185,8 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		r.getLogger().WithError(err).Error("failed to find ffmpeg")
 		return
 	}
-	cmdStr := strings.Trim(cfg.OnRecordFinished.CustomCommandline, "")
+	// 使用层级配置的 OnRecordFinished
+	cmdStr := strings.Trim(resolvedConfig.OnRecordFinished.CustomCommandline, "")
 	if len(cmdStr) > 0 {
 		customTmpl, errCmdTmpl := template.New("custom_commandline").Funcs(utils.GetFuncMap(cfg)).Parse(cmdStr)
 		if errCmdTmpl != nil {
@@ -211,19 +227,19 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		cmd.Stderr = utils.NewDebugControlledWriter(os.Stderr)
 		if err = cmd.Run(); err != nil {
 			r.getLogger().WithError(err).Debugf("custom commandline execute failure (%s %s)\n", bash, strings.Join(args, " "))
-		} else if cfg.OnRecordFinished.DeleteFlvAfterConvert {
+		} else if resolvedConfig.OnRecordFinished.DeleteFlvAfterConvert {
 			os.Remove(fileName)
 		}
 		r.getLogger().Debugf("end executing custom_commandline: %s", args[1])
 	} else {
 		outputFiles := []string{fileName}
-		if cfg.OnRecordFinished.FixFlvAtFirst {
+		if resolvedConfig.OnRecordFinished.FixFlvAtFirst {
 			outputFiles, err = tools.FixFlvByBililiveRecorder(ctx, fileName)
 			if err != nil {
 				r.getLogger().WithError(err).Error("failed to fix flv file, skip this step")
 			}
 		}
-		if cfg.OnRecordFinished.ConvertToMp4 {
+		if resolvedConfig.OnRecordFinished.ConvertToMp4 {
 			for _, outputFile := range outputFiles {
 				//格式转换时去除原本后缀名
 				newFileName := outputFile[0:strings.LastIndex(outputFile, ".")]
@@ -242,7 +258,7 @@ func (r *recorder) tryRecord(ctx context.Context) {
 				if err = convertCmd.Run(); err != nil {
 					convertCmd.Process.Kill()
 					r.getLogger().Debugln(err)
-				} else if cfg.OnRecordFinished.DeleteFlvAfterConvert {
+				} else if resolvedConfig.OnRecordFinished.DeleteFlvAfterConvert {
 					os.Remove(outputFile)
 				}
 			}
@@ -307,20 +323,8 @@ func (r *recorder) Close() {
 	r.ed.DispatchEvent(events.NewEvent(RecorderStop, r.Live))
 }
 
-func (r *recorder) getLogger() *logrus.Entry {
-	return applog.WithFields(r.getFields())
-}
-
-func (r *recorder) getFields() map[string]any {
-	obj, err := r.cache.Get(r.Live)
-	if err != nil {
-		return nil
-	}
-	info := obj.(*live.Info)
-	return map[string]any{
-		"host": info.HostName,
-		"room": info.RoomName,
-	}
+func (r *recorder) getLogger() *livelogger.LiveLogger {
+	return r.Live.GetLogger()
 }
 
 func (r *recorder) GetStatus() (map[string]string, error) {

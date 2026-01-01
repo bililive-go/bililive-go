@@ -60,7 +60,7 @@ func initMux(ctx context.Context) *mux.Router {
 				),
 			)
 		})
-	}, log)
+	} /* , log */)
 
 	// api router
 	apiRoute := m.PathPrefix(apiRouterPrefix).Subrouter()
@@ -79,6 +79,7 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/file/{path:.*}", getFileInfo).Methods("GET")
 	apiRoute.HandleFunc("/cookies", getLiveHostCookie).Methods("GET")
 	apiRoute.HandleFunc("/cookies", putLiveHostCookie).Methods("PUT")
+	apiRoute.HandleFunc("/sse", sseHandler).Methods("GET") // SSE 实时推送端点
 	apiRoute.Handle("/metrics", promhttp.Handler())
 
 	m.PathPrefix("/files/").Handler(
@@ -200,6 +201,8 @@ func (s *Server) Start(ctx context.Context) error {
 func (s *Server) Close(ctx context.Context) {
 	inst := instance.GetInstance(ctx)
 	inst.WaitGroup.Done()
+	// 先关闭所有 SSE 连接，避免 Shutdown 时等待
+	GetSSEHub().Close()
 	ctx2, cancel := context.WithCancel(ctx)
 	if err := s.server.Shutdown(ctx2); err != nil {
 		applog.GetLogger().WithError(err).Error("failed to shutdown server")

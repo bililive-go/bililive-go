@@ -25,6 +25,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/listeners"
 	"github.com/bililive-go/bililive-go/src/live"
 	applog "github.com/bililive-go/bililive-go/src/log"
+	"github.com/bililive-go/bililive-go/src/pkg/utils"
 	"github.com/bililive-go/bililive-go/src/recorders"
 	"github.com/bililive-go/bililive-go/src/types"
 )
@@ -90,6 +91,26 @@ func getLive(writer http.ResponseWriter, r *http.Request) {
 	// 解析最终生效的配置
 	resolvedConfig := cfg.ResolveConfigForRoom(room, platformKey)
 
+	// 获取平台相关的连接统计
+	// 从 URL 中提取主机名用于匹配连接统计
+	rawURL := live.GetRawUrl()
+	parsedURL, _ := url.Parse(rawURL)
+	var connStats []utils.ConnStats
+	if parsedURL != nil {
+		// 提取 API 主机名前缀（如 bilibili 对应 api.live.bilibili.com）
+		host := parsedURL.Host
+		// 移除端口号
+		if colonIdx := strings.Index(host, ":"); colonIdx != -1 {
+			host = host[:colonIdx]
+		}
+		// 提取主域名部分用于匹配
+		parts := strings.Split(host, ".")
+		if len(parts) >= 2 {
+			domainPrefix := parts[len(parts)-2] // 如 "bilibili"
+			connStats = utils.ConnCounterManager.GetStatsByHostPrefix(domainPrefix)
+		}
+	}
+
 	// 构造详细响应
 	detailedInfo := map[string]interface{}{
 		// 基本信息
@@ -118,6 +139,9 @@ func getLive(writer http.ResponseWriter, r *http.Request) {
 			"out_put_path": getConfigSource(cfg, *room, platformKey, "out_put_path"),
 			"ffmpeg_path":  getConfigSource(cfg, *room, platformKey, "ffmpeg_path"),
 		},
+
+		// 运行时信息 - 连接统计
+		"conn_stats": connStats,
 
 		// 时间信息（目前为模拟数据，需要后续实现真实的时间跟踪）
 		"live_start_time":  "未知",
@@ -180,13 +204,33 @@ func getLiveLogs(writer http.ResponseWriter, r *http.Request) {
 
 	liveID := types.LiveID(vars["id"])
 
-	// 从LogStore获取真实日志
-	logs := inst.LogStore.GetLogs(liveID, lines)
+	// 查找直播间
+	liveInstance, ok := inst.Lives[liveID]
+	if !ok {
+		writeJsonWithStatusCode(writer, http.StatusNotFound, commonResp{
+			ErrNo:  http.StatusNotFound,
+			ErrMsg: fmt.Sprintf("live id: %s can not find", vars["id"]),
+		})
+		return
+	}
 
-	// 转换为前端需要的格式
+	// 从直播间的 Logger 获取日志（原始文本形式）
+	logsText := liveInstance.GetLogger().GetLogs()
+
+	// 按行分割日志
 	var logLines []string
-	for _, log := range logs {
-		logLines = append(logLines, log.Message)
+	if logsText != "" {
+		// 分割成行，去掉末尾空行
+		for _, line := range strings.Split(logsText, "\n") {
+			if line != "" {
+				logLines = append(logLines, line)
+			}
+		}
+	}
+
+	// 如果请求了行数限制，只返回最后 N 行
+	if lines > 0 && len(logLines) > lines {
+		logLines = logLines[len(logLines)-lines:]
 	}
 
 	logResponse := map[string]interface{}{
@@ -225,7 +269,7 @@ func parseLiveAction(writer http.ResponseWriter, r *http.Request) {
 			writeJsonWithStatusCode(writer, http.StatusBadRequest, resp)
 		}
 		if _, err := configs.SetLiveRoomListening(live.GetRawUrl(), true); err != nil {
-			applog.GetLogger().Error("failed to set live room listening: " + err.Error())
+			live.GetLogger().Error("failed to set live room listening: " + err.Error())
 		}
 	case "stop":
 		if err := stopListening(r.Context(), live.GetLiveId()); err != nil {
@@ -234,7 +278,7 @@ func parseLiveAction(writer http.ResponseWriter, r *http.Request) {
 			writeJsonWithStatusCode(writer, http.StatusBadRequest, resp)
 		}
 		if _, err := configs.SetLiveRoomListening(live.GetRawUrl(), false); err != nil {
-			applog.GetLogger().Error("failed to set live room listening: " + err.Error())
+			live.GetLogger().Error("failed to set live room listening: " + err.Error())
 		}
 	default:
 		resp.ErrNo = http.StatusBadRequest

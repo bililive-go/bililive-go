@@ -3,6 +3,7 @@ package utils
 import (
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -61,6 +62,51 @@ func (m *ConnCounterManagerType) PrintMap() {
 		blog.GetLogger().Infof("host[%s] TCP bytes received: %s, sent: %s", url,
 			FormatBytes(counter.ReadBytes), FormatBytes(counter.WriteBytes))
 	}
+}
+
+// ConnStats 表示单个主机的连接统计信息
+type ConnStats struct {
+	Host           string `json:"host"`
+	ReceivedBytes  int64  `json:"received_bytes"`
+	ReceivedFormat string `json:"received_format"`
+	SentBytes      int64  `json:"sent_bytes"`
+	SentFormat     string `json:"sent_format"`
+}
+
+// GetAllStats 返回所有主机的连接统计信息
+func (m *ConnCounterManagerType) GetAllStats() []ConnStats {
+	m.mapLock.Lock()
+	defer m.mapLock.Unlock()
+	stats := make([]ConnStats, 0, len(m.bcMap))
+	for host, counter := range m.bcMap {
+		stats = append(stats, ConnStats{
+			Host:           host,
+			ReceivedBytes:  counter.ReadBytes,
+			ReceivedFormat: FormatBytes(counter.ReadBytes),
+			SentBytes:      counter.WriteBytes,
+			SentFormat:     FormatBytes(counter.WriteBytes),
+		})
+	}
+	return stats
+}
+
+// GetStatsByHost 返回指定主机的连接统计信息，支持前缀匹配
+func (m *ConnCounterManagerType) GetStatsByHostPrefix(prefix string) []ConnStats {
+	m.mapLock.Lock()
+	defer m.mapLock.Unlock()
+	stats := make([]ConnStats, 0)
+	for host, counter := range m.bcMap {
+		if strings.Contains(host, prefix) {
+			stats = append(stats, ConnStats{
+				Host:           host,
+				ReceivedBytes:  counter.ReadBytes,
+				ReceivedFormat: FormatBytes(counter.ReadBytes),
+				SentBytes:      counter.WriteBytes,
+				SentFormat:     FormatBytes(counter.WriteBytes),
+			})
+		}
+	}
+	return stats
 }
 
 func CreateConnCounterClient() (*http.Client, error) {

@@ -12,10 +12,9 @@ import (
 	"runtime/debug"
 	"sync"
 
-	applog "github.com/bililive-go/bililive-go/src/log"
-
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/live"
+	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 	"github.com/bililive-go/bililive-go/src/pkg/parser"
 	"github.com/bililive-go/bililive-go/src/pkg/reader"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
@@ -44,7 +43,7 @@ func init() {
 
 type builder struct{}
 
-func (b *builder) Build(cfg map[string]string) (parser.Parser, error) {
+func (b *builder) Build(cfg map[string]string, logger *livelogger.LiveLogger) (parser.Parser, error) {
 	// timeout, err := time.ParseDuration(cfg["timeout_in_us"] + "us")
 	// if err != nil {
 	// 	timeout = time.Minute
@@ -54,6 +53,7 @@ func (b *builder) Build(cfg map[string]string) (parser.Parser, error) {
 		hc:        &http.Client{},
 		stopCh:    make(chan struct{}),
 		closeOnce: new(sync.Once),
+		logger:    logger,
 	}, nil
 }
 
@@ -72,6 +72,7 @@ type Parser struct {
 	hc        *http.Client
 	stopCh    chan struct{}
 	closeOnce *sync.Once
+	logger    *livelogger.LiveLogger
 }
 
 func (p *Parser) ParseLiveStream(ctx context.Context, streamUrlInfo *live.StreamUrlInfo, live live.Live, file string) error {
@@ -163,7 +164,7 @@ func (p *Parser) doCopy(ctx context.Context, n uint32) error {
 
 func (p *Parser) doWrite(ctx context.Context, b []byte) error {
 	_ = instance.GetInstance(ctx) // keep context link if needed
-	logger := applog.GetLogger()
+	logger := p.logger
 	leftInputSize := len(b)
 	for retryLeft := ioRetryCount; retryLeft > 0 && leftInputSize > 0; retryLeft-- {
 		writtenCount, err := p.o.Write(b[len(b)-leftInputSize:])

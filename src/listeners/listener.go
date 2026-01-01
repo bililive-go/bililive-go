@@ -72,18 +72,16 @@ func (l *listener) Close() {
 
 // sendLiveNotification 发送直播状态变更通知
 func (l *listener) sendLiveNotification(hostName, status string) {
-	// 创建context用于日志记录
-	ctx := context.Background()
 	// 发送通知
-	if err := notify.SendNotification(ctx, hostName, l.Live.GetPlatformCNName(), l.Live.GetRawUrl(), status); err != nil {
-		applog.GetLogger().WithError(err).WithField("host", hostName).Error("failed to send notification")
+	if err := notify.SendNotification(l.Live.GetLogger(), hostName, l.Live.GetPlatformCNName(), l.Live.GetRawUrl(), status); err != nil {
+		l.Live.GetLogger().WithError(err).WithField("host", hostName).Error("failed to send notification")
 	}
 }
 
 func (l *listener) refresh() {
 	info, err := l.Live.GetInfo()
 	if err != nil {
-		applog.GetLogger().
+		l.Live.GetLogger().
 			WithError(err).
 			WithField("url", l.Live.GetRawUrl()).
 			Error("failed to load room info")

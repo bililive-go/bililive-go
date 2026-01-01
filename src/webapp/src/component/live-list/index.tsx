@@ -1,8 +1,10 @@
 import React from "react";
-import { Button, Divider, PageHeader, Table, Tag, Tabs, Row, Col, Tooltip, Card, Badge, message, List, Typography } from 'antd';
+import { Button, Divider, PageHeader, Table, Tag, Tabs, Row, Col, Tooltip, message, List, Typography } from 'antd';
 import PopDialog from '../pop-dialog/index';
 import AddRoomDialog from '../add-room-dialog/index';
+import LogPanel from '../log-panel/index';
 import API from '../../utils/api';
+import { subscribeSSE, unsubscribeSSE, SSEMessage } from '../../utils/sse';
 import './live-list.css';
 import { RouteComponentProps } from "react-router-dom";
 import { ColumnProps } from 'antd/lib/table';
@@ -26,6 +28,7 @@ interface IState {
     expandedRowKeys: string[],  // 展开的行
     expandedDetails: { [key: string]: any }, // 直播间详细信息缓存
     expandedLogs: { [key: string]: string[] }, // 直播间日志缓存
+    sseSubscriptions: { [key: string]: string }, // roomId -> subscriptionId 映射
 }
 
 interface ItemData {
@@ -106,7 +109,7 @@ class LiveList extends React.Component<Props, IState> {
         key: 'action',
         dataIndex: 'listening',
         render: (listening: boolean, data: ItemData) => (
-            <span>
+            <span onClick={(e) => e.stopPropagation()}>
                 <PopDialog
                     title={listening ? "确定停止监控？" : "确定开启监控？"}
                     onConfirm={(e) => {
@@ -152,10 +155,6 @@ class LiveList extends React.Component<Props, IState> {
                 <Button type="link" size="small" onClick={(e) => {
                     this.props.history.push(`/fileList/${data.address}/${data.name}`);
                 }}>文件</Button>
-                <Divider type="vertical" />
-                <Button type="link" size="small" onClick={(e) => {
-                    this.toggleExpandRow(data.roomId);
-                }}>详情</Button>
             </span>
         ),
     };
@@ -168,12 +167,13 @@ class LiveList extends React.Component<Props, IState> {
             sorter: (a: ItemData, b: ItemData) => {
                 return a.name.localeCompare(b.name);
             },
+            render: (name: string) => <span>{name}</span>
         },
         {
             title: '直播间名称',
             dataIndex: 'room',
             key: 'room',
-            render: (room: Room) => <a href={room.url} rel="noopener noreferrer" target="_blank">{room.roomName}</a>
+            render: (room: Room) => <a href={room.url} rel="noopener noreferrer" target="_blank" onClick={(e) => e.stopPropagation()}>{room.roomName}</a>
         },
         {
             title: '直播平台',
@@ -182,6 +182,7 @@ class LiveList extends React.Component<Props, IState> {
             sorter: (a: ItemData, b: ItemData) => {
                 return a.address.localeCompare(b.address);
             },
+            render: (address: string) => <span>{address}</span>
         },
         this.runStatus,
         this.runAction
@@ -192,7 +193,7 @@ class LiveList extends React.Component<Props, IState> {
             title: '主播名称',
             dataIndex: 'name',
             key: 'name',
-            render: (name: String, data: ItemData) => <a href={data.room.url} rel="noopener noreferrer" target="_blank">{name}</a>
+            render: (name: String, data: ItemData) => <a href={data.room.url} rel="noopener noreferrer" target="_blank" onClick={(e) => e.stopPropagation()}>{name}</a>
         },
         this.runStatus,
         this.runAction
@@ -243,6 +244,7 @@ class LiveList extends React.Component<Props, IState> {
             expandedRowKeys: [],
             expandedDetails: {},
             expandedLogs: {},
+            sseSubscriptions: {},
         }
     }
 
@@ -257,6 +259,11 @@ class LiveList extends React.Component<Props, IState> {
     componentWillUnmount() {
         //clear refresh timer
         clearInterval(this.timer);
+        // 取消所有 SSE 订阅
+        const { sseSubscriptions } = this.state;
+        Object.values(sseSubscriptions).forEach(subId => {
+            unsubscribeSSE(subId);
+        });
     }
 
     onRef = (ref: AddRoomDialog) => {
@@ -378,21 +385,90 @@ class LiveList extends React.Component<Props, IState> {
     }
 
     toggleExpandRow = (roomId: string) => {
-        const { expandedRowKeys } = this.state;
+        const { expandedRowKeys, sseSubscriptions } = this.state;
         const isExpanded = expandedRowKeys.includes(roomId);
 
         if (isExpanded) {
-            // 收起
-            this.setState({
-                expandedRowKeys: expandedRowKeys.filter(key => key !== roomId)
-            });
+            // 收起 - 取消 SSE 订阅
+            if (sseSubscriptions[roomId]) {
+                unsubscribeSSE(sseSubscriptions[roomId]);
+                const newSubscriptions = { ...sseSubscriptions };
+                delete newSubscriptions[roomId];
+                this.setState({
+                    expandedRowKeys: expandedRowKeys.filter(key => key !== roomId),
+                    sseSubscriptions: newSubscriptions
+                });
+            } else {
+                this.setState({
+                    expandedRowKeys: expandedRowKeys.filter(key => key !== roomId)
+                });
+            }
         } else {
-            // 展开 - 获取详细信息和日志
+            // 展开 - 获取详细信息和日志，并订阅 SSE
             this.setState({
                 expandedRowKeys: [...expandedRowKeys, roomId]
             });
             this.loadRoomDetail(roomId);
             this.loadRoomLogs(roomId);
+            this.subscribeRoomSSE(roomId);
+        }
+    }
+
+    // 订阅房间的 SSE 事件
+    subscribeRoomSSE = (roomId: string) => {
+        // 订阅所有该房间的事件
+        const subscriptionId = subscribeSSE(roomId, '*', (message: SSEMessage) => {
+            this.handleSSEMessage(roomId, message);
+        });
+
+        this.setState({
+            sseSubscriptions: {
+                ...this.state.sseSubscriptions,
+                [roomId]: subscriptionId
+            }
+        });
+    }
+
+    // 处理 SSE 消息
+    handleSSEMessage = (roomId: string, message: SSEMessage) => {
+        switch (message.type) {
+            case 'log':
+                // 追加新日志
+                this.setState(prevState => {
+                    const currentLogs = prevState.expandedLogs[roomId] || [];
+                    // 限制日志数量，保留最新的 500 条（与 LogPanel 的 MAX_LOG_LINES 保持一致）
+                    const newLogs = [...currentLogs, message.data].slice(-500);
+                    return {
+                        expandedLogs: {
+                            ...prevState.expandedLogs,
+                            [roomId]: newLogs
+                        }
+                    };
+                });
+                break;
+
+            case 'live_update':
+                // 刷新房间详情
+                this.loadRoomDetail(roomId);
+                // 同时刷新列表数据
+                this.requestListData();
+                break;
+
+            case 'conn_stats':
+                // 更新连接统计
+                const currentDetail = this.state.expandedDetails[roomId];
+                if (currentDetail) {
+                    this.setState({
+                        expandedDetails: {
+                            ...this.state.expandedDetails,
+                            [roomId]: {
+                                ...currentDetail,
+                                conn_stats: message.data
+                            }
+                        }
+                    });
+                }
+                break;
         }
     }
 
@@ -431,83 +507,211 @@ class LiveList extends React.Component<Props, IState> {
         const detail = expandedDetails[record.roomId];
         const logs = expandedLogs[record.roomId] || [];
 
-        return (
-            <div style={{ padding: '16px', backgroundColor: '#fafafa' }}>
-                <Row gutter={16}>
-                    <Col span={12}>
-                        <Card title="配置信息" size="small" style={{ height: '300px', overflow: 'auto' }}>
-                            {detail ? (
-                                <div>
-                                    <div style={{ marginBottom: 8 }}>
-                                        <Text strong>有效检测间隔: </Text>
-                                        <Badge
-                                            count={`${detail.effectiveInterval || '30'}秒`}
-                                            style={{ backgroundColor: '#52c41a' }}
-                                        />
-                                        <Text type="secondary" style={{ marginLeft: 8 }}>
-                                            {this.getConfigSource(detail, 'interval')}
-                                        </Text>
-                                    </div>
-                                    <div style={{ marginBottom: 8 }}>
-                                        <Text strong>输出路径: </Text>
-                                        <Text code>{detail.effectiveOutPath || './'}</Text>
-                                        <Text type="secondary" style={{ marginLeft: 8 }}>
-                                            {this.getConfigSource(detail, 'out_put_path')}
-                                        </Text>
-                                    </div>
-                                    <div style={{ marginBottom: 8 }}>
-                                        <Text strong>录制质量: </Text>
-                                        <Text>{detail.quality === 0 ? 'HEVC原画PRO' : 'FLV原画'}</Text>
-                                    </div>
-                                    <div style={{ marginBottom: 8 }}>
-                                        <Text strong>平台访问限制: </Text>
-                                        <Text>{detail.platformRateLimit ? `${detail.platformRateLimit}秒` : '无限制'}</Text>
-                                    </div>
-                                    <div style={{ marginBottom: 8 }}>
-                                        <Text strong>开播时间: </Text>
-                                        <Text>{detail.liveStartTime || '未知'}</Text>
-                                    </div>
-                                    <div style={{ marginBottom: 8 }}>
-                                        <Text strong>上次录制: </Text>
-                                        <Text>{detail.lastRecordTime || '无'}</Text>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div>加载详细信息中...</div>
-                            )}
-                        </Card>
-                    </Col>
-                    <Col span={12}>
-                        <Card title="最近日志" size="small" style={{ height: '300px' }}>
-                            <List
-                                size="small"
-                                dataSource={logs.slice(-10)} // 显示最新10条
-                                style={{ height: '240px', overflow: 'auto' }}
-                                renderItem={(item: string) => (
-                                    <List.Item style={{ padding: '4px 0' }}>
-                                        <Text code style={{ fontSize: '12px', wordBreak: 'break-all' }}>
-                                            {item}
-                                        </Text>
-                                    </List.Item>
-                                )}
-                                locale={{ emptyText: logs.length === 0 ? '暂无日志' : '日志加载中...' }}
-                            />
-                        </Card>
-                    </Col>
-                </Row>
+        // 配置来源对应的颜色
+        const sourceColors: { [key: string]: string } = {
+            room: 'blue',
+            platform: 'orange',
+            global: 'green',
+            default: 'default',
+        };
+
+        // 获取配置项的颜色
+        const getSourceColor = (configKey: string): string => {
+            if (!detail || !detail.config_sources) return sourceColors.default;
+            const source = detail.config_sources[configKey];
+            return sourceColors[source] || sourceColors.default;
+        };
+
+        // 配置项行样式
+        const configRowStyle: React.CSSProperties = {
+            display: 'flex',
+            alignItems: 'center',
+            padding: '6px 12px',
+            borderBottom: '1px solid #f0f0f0',
+        };
+
+        const configLabelStyle: React.CSSProperties = {
+            width: '120px',
+            flexShrink: 0,
+            fontWeight: 500,
+            color: '#666',
+        };
+
+        // 配置信息面板
+        const renderConfigPanel = () => (
+            <div>
+                {/* 配置来源图例 */}
+                <div style={{
+                    padding: '8px 12px',
+                    backgroundColor: '#fafafa',
+                    borderBottom: '1px solid #e8e8e8',
+                    fontSize: 12
+                }}>
+                    <Text type="secondary">配置来源图例: </Text>
+                    <Tag color={sourceColors.room} style={{ marginLeft: 8 }}>房间级</Tag>
+                    <Tag color={sourceColors.platform}>平台级</Tag>
+                    <Tag color={sourceColors.global}>全局</Tag>
+                    <Tag>默认</Tag>
+                </div>
+                {detail ? (
+                    <div style={{ padding: '4px 0' }}>
+                        <div style={configRowStyle}>
+                            <span style={configLabelStyle}>检测间隔</span>
+                            <Tag color={getSourceColor('interval')}>
+                                {`${detail.effective_interval || '30'}秒`}
+                            </Tag>
+                        </div>
+                        <div style={configRowStyle}>
+                            <span style={configLabelStyle}>输出路径</span>
+                            <Tag color={getSourceColor('out_put_path')}>
+                                {detail.effective_out_path || './'}
+                            </Tag>
+                        </div>
+                        <div style={configRowStyle}>
+                            <span style={configLabelStyle}>FFmpeg路径</span>
+                            <Tag color={getSourceColor('ffmpeg_path')}>
+                                {detail.effective_ffmpeg_path || '默认内置ffmpeg'}
+                            </Tag>
+                        </div>
+                        <div style={configRowStyle}>
+                            <span style={configLabelStyle}>录制质量</span>
+                            <span>{detail.quality === 0 ? '原画' : `画质${detail.quality}`}</span>
+                        </div>
+                        <div style={configRowStyle}>
+                            <span style={configLabelStyle}>仅录音频</span>
+                            <Tag color={detail.audio_only ? 'blue' : undefined}>
+                                {detail.audio_only ? '是' : '否'}
+                            </Tag>
+                        </div>
+                        <div style={{ ...configRowStyle, borderBottom: 'none' }}>
+                            <span style={configLabelStyle}>平台访问限制</span>
+                            <span>{detail.platform_rate_limit ? `${detail.platform_rate_limit}秒` : '无限制'}</span>
+                        </div>
+                    </div>
+                ) : (
+                    <div style={{ padding: '20px', textAlign: 'center', color: '#999' }}>
+                        加载配置信息中...
+                    </div>
+                )}
             </div>
         );
-    }
 
-    getConfigSource = (detail: any, configKey: string): string => {
-        if (!detail.configSources) return '';
-        const source = detail.configSources[configKey];
-        switch (source) {
-            case 'room': return '(房间级设置)';
-            case 'platform': return '(平台级设置)';
-            case 'global': return '(全局设置)';
-            default: return '(默认值)';
-        }
+        // 运行时信息面板
+        const renderRuntimePanel = () => (
+            <div>
+                {detail ? (
+                    <div>
+                        <div style={{ padding: '4px 0' }}>
+                            <div style={configRowStyle}>
+                                <span style={configLabelStyle}>监控状态</span>
+                                <Tag color={detail.listening ? 'green' : undefined}>
+                                    {detail.listening ? '监控中' : '已停止'}
+                                </Tag>
+                            </div>
+                            <div style={configRowStyle}>
+                                <span style={configLabelStyle}>录制状态</span>
+                                <Tag color={detail.recording ? 'red' : undefined}>
+                                    {detail.recording ? '录制中' : '未录制'}
+                                </Tag>
+                            </div>
+                            <div style={configRowStyle}>
+                                <span style={configLabelStyle}>开播时间</span>
+                                <span>{detail.live_start_time || '未知'}</span>
+                            </div>
+                            <div style={{ ...configRowStyle, borderBottom: 'none' }}>
+                                <span style={configLabelStyle}>上次录制</span>
+                                <span>{detail.last_record_time || '无'}</span>
+                            </div>
+                        </div>
+                        <Divider style={{ margin: '8px 0' }}>网络连接统计</Divider>
+                        <div style={{ padding: '0 12px 8px' }}>
+                            {detail.conn_stats && detail.conn_stats.length > 0 ? (
+                                <List
+                                    size="small"
+                                    dataSource={detail.conn_stats}
+                                    split={false}
+                                    renderItem={(item: any) => (
+                                        <List.Item style={{ padding: '6px 0', borderBottom: '1px dashed #f0f0f0' }}>
+                                            <div style={{ width: '100%' }}>
+                                                <Text strong style={{ fontSize: 13 }}>{item.host}</Text>
+                                                <div style={{ marginTop: 4 }}>
+                                                    <Text type="secondary">↓ 接收: </Text>
+                                                    <Tag color="blue" style={{ marginRight: 16 }}>{item.received_format}</Tag>
+                                                    <Text type="secondary">↑ 发送: </Text>
+                                                    <Tag color="green">{item.sent_format}</Tag>
+                                                </div>
+                                            </div>
+                                        </List.Item>
+                                    )}
+                                />
+                            ) : (
+                                <div style={{ padding: '12px 0', textAlign: 'center', color: '#999' }}>
+                                    暂无网络连接统计数据
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                ) : (
+                    <div style={{ padding: '20px', textAlign: 'center', color: '#999' }}>
+                        加载运行时信息中...
+                    </div>
+                )}
+            </div>
+        );
+
+        // 日志面板
+        const renderLogsPanel = () => {
+            const handleLogsChange = (newLogs: string[]) => {
+                this.setState({
+                    expandedLogs: {
+                        ...this.state.expandedLogs,
+                        [record.roomId]: newLogs
+                    }
+                });
+            };
+
+            return (
+                <LogPanel
+                    logs={logs}
+                    onLogsChange={handleLogsChange}
+                    roomName={record.name}
+                />
+            );
+        };
+
+        return (
+            <div style={{
+                margin: '8px 16px 16px',
+                border: '1px solid #d9d9d9',
+                borderRadius: '6px',
+                backgroundColor: '#fff',
+                maxWidth: 'calc(100vw - 80px)',
+            }}>
+                <Tabs
+                    defaultActiveKey="config"
+                    size="small"
+                    animated={false}
+                    style={{ margin: 0 }}
+                    tabBarStyle={{
+                        margin: 0,
+                        padding: '0 12px',
+                        backgroundColor: '#fafafa',
+                        borderBottom: '1px solid #e8e8e8',
+                        borderRadius: '6px 6px 0 0'
+                    }}
+                >
+                    <TabPane tab="配置信息" key="config">
+                        {renderConfigPanel()}
+                    </TabPane>
+                    <TabPane tab="运行时信息" key="runtime">
+                        {renderRuntimePanel()}
+                    </TabPane>
+                    <TabPane tab="最近日志" key="logs">
+                        {renderLogsPanel()}
+                    </TabPane>
+                </Tabs>
+            </div>
+        );
     }
 
     render() {
@@ -551,6 +755,17 @@ class LiveList extends React.Component<Props, IState> {
                             expandedRowKeys={this.state.expandedRowKeys}
                             expandedRowRender={this.renderExpandedRow}
                             rowKey={record => record.roomId}
+                            onExpand={(expanded, record) => this.toggleExpandRow(record.roomId)}
+                            onRow={(record) => ({
+                                onClick: (e) => {
+                                    // 只有点击 td 单元格本身（空白处）才触发展开
+                                    // 如果点击的是 td 内的内容元素，则不触发
+                                    const target = e.target as HTMLElement;
+                                    if (target.tagName === 'TD') {
+                                        this.toggleExpandRow(record.roomId);
+                                    }
+                                }
+                            })}
                         />
                     </TabPane>
                     <TabPane tab="Cookie管理" key="cookielist">

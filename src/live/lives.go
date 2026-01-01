@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/bililive-go/bililive-go/src/configs"
+	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 	"github.com/bililive-go/bililive-go/src/pkg/ratelimit"
 	"github.com/bililive-go/bililive-go/src/types"
 	"github.com/bluele/gcache"
@@ -130,6 +131,7 @@ type Live interface {
 	SetLastStartTime(time.Time)
 	UpdateLiveOptionsbyConfig(context.Context, *configs.LiveRoom) error
 	GetOptions() *Options
+	GetLogger() *livelogger.LiveLogger
 }
 
 type WrappedLive struct {
@@ -147,7 +149,7 @@ func newWrappedLive(live Live, cache gcache.Cache) Live {
 func (w *WrappedLive) GetInfo() (*Info, error) {
 	// 在通用位置应用平台访问频率限制
 	w.waitForPlatformRateLimit()
-	
+
 	i, err := w.Live.GetInfo()
 	if err != nil {
 		if info, err2 := w.cache.Get(w); err2 == nil {
