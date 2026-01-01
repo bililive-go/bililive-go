@@ -1,6 +1,5 @@
 import React from 'react';
 import './App.css';
-import 'antd/dist/antd.css';
 import { Switch, Route } from 'react-router-dom';
 import RootLayout from './component/layout/index';
 import LiveList from './component/live-list/index';
@@ -11,11 +10,16 @@ import FileList from './component/file-list/index';
 const App: React.FC = () => {
   return (
     <RootLayout>
+      {/* @ts-ignore */}
       <Switch>
-        <Route path="/fileList/:path(.*)?" component={FileList}></Route>
-        <Route path="/configInfo" component={ConfigInfo}></Route>
-        <Route path="/liveInfo" component={LiveInfo}></Route>
-        <Route path="/" component={LiveList}></Route>
+        {/* @ts-ignore */}
+        <Route path="/fileList/:path(.*)?" render={(props) => <FileList {...props} />} />
+        {/* @ts-ignore */}
+        <Route path="/configInfo" render={(props) => <ConfigInfo {...props} />} />
+        {/* @ts-ignore */}
+        <Route path="/liveInfo" render={(props) => <LiveInfo {...props} />} />
+        {/* @ts-ignore */}
+        <Route path="/" render={(props) => <LiveList {...props} />} />
       </Switch>
     </RootLayout>
   );

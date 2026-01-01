@@ -1,11 +1,12 @@
 import React from "react";
 import API from "../../utils/api";
-import { Breadcrumb, Divider, Icon, Table } from "antd";
+import { Breadcrumb, Divider, Table } from "antd";
+import { FolderFilled, FileOutlined } from "@ant-design/icons";
 import { Link, RouteComponentProps } from "react-router-dom";
 import Utils from "../../utils/common";
 import './file-list.css';
-import { PaginationConfig } from "antd/lib/pagination";
-import { SorterResult } from "antd/lib/table";
+import type { TablePaginationConfig } from "antd";
+
 import Artplayer from "artplayer";
 import mpegtsjs from "mpegts.js";
 
@@ -15,7 +16,8 @@ interface MatchParams {
     path: string | undefined;
 }
 
-interface Props extends RouteComponentProps<MatchParams> {
+interface Props extends RouteComponentProps<any> {
+    children?: React.ReactNode;
 }
 
 type CurrentFolderFile = {
@@ -28,7 +30,7 @@ type CurrentFolderFile = {
 interface IState {
     parentFolders: string[];
     currentFolderFiles: CurrentFolderFile[];
-    sortedInfo: Partial<SorterResult<CurrentFolderFile>>;
+    sortedInfo: any;
     isPlayerVisible: boolean;
 }
 
@@ -86,7 +88,7 @@ class FileList extends React.Component<Props, IState> {
         });
     };
 
-    handleChange = (pagination: PaginationConfig, filtetrs: Partial<Record<keyof CurrentFolderFile, string[]>>, sorter: SorterResult<CurrentFolderFile>) => {
+    handleChange = (pagination: TablePaginationConfig, filtetrs: Partial<Record<keyof CurrentFolderFile, string[]>>, sorter: any) => {
         this.setState({
             sortedInfo: sorter,
         });
@@ -165,7 +167,7 @@ class FileList extends React.Component<Props, IState> {
             <Link to={currentPath} onClick={this.hidePlayer}>{rootFolderName}</Link>
         </Breadcrumb.Item>;
         const folders = this.props.match.params.path?.split("/") || [];
-        const items = folders.map(v => {
+        const items = folders.map((v: string) => {
             currentPath += "/" + v;
             return <Breadcrumb.Item key={v}>
                 <Link to={`${currentPath}`} onClick={this.hidePlayer}>{v}</Link>
@@ -194,9 +196,9 @@ class FileList extends React.Component<Props, IState> {
             sortOrder: sortedInfo.columnKey === "name" && sortedInfo.order,
             render: (text: string, record: CurrentFolderFile, index: number) => {
                 return [
-                    record.is_folder ? <Icon type="folder" theme="filled" /> : <Icon type="file" />,
-                    <Divider type="vertical" />,
-                    record.name,
+                    record.is_folder ? <FolderFilled key="icon" style={{ color: '#1890ff' }} /> : <FileOutlined key="icon" />,
+                    <Divider key="divider" type="vertical" />,
+                    <span key="name">{record.name}</span>,
                 ];
             }
         }, {
@@ -226,7 +228,9 @@ class FileList extends React.Component<Props, IState> {
             dataSource={this.state.currentFolderFiles}
             onChange={this.handleChange}
             pagination={{ pageSize: 50 }}
-            onRowClick={this.onRowClick}
+            onRow={(record) => ({
+                onClick: () => this.onRowClick(record)
+            })}
             scroll={{ x: 'max-content' }}
         />);
     }

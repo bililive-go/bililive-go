@@ -1,5 +1,15 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Tooltip, message, Icon, Input } from 'antd';
+import { Tooltip, message, Input } from 'antd';
+import {
+  VerticalAlignBottomOutlined,
+  PlayCircleOutlined,
+  PauseCircleOutlined,
+  DeleteOutlined,
+  DownloadOutlined,
+  CloseCircleOutlined,
+  UpOutlined,
+  DownOutlined
+} from '@ant-design/icons';
 import './log-panel.css';
 
 // 日志显示上限
@@ -300,7 +310,7 @@ const LogPanel: React.FC<LogPanelProps> = ({ logs, onLogsChange, roomName }) => 
             className={`log-toolbar-btn ${autoScroll ? 'active' : ''}`}
             onClick={toggleAutoScroll}
           >
-            <Icon type="vertical-align-bottom" />
+            <VerticalAlignBottomOutlined />
           </div>
         </Tooltip>
         <Tooltip title={isPaused ? '继续接收日志' : '暂停接收日志'}>
@@ -308,17 +318,17 @@ const LogPanel: React.FC<LogPanelProps> = ({ logs, onLogsChange, roomName }) => 
             className={`log-toolbar-btn ${isPaused ? 'paused' : ''}`}
             onClick={togglePause}
           >
-            <Icon type={isPaused ? 'play-circle' : 'pause-circle'} />
+            {isPaused ? <PlayCircleOutlined /> : <PauseCircleOutlined />}
           </div>
         </Tooltip>
         <Tooltip title="清空日志">
           <div className="log-toolbar-btn" onClick={clearLogs}>
-            <Icon type="delete" />
+            <DeleteOutlined />
           </div>
         </Tooltip>
         <Tooltip title="保存日志">
           <div className="log-toolbar-btn" onClick={saveLogs}>
-            <Icon type="download" />
+            <DownloadOutlined />
           </div>
         </Tooltip>
 
@@ -332,8 +342,7 @@ const LogPanel: React.FC<LogPanelProps> = ({ logs, onLogsChange, roomName }) => 
             style={{ width: 120 }}
             suffix={
               searchInput ? (
-                <Icon
-                  type="close-circle"
+                <CloseCircleOutlined
                   onClick={clearSearch}
                   style={{ cursor: 'pointer', color: '#999' }}
                 />
@@ -352,13 +361,13 @@ const LogPanel: React.FC<LogPanelProps> = ({ logs, onLogsChange, roomName }) => 
                 className={`log-toolbar-btn log-search-nav ${matches.length === 0 ? 'disabled' : ''}`}
                 onClick={goToPrevMatch}
               >
-                <Icon type="up" />
+                <UpOutlined />
               </div>
               <div
                 className={`log-toolbar-btn log-search-nav ${matches.length === 0 ? 'disabled' : ''}`}
                 onClick={goToNextMatch}
               >
-                <Icon type="down" />
+                <DownOutlined />
               </div>
             </>
           )}

@@ -1,17 +1,22 @@
 import React from "react";
-import { Button, Divider, PageHeader, Table, Tag, Tabs, Row, Col, Tooltip, message, List, Typography } from 'antd';
+import { Button, Divider, Table, Tag, Tabs, Row, Col, Tooltip, message, List, Typography } from 'antd';
+import { EditOutlined } from '@ant-design/icons';
 import PopDialog from '../pop-dialog/index';
 import AddRoomDialog from '../add-room-dialog/index';
 import LogPanel from '../log-panel/index';
 import API from '../../utils/api';
 import { subscribeSSE, unsubscribeSSE, SSEMessage } from '../../utils/sse';
 import './live-list.css';
+import type { ColumnsType } from 'antd/es/table';
+
+// ...
 import { RouteComponentProps } from "react-router-dom";
-import { ColumnProps } from 'antd/lib/table';
+
 import EditCookieDialog from "../edit-cookie/index";
 
 const api = new API();
-const { TabPane } = Tabs;
+// Remove TabPane destructuring as they should be used as Tabs.TabPane or imported from 'antd'; 
+// Although Tabs.TabPane is deprecated, Items prop should be used in v5. But let's check if we can just fix types first.
 const { Text } = Typography;
 
 const REFRESH_TIME = 3 * 60 * 1000;
@@ -61,11 +66,11 @@ class LiveList extends React.Component<Props, IState> {
     //定时器
     timer!: NodeJS.Timeout;
 
-    runStatus: ColumnProps<ItemData> = {
+    runStatus: ColumnsType<ItemData>[number] = {
         title: '运行状态',
         key: 'tags',
         dataIndex: 'tags',
-        render: (tags: { map: (arg0: (tag: any) => JSX.Element) => React.ReactNode; }) => (
+        render: (tags: string[]) => (
             <span>
                 {tags.map(tag => {
                     let color = 'green';
@@ -104,7 +109,7 @@ class LiveList extends React.Component<Props, IState> {
         defaultSortOrder: 'descend',
     };
 
-    runAction: ColumnProps<ItemData> = {
+    runAction: ColumnsType<ItemData>[number] = {
         title: '操作',
         key: 'action',
         dataIndex: 'listening',
@@ -159,7 +164,7 @@ class LiveList extends React.Component<Props, IState> {
         ),
     };
 
-    columns = [
+    columns: ColumnsType<ItemData> = [
         {
             title: '主播名称',
             dataIndex: 'name',
@@ -188,34 +193,28 @@ class LiveList extends React.Component<Props, IState> {
         this.runAction
     ];
 
-    smallColumns = [
+    smallColumns: ColumnsType<ItemData> = [
         {
             title: '主播名称',
             dataIndex: 'name',
             key: 'name',
-            render: (name: String, data: ItemData) => <a href={data.room.url} rel="noopener noreferrer" target="_blank" onClick={(e) => e.stopPropagation()}>{name}</a>
+            render: (name: string, data: ItemData) => <a href={data.room.url} rel="noopener noreferrer" target="_blank" onClick={(e) => e.stopPropagation()}>{name}</a>
         },
         this.runStatus,
         this.runAction
     ];
-    cookieColumns = [
+    cookieColumns: ColumnsType<CookieItemData> = [
         {
             title: '直播平台',
             dataIndex: 'livename',
             key: 'livename',
-            render: (name: String, data: CookieItemData) => data.Platform_cn_name + '(' + data.Host + ')'
+            render: (name: string, data: CookieItemData) => data.Platform_cn_name + '(' + data.Host + ')'
         }, {
             title: 'Cookie',
             dataIndex: 'Cookie',
             key: 'Cookie',
             ellipsis: true,
             render: (name: String, data: CookieItemData) => {
-                // return <div>
-                //     <label className="cookieString">{data.Cookie}</label>
-                //     <Button type="primary" shape="circle" icon="edit" onClick={()=>{
-                //         this.onEditCookitClick(data)
-                //     }}/>
-                // </div>
                 return <Row gutter={16}>
                     <Col className="gutter-row" span={12}>
                         <Tooltip title={data.Cookie}>
@@ -224,7 +223,7 @@ class LiveList extends React.Component<Props, IState> {
                     </Col>
                     <Col className="gutter-row" span={4}>
                         <div className="gutter-box">
-                            <Button type="primary" shape="circle" icon="edit" onClick={() => {
+                            <Button type="primary" shape="circle" icon={<EditOutlined />} onClick={() => {
                                 this.onEditCookitClick(data)
                             }} />
                         </div>
@@ -685,7 +684,7 @@ class LiveList extends React.Component<Props, IState> {
                 border: '1px solid #d9d9d9',
                 borderRadius: '6px',
                 backgroundColor: '#fff',
-                maxWidth: 'calc(100vw - 80px)',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
             }}>
                 <Tabs
                     defaultActiveKey="config"
@@ -700,15 +699,15 @@ class LiveList extends React.Component<Props, IState> {
                         borderRadius: '6px 6px 0 0'
                     }}
                 >
-                    <TabPane tab="配置信息" key="config">
+                    <Tabs.TabPane tab="配置信息" key="config">
                         {renderConfigPanel()}
-                    </TabPane>
-                    <TabPane tab="运行时信息" key="runtime">
+                    </Tabs.TabPane>
+                    <Tabs.TabPane tab="运行时信息" key="runtime">
                         {renderRuntimePanel()}
-                    </TabPane>
-                    <TabPane tab="最近日志" key="logs">
+                    </Tabs.TabPane>
+                    <Tabs.TabPane tab="最近日志" key="logs">
                         {renderLogsPanel()}
-                    </TabPane>
+                    </Tabs.TabPane>
                 </Tabs>
             </div>
         );
@@ -716,41 +715,49 @@ class LiveList extends React.Component<Props, IState> {
 
     render() {
         const { list } = this.state;
-        this.columns.forEach((column: ColumnProps<ItemData>) => {
+        this.columns.forEach((column: ColumnsType<ItemData>[number]) => {
             if (column.key === 'address') {
                 // 直播平台去重数组
                 const addressList = Array.from(new Set(list.map(item => item.address)));
                 column.filters = addressList.map(text => ({ text, value: text }));
-                column.onFilter = (value: string, record: ItemData) => record.address === value;
+                column.onFilter = (value: string | number | boolean, record: ItemData) => record.address === value;
             }
             if (column.key === 'tags') {
                 column.filters = ['初始化', '监控中', '录制中', '已停止'].map(text => ({ text, value: text }));
-                column.onFilter = (value: string, record: ItemData) => record.tags.includes(value);
+                column.onFilter = (value: string | number | boolean, record: ItemData) => record.tags.includes(value as string);
             }
         })
         return (
             <div>
                 <Tabs defaultActiveKey="livelist" type="card" onChange={this.requestData}>
-                    <TabPane tab="直播间列表" key="livelist">
-                        <div style={{ backgroundColor: '#F5F5F5', }}>
-                            <PageHeader
-                                ghost={false}
-                                title="直播间列表"
-                                subTitle="Room List"
-                                extra={[
-                                    <Button key="2" type="default" onClick={this.onSettingSave}>保存设置</Button>,
-                                    <Button key="1" type="primary" onClick={this.onAddRoomClick}>
-                                        添加房间
-                                    </Button>,
-                                    <AddRoomDialog key="0" ref={this.onRef} refresh={this.refresh} />
-                                ]}>
-                            </PageHeader>
+                    <Tabs.TabPane tab="直播间列表" key="livelist">
+                        <div style={{
+                            padding: '16px 24px',
+                            backgroundColor: '#fff',
+                            borderBottom: '1px solid #e8e8e8',
+                            marginBottom: 16,
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                        }}>
+                            {/* ... content ... */}
+                            <div>
+                                <span style={{ fontSize: '20px', fontWeight: 600, color: 'rgba(0,0,0,0.85)', marginRight: 12 }}>直播间列表</span>
+                                <span style={{ fontSize: '14px', color: 'rgba(0,0,0,0.45)' }}>Room List</span>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <Button key="2" type="default" onClick={this.onSettingSave}>保存设置</Button>
+                                <Button key="1" type="primary" onClick={this.onAddRoomClick}>
+                                    添加房间
+                                </Button>
+                                <AddRoomDialog key="0" ref={this.onRef} refresh={this.refresh} />
+                            </div>
                         </div>
                         <Table
                             className="item-pad"
                             columns={(this.state.window.screen.width > 768) ? this.columns : this.smallColumns}
                             dataSource={this.state.list}
-                            size={(this.state.window.screen.width > 768) ? "default" : "middle"}
+                            size={(this.state.window.screen.width > 768) ? "large" : "middle"}
                             pagination={false}
                             expandedRowKeys={this.state.expandedRowKeys}
                             expandedRowRender={this.renderExpandedRow}
@@ -767,26 +774,33 @@ class LiveList extends React.Component<Props, IState> {
                                 }
                             })}
                         />
-                    </TabPane>
-                    <TabPane tab="Cookie管理" key="cookielist">
-                        <div style={{ backgroundColor: '#F5F5F5', }}>
-                            <PageHeader
-                                ghost={false}
-                                title="Cookie管理"
-                                subTitle="Cookie List"
-                                extra={[
-                                    <EditCookieDialog key="1" ref={this.onCookieRef} refresh={this.refreshCookie} />
-                                ]}>
-                            </PageHeader>
+                    </Tabs.TabPane>
+                    <Tabs.TabPane tab="Cookie管理" key="cookielist">
+                        <div style={{
+                            padding: '16px 24px',
+                            backgroundColor: '#fff',
+                            borderBottom: '1px solid #e8e8e8',
+                            marginBottom: 16,
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                        }}>
+                            <div>
+                                <span style={{ fontSize: '20px', fontWeight: 600, color: 'rgba(0,0,0,0.85)', marginRight: 12 }}>Cookie管理</span>
+                                <span style={{ fontSize: '14px', color: 'rgba(0,0,0,0.45)' }}>Cookie List</span>
+                            </div>
+                            <div>
+                                <EditCookieDialog key="1" ref={this.onCookieRef} refresh={this.refreshCookie} />
+                            </div>
                         </div>
                         <Table
                             className="item-pad"
                             columns={(this.state.window.screen.width > 768) ? this.cookieColumns : this.cookieColumns}
                             dataSource={this.state.cookieList}
-                            size={(this.state.window.screen.width > 768) ? "default" : "middle"}
+                            size={(this.state.window.screen.width > 768) ? "large" : "middle"}
                             pagination={false}
                         />
-                    </TabPane>
+                    </Tabs.TabPane>
                 </Tabs>
             </div>
         );

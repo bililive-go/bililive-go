@@ -1,12 +1,17 @@
 import React from 'react';
 import { HashRouter as Router, Link } from 'react-router-dom';
-import { Layout, Menu, Icon } from 'antd';
+import { Layout, Menu } from 'antd';
+import { MonitorOutlined } from '@ant-design/icons';
 import './layout.css';
 
 const { SubMenu } = Menu;
 const { Header, Content, Sider } = Layout;
 
-class RootLayout extends React.Component {
+interface Props {
+    children?: React.ReactNode;
+}
+
+class RootLayout extends React.Component<Props> {
     render() {
         return (
             <Layout className="all-layout">
@@ -14,6 +19,7 @@ class RootLayout extends React.Component {
                     <h3 className="logo-text">Bililive-go</h3>
                 </Header>
                 <Layout>
+                    {/* @ts-ignore */}
                     <Router>
                         <Sider className="side-bar" width={200} style={{ background: '#fff' }}>
                             <Menu
@@ -26,7 +32,7 @@ class RootLayout extends React.Component {
                                     key="sub1"
                                     title={
                                         <span>
-                                            <Icon type="monitor" />
+                                            <MonitorOutlined />
                                             LiveClient
                                         </span>
                                     }

@@ -15,20 +15,21 @@ import {
   InputNumber,
   Row,
   Col,
-  Icon,
   Select,
   Tooltip,
   message,
   Collapse
 } from "antd";
+import { InfoCircleOutlined, SettingOutlined, FormOutlined, CodeOutlined } from '@ant-design/icons';
+import { RouteComponentProps } from "react-router-dom";
 import './config-info.css';
 
 const { Option } = Select;
 const { Panel } = Collapse;
 const api = new API();
 
-interface Props {
-
+interface Props extends RouteComponentProps<any> {
+  children?: React.ReactNode;
 }
 
 interface IState {
@@ -311,7 +312,7 @@ class ConfigInfo extends React.Component<Props, IState> {
       >
         <div style={{ marginBottom: 16 }}>
           <Tooltip title="平台级设置将覆盖全局设置，但会被房间级设置覆盖">
-            <Icon type="info-circle" /> 设置优先级：房间级 &gt; 平台级 &gt; 全局级
+            <InfoCircleOutlined /> 设置优先级：房间级 &gt; 平台级 &gt; 全局级
           </Tooltip>
         </div>
 
@@ -349,7 +350,7 @@ class ConfigInfo extends React.Component<Props, IState> {
                     <span style={{ fontWeight: hasConfig ? 'bold' : 'normal' }}>
                       {platform.name}
                     </span>
-                    {hasConfig && <Icon type="setting" style={{ marginLeft: 8, color: '#1890ff' }} />}
+                    {hasConfig && <SettingOutlined style={{ marginLeft: 8, color: '#1890ff' }} />}
                   </div>
                 }
                 key={platform.key}
@@ -437,13 +438,13 @@ class ConfigInfo extends React.Component<Props, IState> {
               type={editMode === 'gui' ? 'primary' : 'default'}
               onClick={() => this.setState({ editMode: 'gui' })}
             >
-              <Icon type="form" /> GUI 模式
+              <FormOutlined /> GUI 模式
             </Button>
             <Button
               type={editMode === 'text' ? 'primary' : 'default'}
               onClick={() => this.setState({ editMode: 'text' })}
             >
-              <Icon type="code" /> 文本模式
+              <CodeOutlined /> 文本模式
             </Button>
           </Button.Group>
         </div>
@@ -454,7 +455,7 @@ class ConfigInfo extends React.Component<Props, IState> {
             {this.renderPlatformSettings()}
 
             <Card title="配置层次结构说明">
-              <p><Icon type="info-circle" style={{ color: '#1890ff' }} /> 本程序支持三级配置覆盖：</p>
+              <p><InfoCircleOutlined style={{ color: '#1890ff' }} /> 本程序支持三级配置覆盖：</p>
               <ul>
                 <li><strong>全局级</strong>：适用于所有直播间的默认设置</li>
                 <li><strong>平台级</strong>：适用于特定平台的所有直播间，覆盖全局设置</li>
