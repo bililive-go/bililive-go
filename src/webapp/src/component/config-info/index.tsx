@@ -4,7 +4,7 @@ import { highlight, languages } from 'prismjs';
 import 'prismjs/components/prism-yaml';
 import 'prismjs/components/prism-clike';
 import 'prismjs/components/prism-javascript';
-import 'prismjs/themes/prism.css'; //Example style, you can use another
+import 'prismjs/themes/prism.css';
 import * as yaml from 'js-yaml';
 import API from '../../utils/api';
 import {
@@ -21,15 +21,14 @@ import {
   Collapse
 } from "antd";
 import { InfoCircleOutlined, SettingOutlined, FormOutlined, CodeOutlined } from '@ant-design/icons';
-import { RouteComponentProps } from "react-router-dom";
 import './config-info.css';
 
 const { Option } = Select;
 const { Panel } = Collapse;
 const api = new API();
 
-interface Props extends RouteComponentProps<any> {
-  children?: React.ReactNode;
+interface Props {
+  // 不需要任何 props
 }
 
 interface IState {

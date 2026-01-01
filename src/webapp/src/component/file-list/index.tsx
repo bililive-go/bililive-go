@@ -1,24 +1,15 @@
-import React from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import API from "../../utils/api";
 import { Breadcrumb, Divider, Table } from "antd";
 import { FolderFilled, FileOutlined } from "@ant-design/icons";
-import { Link, RouteComponentProps } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import Utils from "../../utils/common";
 import './file-list.css';
 import type { TablePaginationConfig } from "antd";
-
 import Artplayer from "artplayer";
 import mpegtsjs from "mpegts.js";
 
 const api = new API();
-
-interface MatchParams {
-    path: string | undefined;
-}
-
-interface Props extends RouteComponentProps<any> {
-    children?: React.ReactNode;
-}
 
 type CurrentFolderFile = {
     is_folder: boolean;
@@ -27,84 +18,55 @@ type CurrentFolderFile = {
     size: number;
 }
 
-interface IState {
-    parentFolders: string[];
-    currentFolderFiles: CurrentFolderFile[];
-    sortedInfo: any;
-    isPlayerVisible: boolean;
-}
+const FileList: React.FC = () => {
+    const navigate = useNavigate();
+    // 使用 "*" 通配符捕获的路径参数
+    const params = useParams();
+    const pathParam = params["*"] || "";
 
-class FileList extends React.Component<Props, IState> {
-    constructor(props: Props) {
-        super(props);
-        this.state = {
-            parentFolders: [props.match.params.path ?? ""],
-            currentFolderFiles: [],
-            sortedInfo: {},
-            isPlayerVisible: false,
-        };
-    }
+    const [currentFolderFiles, setCurrentFolderFiles] = useState<CurrentFolderFile[]>([]);
+    const [sortedInfo, setSortedInfo] = useState<any>({});
+    const [isPlayerVisible, setIsPlayerVisible] = useState(false);
 
-    componentDidMount(): void {
-        this.requestFileList(this.props.match.params.path);
-    }
-
-    componentWillReceiveProps(nextProps: Props) {
-        this.requestFileList(nextProps.match.params.path);
-    }
-
-    setPath(path: string) {
-        const folders = path.split("/");
-        this.setState({ parentFolders: folders });
-    }
-
-    requestFileList(path: string = ""): void {
+    const requestFileList = useCallback((path: string = "") => {
         api.getFileList(path)
             .then((rsp: any) => {
                 if (rsp?.files) {
-                    this.setState({
-                        currentFolderFiles: rsp.files,
-                        sortedInfo: path ? {
-                            order: "descend",
-                            columnKey: "last_modified",
-                        } : {
-                            order: "ascend",
-                            columnKey: "name"
-                        },
-                    })
+                    setCurrentFolderFiles(rsp.files);
+                    setSortedInfo(path ? {
+                        order: "descend",
+                        columnKey: "last_modified",
+                    } : {
+                        order: "ascend",
+                        columnKey: "name"
+                    });
                 }
             });
-    }
+    }, []);
 
-    showPlayer = () => {
-        this.setState({
-            isPlayerVisible: true,
-        });
+    useEffect(() => {
+        requestFileList(pathParam);
+    }, [pathParam, requestFileList]);
+
+    const hidePlayer = () => {
+        setIsPlayerVisible(false);
     };
 
-    hidePlayer = () => {
-        this.setState({
-            isPlayerVisible: false,
-        });
+    const handleChange = (pagination: TablePaginationConfig, filters: any, sorter: any) => {
+        setSortedInfo(sorter);
     };
 
-    handleChange = (pagination: TablePaginationConfig, filtetrs: Partial<Record<keyof CurrentFolderFile, string[]>>, sorter: any) => {
-        this.setState({
-            sortedInfo: sorter,
-        });
-    };
-
-    onRowClick = (record: CurrentFolderFile) => {
+    const onRowClick = (record: CurrentFolderFile) => {
         let path = encodeURIComponent(record.name);
-        if (this.props.match.params.path) {
-            path = this.props.match.params.path + "/" + path;
+        if (pathParam) {
+            path = pathParam + "/" + path;
         }
         if (record.is_folder) {
-            this.props.history.push("/fileList/" + path);
+            navigate("/fileList/" + path);
         } else {
-            this.setState({
-                isPlayerVisible: true,
-            }, () => {
+            setIsPlayerVisible(true);
+            // 使用 setTimeout 确保 DOM 已更新
+            setTimeout(() => {
                 const art = new Artplayer({
                     pip: true,
                     setting: true,
@@ -141,7 +103,7 @@ class FileList extends React.Component<Props, IState> {
                         ts: function (video, url) {
                             if (mpegtsjs.isSupported()) {
                                 const tsPlayer = mpegtsjs.createPlayer({
-                                    type: "mpegts", // could also be mpegts, m2ts, flv,mse
+                                    type: "mpegts",
                                     url: url,
                                     hasVideo: true,
                                     hasAudio: true,
@@ -156,32 +118,35 @@ class FileList extends React.Component<Props, IState> {
                         },
                     },
                 });
-            });
+            }, 0);
         }
     };
 
-    renderParentFolderBar(): JSX.Element {
+    const renderParentFolderBar = (): JSX.Element => {
         const rootFolderName = "输出文件路径";
         let currentPath = "/fileList";
-        const rootBreadcrumbItem = <Breadcrumb.Item key={rootFolderName}>
-            <Link to={currentPath} onClick={this.hidePlayer}>{rootFolderName}</Link>
-        </Breadcrumb.Item>;
-        const folders = this.props.match.params.path?.split("/") || [];
-        const items = folders.map((v: string) => {
-            currentPath += "/" + v;
-            return <Breadcrumb.Item key={v}>
-                <Link to={`${currentPath}`} onClick={this.hidePlayer}>{v}</Link>
-            </Breadcrumb.Item>
-        });
-        return <Breadcrumb>
-            {rootBreadcrumbItem}
-            {items}
-        </Breadcrumb>;
-    }
+        const folders = pathParam?.split("/").filter(Boolean) || [];
 
-    renderCurrentFolderFileList(): JSX.Element {
-        let { sortedInfo } = this.state;
-        sortedInfo = sortedInfo || {};
+        // 使用 Ant Design v5 的 items API
+        const breadcrumbItems = [
+            {
+                key: 'root',
+                title: <Link to={currentPath} onClick={hidePlayer}>{rootFolderName}</Link>
+            },
+            ...folders.map((v: string) => {
+                currentPath += "/" + v;
+                return {
+                    key: v,
+                    title: <Link to={currentPath} onClick={hidePlayer}>{v}</Link>
+                };
+            })
+        ];
+
+        return <Breadcrumb items={breadcrumbItems} />;
+    };
+
+    const renderCurrentFolderFileList = (): JSX.Element => {
+        const currentSortedInfo = sortedInfo || {};
         const columns = [{
             title: "文件名",
             dataIndex: "name",
@@ -193,8 +158,8 @@ class FileList extends React.Component<Props, IState> {
                     return a.is_folder ? -1 : 1;
                 }
             },
-            sortOrder: sortedInfo.columnKey === "name" && sortedInfo.order,
-            render: (text: string, record: CurrentFolderFile, index: number) => {
+            sortOrder: currentSortedInfo.columnKey === "name" && currentSortedInfo.order,
+            render: (text: string, record: CurrentFolderFile) => {
                 return [
                     record.is_folder ? <FolderFilled key="icon" style={{ color: '#1890ff' }} /> : <FileOutlined key="icon" />,
                     <Divider key="divider" type="vertical" />,
@@ -206,8 +171,8 @@ class FileList extends React.Component<Props, IState> {
             dataIndex: "size",
             key: "size",
             sorter: (a: CurrentFolderFile, b: CurrentFolderFile) => a.size - b.size,
-            sortOrder: sortedInfo.columnKey === "size" && sortedInfo.order,
-            render: (text: string, record: CurrentFolderFile, index: number) => {
+            sortOrder: currentSortedInfo.columnKey === "size" && currentSortedInfo.order,
+            render: (text: string, record: CurrentFolderFile) => {
                 if (record.is_folder) {
                     return "";
                 } else {
@@ -219,32 +184,32 @@ class FileList extends React.Component<Props, IState> {
             dataIndex: "last_modified",
             key: "last_modified",
             sorter: (a: CurrentFolderFile, b: CurrentFolderFile) => a.last_modified - b.last_modified,
-            sortOrder: sortedInfo.columnKey === "last_modified" && sortedInfo.order,
-            render: (text: string, record: CurrentFolderFile, index: number) => Utils.timestampToHumanReadable(record.last_modified),
+            sortOrder: currentSortedInfo.columnKey === "last_modified" && currentSortedInfo.order,
+            render: (text: string, record: CurrentFolderFile) => Utils.timestampToHumanReadable(record.last_modified),
         }];
 
         return (<Table
             columns={columns}
-            dataSource={this.state.currentFolderFiles}
-            onChange={this.handleChange}
+            dataSource={currentFolderFiles}
+            onChange={handleChange}
             pagination={{ pageSize: 50 }}
             onRow={(record) => ({
-                onClick: () => this.onRowClick(record)
+                onClick: () => onRowClick(record)
             })}
             scroll={{ x: 'max-content' }}
         />);
-    }
+    };
 
-    renderArtPlayer() {
+    const renderArtPlayer = () => {
         return <div id="art-container"></div>;
-    }
+    };
 
-    render(): JSX.Element {
-        return (<div style={{ height: "100%" }}>
-            {this.renderParentFolderBar()}
-            {this.state.isPlayerVisible ? this.renderArtPlayer() : this.renderCurrentFolderFileList()}
-        </div>);
-    }
-}
+    return (
+        <div style={{ height: "100%" }}>
+            {renderParentFolderBar()}
+            {isPlayerVisible ? renderArtPlayer() : renderCurrentFolderFileList()}
+        </div>
+    );
+};
 
 export default FileList;

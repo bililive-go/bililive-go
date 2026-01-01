@@ -5,12 +5,11 @@ import {
     Button
 } from 'antd';
 import copy from 'copy-to-clipboard';
-import { RouteComponentProps } from "react-router-dom";
 
 const api = new API();
 
-interface Props extends RouteComponentProps<any> {
-    children?: React.ReactNode;
+interface Props {
+    // 不需要任何 props
 }
 
 interface IState {

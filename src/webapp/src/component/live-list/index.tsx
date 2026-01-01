@@ -8,21 +8,17 @@ import API from '../../utils/api';
 import { subscribeSSE, unsubscribeSSE, SSEMessage } from '../../utils/sse';
 import './live-list.css';
 import type { ColumnsType } from 'antd/es/table';
-
-// ...
-import { RouteComponentProps } from "react-router-dom";
-
+import { useNavigate, NavigateFunction } from "react-router-dom";
 import EditCookieDialog from "../edit-cookie/index";
 
 const api = new API();
-// Remove TabPane destructuring as they should be used as Tabs.TabPane or imported from 'antd'; 
-// Although Tabs.TabPane is deprecated, Items prop should be used in v5. But let's check if we can just fix types first.
 const { Text } = Typography;
 
 const REFRESH_TIME = 3 * 60 * 1000;
 
-interface Props extends RouteComponentProps {
-    refresh?: () => void
+interface Props {
+    navigate: NavigateFunction;
+    refresh?: () => void;
 }
 
 interface IState {
@@ -158,7 +154,7 @@ class LiveList extends React.Component<Props, IState> {
                 </PopDialog>
                 <Divider type="vertical" />
                 <Button type="link" size="small" onClick={(e) => {
-                    this.props.history.push(`/fileList/${data.address}/${data.name}`);
+                    this.props.navigate(`/fileList/${data.address}/${data.name}`);
                 }}>文件</Button>
             </span>
         ),
@@ -807,4 +803,10 @@ class LiveList extends React.Component<Props, IState> {
     };
 }
 
-export default LiveList;
+// HOC to inject navigate hook into class component
+function LiveListWithRouter(props: Omit<Props, 'navigate'>) {
+    const navigate = useNavigate();
+    return <LiveList {...props} navigate={navigate} />;
+}
+
+export default LiveListWithRouter;

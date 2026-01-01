@@ -1,6 +1,6 @@
 import React from 'react';
 import './App.css';
-import { Switch, Route } from 'react-router-dom';
+import { Routes, Route } from 'react-router-dom';
 import RootLayout from './component/layout/index';
 import LiveList from './component/live-list/index';
 import LiveInfo from './component/live-info/index';
@@ -10,17 +10,12 @@ import FileList from './component/file-list/index';
 const App: React.FC = () => {
   return (
     <RootLayout>
-      {/* @ts-ignore */}
-      <Switch>
-        {/* @ts-ignore */}
-        <Route path="/fileList/:path(.*)?" render={(props) => <FileList {...props} />} />
-        {/* @ts-ignore */}
-        <Route path="/configInfo" render={(props) => <ConfigInfo {...props} />} />
-        {/* @ts-ignore */}
-        <Route path="/liveInfo" render={(props) => <LiveInfo {...props} />} />
-        {/* @ts-ignore */}
-        <Route path="/" render={(props) => <LiveList {...props} />} />
-      </Switch>
+      <Routes>
+        <Route path="/fileList/*" element={<FileList />} />
+        <Route path="/configInfo" element={<ConfigInfo />} />
+        <Route path="/liveInfo" element={<LiveInfo />} />
+        <Route path="/" element={<LiveList />} />
+      </Routes>
     </RootLayout>
   );
 }
