@@ -26,7 +26,7 @@ type RPC struct {
 
 var defaultRPC = RPC{
 	Enable: true,
-	Bind:   "127.0.0.1:8080",
+	Bind:   ":8080",
 }
 
 func (r *RPC) verify() error {
