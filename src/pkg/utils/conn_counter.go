@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"net"
@@ -110,9 +111,10 @@ func isTLSError(err error) bool {
 		return true
 	}
 	// Check error message with more specific patterns to reduce false positives
-	errMsg := err.Error()
-	return strings.Contains(errMsg, "tls: ") || 
-		strings.Contains(errMsg, "TLS ") || 
+	errMsg := strings.ToLower(err.Error())
+	return strings.Contains(errMsg, "tls: handshake") || 
+		strings.Contains(errMsg, "tls handshake") || 
+		strings.Contains(errMsg, "tls: bad certificate") ||
 		strings.Contains(errMsg, "x509:") ||
 		strings.Contains(errMsg, "remote error: tls")
 }
@@ -126,20 +128,17 @@ func extractHostname(addr string) string {
 	return host
 }
 
-func CreateDefaultClient() *http.Client {
-	dialer := &net.Dialer{
-		Timeout: 10 * time.Second,
-	}
-	
-	// Create TLS dialer with custom config
-	dialTLS := func(network, addr string) (net.Conn, error) {
+// createTLSDialer creates a TLS dialer function with custom TLS config and error logging
+// The returned function can be used as Transport.DialTLSContext
+func createTLSDialer(dialer *net.Dialer, withByteCounter bool, keyPrefix string) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
 		// Extract hostname from addr
 		host := extractHostname(addr)
 		
 		// Create TLS config
 		tlsConfig := createTLSConfig(host)
 		
-		// Dial the connection
+		// Dial the connection with context support
 		conn, err := tls.DialWithDialer(dialer, network, addr, tlsConfig)
 		if err != nil {
 			// Log TLS errors with domain information
@@ -149,12 +148,29 @@ func CreateDefaultClient() *http.Client {
 			return nil, err
 		}
 		
+		// Wrap with byte counter if needed
+		if withByteCounter {
+			key := keyPrefix + addr
+			byteCounter := ConnCounterManager.GetConnCounter(key)
+			if byteCounter == nil {
+				byteCounter = &ByteCounter{}
+				ConnCounterManager.SetConn(key, byteCounter)
+			}
+			return &connCounter{Conn: conn, ByteCounter: byteCounter}, nil
+		}
+		
 		return conn, nil
+	}
+}
+
+func CreateDefaultClient() *http.Client {
+	dialer := &net.Dialer{
+		Timeout: 10 * time.Second,
 	}
 	
 	transport := &http.Transport{
-		Dial:    dialer.Dial,
-		DialTLS: dialTLS,
+		DialContext:    dialer.DialContext,
+		DialTLSContext: createTLSDialer(dialer, false, ""),
 	}
 	return &http.Client{Transport: transport}
 }
@@ -164,52 +180,28 @@ func CreateConnCounterClient() (*http.Client, error) {
 		Timeout: 10 * time.Second,
 	}
 	
-	// Create TLS dialer with custom config
-	dialTLS := func(network, addr string) (net.Conn, error) {
-		// Extract hostname from addr
-		host := extractHostname(addr)
-		
-		// Create TLS config
-		tlsConfig := createTLSConfig(host)
-		
-		// Dial the connection
-		conn, err := tls.DialWithDialer(dialer, network, addr, tlsConfig)
-		if err != nil {
-			// Log TLS errors with domain information
-			if isTLSError(err) {
-				blog.GetLogger().Errorf("TLS connection failed for domain %s: %v", host, err)
-			}
-			return nil, err
-		}
-		
-		// Wrap with byte counter
-		byteCounter := ConnCounterManager.GetConnCounter(addr)
-		if byteCounter == nil {
-			byteCounter = &ByteCounter{}
-			ConnCounterManager.SetConn(addr, byteCounter)
-		}
-		bc := &connCounter{Conn: conn, ByteCounter: byteCounter}
-		return bc, nil
-	}
-	
-	dialPlain := func(network, addr string) (net.Conn, error) {
-		conn, err := dialer.Dial(network, addr)
+	// Plain TCP dialer with byte counter
+	dialPlain := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := dialer.DialContext(ctx, network, addr)
 		if err != nil {
 			return nil, err
 		}
 
-		byteCounter := ConnCounterManager.GetConnCounter(addr)
+		// Use "plain:" prefix to distinguish from TLS connections
+		key := "plain:" + addr
+		byteCounter := ConnCounterManager.GetConnCounter(key)
 		if byteCounter == nil {
 			byteCounter = &ByteCounter{}
-			ConnCounterManager.SetConn(addr, byteCounter)
+			ConnCounterManager.SetConn(key, byteCounter)
 		}
 		bc := &connCounter{Conn: conn, ByteCounter: byteCounter}
 		return bc, nil
 	}
 	
 	transport := &http.Transport{
-		Dial:    dialPlain,
-		DialTLS: dialTLS,
+		DialContext:    dialPlain,
+		// Use "tls:" prefix to distinguish from plain connections
+		DialTLSContext: createTLSDialer(dialer, true, "tls:"),
 	}
 	return &http.Client{Transport: transport}, nil
 }

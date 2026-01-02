@@ -36,7 +36,14 @@ func NewBaseLive(url *url.URL) BaseLive {
 		client, _ := utils.CreateConnCounterClient()
 		requestSession = requests.NewSession(client)
 	} else {
-		// Use custom client with TLS support for edgesrv.com even in non-debug mode
+		// 注意：这里刻意改变了非调试模式下的默认行为。
+		// 之前：非调试模式直接使用 requests.DefaultSession（内部使用默认 HTTP 客户端，
+		//       也就是 Go 标准库的 http.DefaultClient 和默认 TLS 拨号逻辑）。
+		// 现在：非调试模式也改为使用自定义 HTTP 客户端（utils.CreateDefaultClient），
+		//       以便兼容 edgesrv.com 的 TLS 配置 / 握手要求。
+		// 影响：所有非调试模式下发起的 HTTPS 请求（不仅限于访问 edgesrv.com）都会经过
+		//       自定义 TLS 拨号逻辑，而不再走全局默认的 TLS 配置。这是一个全局性行为变更，
+		//       如果后续遇到 TLS/网络相关问题，请注意排查这里的自定义客户端配置。
 		client := utils.CreateDefaultClient()
 		requestSession = requests.NewSession(client)
 	}
