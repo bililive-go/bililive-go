@@ -2,6 +2,7 @@ package utils
 
 import (
 	"crypto/tls"
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -69,6 +70,53 @@ func (m *ConnCounterManagerType) PrintMap() {
 	}
 }
 
+// createTLSConfig creates a TLS configuration for the given host
+// For edgesrv.com domains, it enables weak TLS 1.2 cipher suites for compatibility
+func createTLSConfig(host string) *tls.Config {
+	if strings.HasSuffix(host, ".edgesrv.com") || host == "edgesrv.com" {
+		// Enable weak TLS 1.2 cipher suites for edgesrv.com
+		return &tls.Config{
+			ServerName: host,
+			MinVersion: tls.VersionTLS12,
+			CipherSuites: []uint16{
+				// Standard secure ciphers first
+				tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+				tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+				// Weak RSA cipher suites for compatibility with edgesrv.com
+				tls.TLS_RSA_WITH_AES_128_CBC_SHA,
+				tls.TLS_RSA_WITH_AES_256_CBC_SHA,
+				tls.TLS_RSA_WITH_AES_128_CBC_SHA256,
+				tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
+				tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
+			},
+		}
+	}
+	// For other domains, use default secure configuration
+	return &tls.Config{
+		ServerName: host,
+	}
+}
+
+// isTLSError checks if the error is a TLS-related error
+func isTLSError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Check for specific TLS error types
+	var recordHeaderError tls.RecordHeaderError
+	if errors.As(err, &recordHeaderError) {
+		return true
+	}
+	// Check error message as fallback for other TLS errors
+	errMsg := err.Error()
+	return strings.Contains(errMsg, "tls:") || 
+		strings.Contains(errMsg, "handshake") || 
+		strings.Contains(errMsg, "certificate") ||
+		strings.Contains(errMsg, "remote error")
+}
+
 func CreateDefaultClient() *http.Client {
 	dialer := &net.Dialer{
 		Timeout: 10 * time.Second,
@@ -83,38 +131,13 @@ func CreateDefaultClient() *http.Client {
 		}
 		
 		// Create TLS config
-		var tlsConfig *tls.Config
-		if strings.HasSuffix(host, ".edgesrv.com") || host == "edgesrv.com" {
-			// Enable weak TLS 1.2 cipher suites for edgesrv.com
-			tlsConfig = &tls.Config{
-				ServerName: host,
-				MinVersion: tls.VersionTLS12,
-				CipherSuites: []uint16{
-					// Standard secure ciphers first
-					tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-					tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-					tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-					tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-					// Weak RSA cipher suites for compatibility with edgesrv.com
-					tls.TLS_RSA_WITH_AES_128_CBC_SHA,
-					tls.TLS_RSA_WITH_AES_256_CBC_SHA,
-					tls.TLS_RSA_WITH_AES_128_CBC_SHA256,
-					tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
-					tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
-				},
-			}
-		} else {
-			// For other domains, use default secure configuration
-			tlsConfig = &tls.Config{
-				ServerName: host,
-			}
-		}
+		tlsConfig := createTLSConfig(host)
 		
 		// Dial the connection
 		conn, err := tls.DialWithDialer(dialer, network, addr, tlsConfig)
 		if err != nil {
 			// Log TLS errors with domain information
-			if strings.Contains(err.Error(), "tls") || strings.Contains(err.Error(), "handshake") {
+			if isTLSError(err) {
 				blog.GetLogger().Errorf("TLS connection failed for domain %s: %v", host, err)
 			}
 			return nil, err
@@ -144,38 +167,13 @@ func CreateConnCounterClient() (*http.Client, error) {
 		}
 		
 		// Create TLS config
-		var tlsConfig *tls.Config
-		if strings.HasSuffix(host, ".edgesrv.com") || host == "edgesrv.com" {
-			// Enable weak TLS 1.2 cipher suites for edgesrv.com
-			tlsConfig = &tls.Config{
-				ServerName: host,
-				MinVersion: tls.VersionTLS12,
-				CipherSuites: []uint16{
-					// Standard secure ciphers first
-					tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-					tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-					tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-					tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-					// Weak RSA cipher suites for compatibility with edgesrv.com
-					tls.TLS_RSA_WITH_AES_128_CBC_SHA,
-					tls.TLS_RSA_WITH_AES_256_CBC_SHA,
-					tls.TLS_RSA_WITH_AES_128_CBC_SHA256,
-					tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
-					tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
-				},
-			}
-		} else {
-			// For other domains, use default secure configuration
-			tlsConfig = &tls.Config{
-				ServerName: host,
-			}
-		}
+		tlsConfig := createTLSConfig(host)
 		
 		// Dial the connection
 		conn, err := tls.DialWithDialer(dialer, network, addr, tlsConfig)
 		if err != nil {
 			// Log TLS errors with domain information
-			if strings.Contains(err.Error(), "tls") || strings.Contains(err.Error(), "handshake") {
+			if isTLSError(err) {
 				blog.GetLogger().Errorf("TLS connection failed for domain %s: %v", host, err)
 			}
 			return nil, err
