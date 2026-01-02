@@ -556,21 +556,6 @@ class LiveList extends React.Component<Props, IState> {
         // 保存 this 引用供嵌套函数使用
         const component = this;
 
-        // 配置来源对应的颜色
-        const sourceColors: { [key: string]: string } = {
-            room: 'blue',
-            platform: 'orange',
-            global: 'green',
-            default: 'default',
-        };
-
-        // 获取配置项的颜色
-        const getSourceColor = (configKey: string): string => {
-            if (!detail || !detail.config_sources) return sourceColors.default;
-            const source = detail.config_sources[configKey];
-            return sourceColors[source] || sourceColors.default;
-        };
-
         // 配置项行样式
         const configRowStyle: React.CSSProperties = {
             display: 'flex',
@@ -585,66 +570,6 @@ class LiveList extends React.Component<Props, IState> {
             fontWeight: 500,
             color: '#666',
         };
-
-        // 配置信息面板
-        // 配置面板 - 保留供后续配置标签页使用
-        const _renderConfigPanel = () => (
-            <div>
-                {/* 配置来源图例 */}
-                <div style={{
-                    padding: '8px 12px',
-                    backgroundColor: '#fafafa',
-                    borderBottom: '1px solid #e8e8e8',
-                    fontSize: 12
-                }}>
-                    <Text type="secondary">配置来源图例: </Text>
-                    <Tag color={sourceColors.room} style={{ marginLeft: 8 }}>房间级</Tag>
-                    <Tag color={sourceColors.platform}>平台级</Tag>
-                    <Tag color={sourceColors.global}>全局</Tag>
-                    <Tag>默认</Tag>
-                </div>
-                {detail ? (
-                    <div style={{ padding: '4px 0' }}>
-                        <div style={configRowStyle}>
-                            <span style={configLabelStyle}>检测间隔</span>
-                            <Tag color={getSourceColor('interval')}>
-                                {`${detail.effective_interval || '30'}秒`}
-                            </Tag>
-                        </div>
-                        <div style={configRowStyle}>
-                            <span style={configLabelStyle}>输出路径</span>
-                            <Tag color={getSourceColor('out_put_path')}>
-                                {detail.effective_out_path || './'}
-                            </Tag>
-                        </div>
-                        <div style={configRowStyle}>
-                            <span style={configLabelStyle}>FFmpeg路径</span>
-                            <Tag color={getSourceColor('ffmpeg_path')}>
-                                {detail.effective_ffmpeg_path || '默认内置ffmpeg'}
-                            </Tag>
-                        </div>
-                        <div style={configRowStyle}>
-                            <span style={configLabelStyle}>录制质量</span>
-                            <span>{detail.quality === 0 ? '原画' : `画质${detail.quality}`}</span>
-                        </div>
-                        <div style={configRowStyle}>
-                            <span style={configLabelStyle}>仅录音频</span>
-                            <Tag color={detail.audio_only ? 'blue' : undefined}>
-                                {detail.audio_only ? '是' : '否'}
-                            </Tag>
-                        </div>
-                        <div style={{ ...configRowStyle, borderBottom: 'none' }}>
-                            <span style={configLabelStyle}>平台访问限制</span>
-                            <span>{detail.platform_rate_limit ? `${detail.platform_rate_limit}秒` : '无限制'}</span>
-                        </div>
-                    </div>
-                ) : (
-                    <div style={{ padding: '20px', textAlign: 'center', color: '#999' }}>
-                        加载配置信息中...
-                    </div>
-                )}
-            </div>
-        );
 
         // 运行时信息面板
         const renderRuntimePanel = () => {
