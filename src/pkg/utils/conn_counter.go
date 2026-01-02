@@ -42,10 +42,6 @@ type ConnCounterManagerType struct {
 
 var ConnCounterManager ConnCounterManagerType
 
-func init() {
-	ConnCounterManager.bcMap = make(map[string]*ByteCounter)
-}
-
 func (m *ConnCounterManagerType) SetConn(url string, bc *ByteCounter) {
 	m.mapLock.Lock()
 	defer m.mapLock.Unlock()
@@ -71,29 +67,38 @@ func (m *ConnCounterManagerType) PrintMap() {
 	}
 }
 
+var (
+	edgesrvWarningLogged bool
+	edgesrvWarningMutex  sync.Mutex
+)
+
 // createTLSConfig creates a TLS configuration for the given host
 // For edgesrv.com domains, it enables weak TLS 1.2 cipher suites for compatibility
 func createTLSConfig(host string) *tls.Config {
 	if strings.HasSuffix(host, ".edgesrv.com") || host == "edgesrv.com" {
-		// Log warning about using weak cipher suites
-		blog.GetLogger().Warnf("Enabling weak TLS 1.2 cipher suites for edgesrv.com domain: %s. This may reduce connection security.", host)
+		// Log warning only once to avoid log spam
+		edgesrvWarningMutex.Lock()
+		if !edgesrvWarningLogged {
+			blog.GetLogger().Warnf("Enabling weak TLS 1.2 cipher suites for edgesrv.com domains. This may reduce connection security for these specific domains.")
+			edgesrvWarningLogged = true
+		}
+		edgesrvWarningMutex.Unlock()
 		
 		// Enable weak TLS 1.2 cipher suites for edgesrv.com
+		// Based on SSL Labs report, edgesrv.com servers require CBC-mode RSA cipher suites
 		return &tls.Config{
 			ServerName: host,
 			MinVersion: tls.VersionTLS12,
 			CipherSuites: []uint16{
-				// Standard secure ciphers first
+				// Standard secure ciphers first (prefer ECDHE for forward secrecy)
 				tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 				tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 				tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-				// Weak RSA cipher suites for compatibility with edgesrv.com
+				// Weak CBC-mode RSA cipher suites for compatibility with edgesrv.com
 				tls.TLS_RSA_WITH_AES_128_CBC_SHA,
 				tls.TLS_RSA_WITH_AES_256_CBC_SHA,
 				tls.TLS_RSA_WITH_AES_128_CBC_SHA256,
-				tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
-				tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
 			},
 		}
 	}
