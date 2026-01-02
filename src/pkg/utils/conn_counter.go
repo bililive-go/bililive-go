@@ -109,12 +109,21 @@ func isTLSError(err error) bool {
 	if errors.As(err, &recordHeaderError) {
 		return true
 	}
-	// Check error message as fallback for other TLS errors
+	// Check error message with more specific patterns to reduce false positives
 	errMsg := err.Error()
-	return strings.Contains(errMsg, "tls:") || 
-		strings.Contains(errMsg, "handshake") || 
-		strings.Contains(errMsg, "certificate") ||
-		strings.Contains(errMsg, "remote error")
+	return strings.Contains(errMsg, "tls: ") || 
+		strings.Contains(errMsg, "TLS ") || 
+		strings.Contains(errMsg, "x509:") ||
+		strings.Contains(errMsg, "remote error: tls")
+}
+
+// extractHostname extracts the hostname from a network address (host:port)
+func extractHostname(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	return host
 }
 
 func CreateDefaultClient() *http.Client {
@@ -124,11 +133,8 @@ func CreateDefaultClient() *http.Client {
 	
 	// Create TLS dialer with custom config
 	dialTLS := func(network, addr string) (net.Conn, error) {
-		// Extract hostname from addr (format is "host:port")
-		host, _, err := net.SplitHostPort(addr)
-		if err != nil {
-			host = addr
-		}
+		// Extract hostname from addr
+		host := extractHostname(addr)
 		
 		// Create TLS config
 		tlsConfig := createTLSConfig(host)
@@ -160,11 +166,8 @@ func CreateConnCounterClient() (*http.Client, error) {
 	
 	// Create TLS dialer with custom config
 	dialTLS := func(network, addr string) (net.Conn, error) {
-		// Extract hostname from addr (format is "host:port")
-		host, _, err := net.SplitHostPort(addr)
-		if err != nil {
-			host = addr
-		}
+		// Extract hostname from addr
+		host := extractHostname(addr)
 		
 		// Create TLS config
 		tlsConfig := createTLSConfig(host)
