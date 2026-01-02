@@ -166,6 +166,7 @@ node_modules
 .vscode
 
 !src/cmd/build/
-build-custom-docker.sh
 .appdata/
 coverage.txt
+.agent/artifacts/
+.agent/workflows/

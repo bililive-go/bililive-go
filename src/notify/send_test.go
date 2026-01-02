@@ -1,11 +1,18 @@
 package notify
 
 import (
-	"context"
 	"testing"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/bililive-go/bililive-go/src/consts"
+	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 )
+
+// newTestLogger 创建一个用于测试的 LiveLogger 实例
+func newTestLogger() *livelogger.LiveLogger {
+	return livelogger.New(0, logrus.Fields{"test": true})
+}
 
 // TestSendTestNotification 测试SendTestNotification函数
 func TestSendTestNotification(t *testing.T) {
@@ -18,7 +25,7 @@ func TestSendTestNotification(t *testing.T) {
 	}()
 
 	// 调用测试函数
-	SendTestNotification(context.Background())
+	SendTestNotification(newTestLogger())
 
 	// 如果没有panic，则测试通过
 	// 注意：实际的通知发送测试需要mock相关的服务
@@ -34,7 +41,7 @@ func TestSendNotificationStart(t *testing.T) {
 	}()
 
 	// 调用SendNotification函数，使用开始状态
-	err := SendNotification(context.Background(), "测试主播", "测试平台", "https://example.com/live", consts.LiveStatusStart)
+	err := SendNotification(newTestLogger(), "测试主播", "测试平台", "https://example.com/live", consts.LiveStatusStart)
 
 	// 检查是否有错误返回（注意：在没有配置的情况下，可能会返回错误）
 	// 这里我们主要关注函数是否能正常执行，而不是是否真的发送了通知
@@ -53,7 +60,7 @@ func TestSendNotificationStop(t *testing.T) {
 	}()
 
 	// 调用SendNotification函数，使用结束状态
-	err := SendNotification(context.Background(), "测试主播", "测试平台", "https://example.com/live", consts.LiveStatusStop)
+	err := SendNotification(newTestLogger(), "测试主播", "测试平台", "https://example.com/live", consts.LiveStatusStop)
 
 	// 检查是否有错误返回（注意：在没有配置的情况下，可能会返回错误）
 	// 这里我们主要关注函数是否能正常执行，而不是是否真的发送了通知
@@ -72,7 +79,7 @@ func TestSendNotificationUnknown(t *testing.T) {
 	}()
 
 	// 调用SendNotification函数，使用未知状态
-	err := SendNotification(context.Background(), "测试主播", "测试平台", "https://example.com/live", "unknown_status")
+	err := SendNotification(newTestLogger(), "测试主播", "测试平台", "https://example.com/live", "unknown_status")
 
 	// 检查是否有错误返回
 	_ = err // 在实际测试中，我们可能需要检查错误

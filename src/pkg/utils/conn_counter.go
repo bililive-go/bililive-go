@@ -80,6 +80,51 @@ func (m *ConnCounterManagerType) PrintMap() {
 	}
 }
 
+// ConnStats 表示单个主机的连接统计信息
+type ConnStats struct {
+	Host           string `json:"host"`
+	ReceivedBytes  int64  `json:"received_bytes"`
+	ReceivedFormat string `json:"received_format"`
+	SentBytes      int64  `json:"sent_bytes"`
+	SentFormat     string `json:"sent_format"`
+}
+
+// GetAllStats 返回所有主机的连接统计信息
+func (m *ConnCounterManagerType) GetAllStats() []ConnStats {
+	m.mapLock.Lock()
+	defer m.mapLock.Unlock()
+	stats := make([]ConnStats, 0, len(m.bcMap))
+	for host, counter := range m.bcMap {
+		stats = append(stats, ConnStats{
+			Host:           host,
+			ReceivedBytes:  counter.ReadBytes,
+			ReceivedFormat: FormatBytes(counter.ReadBytes),
+			SentBytes:      counter.WriteBytes,
+			SentFormat:     FormatBytes(counter.WriteBytes),
+		})
+	}
+	return stats
+}
+
+// GetStatsByHost 返回指定主机的连接统计信息，支持前缀匹配
+func (m *ConnCounterManagerType) GetStatsByHostPrefix(prefix string) []ConnStats {
+	m.mapLock.Lock()
+	defer m.mapLock.Unlock()
+	stats := make([]ConnStats, 0)
+	for host, counter := range m.bcMap {
+		if strings.Contains(host, prefix) {
+			stats = append(stats, ConnStats{
+				Host:           host,
+				ReceivedBytes:  counter.ReadBytes,
+				ReceivedFormat: FormatBytes(counter.ReadBytes),
+				SentBytes:      counter.WriteBytes,
+				SentFormat:     FormatBytes(counter.WriteBytes),
+			})
+		}
+	}
+	return stats
+}
+
 var edgesrvWarningOnce sync.Once
 
 // createTLSConfig creates a TLS configuration for the given host
@@ -90,7 +135,7 @@ func createTLSConfig(host string) *tls.Config {
 		edgesrvWarningOnce.Do(func() {
 			blog.GetLogger().Warnf("Enabling weak TLS 1.2 cipher suites for edgesrv.com domains. This may reduce connection security for these specific domains.")
 		})
-		
+
 		// Enable weak TLS 1.2 cipher suites for edgesrv.com
 		// Based on SSL Labs report, edgesrv.com servers require CBC-mode RSA cipher suites
 		return &tls.Config{
@@ -131,8 +176,8 @@ func isTLSError(err error) bool {
 	}
 	// Check error message with more specific patterns to reduce false positives
 	errMsg := strings.ToLower(err.Error())
-	return strings.Contains(errMsg, "tls: handshake") || 
-		strings.Contains(errMsg, "tls handshake") || 
+	return strings.Contains(errMsg, "tls: handshake") ||
+		strings.Contains(errMsg, "tls handshake") ||
 		strings.Contains(errMsg, "tls: bad certificate") ||
 		strings.Contains(errMsg, "x509: certificate") ||
 		strings.Contains(errMsg, "remote error: tls")
@@ -153,16 +198,16 @@ func createTLSDialer(dialer *net.Dialer, withByteCounter bool, keyPrefix string)
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
 		// Extract hostname from addr
 		host := extractHostname(addr)
-		
+
 		// Create TLS config
 		tlsConfig := createTLSConfig(host)
-		
+
 		// First establish TCP connection with context support
 		rawConn, err := dialer.DialContext(ctx, network, addr)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		// Perform TLS handshake
 		tlsConn := tls.Client(rawConn, tlsConfig)
 		if err := tlsConn.HandshakeContext(ctx); err != nil {
@@ -173,14 +218,14 @@ func createTLSDialer(dialer *net.Dialer, withByteCounter bool, keyPrefix string)
 			}
 			return nil, err
 		}
-		
+
 		// Wrap with byte counter if needed
 		if withByteCounter {
 			key := keyPrefix + addr
 			byteCounter := ConnCounterManager.GetOrCreateConnCounter(key)
 			return &connCounter{Conn: tlsConn, ByteCounter: byteCounter}, nil
 		}
-		
+
 		return tlsConn, nil
 	}
 }
@@ -202,11 +247,11 @@ func CreateDefaultClient() *http.Client {
 	dialer := &net.Dialer{
 		Timeout: 10 * time.Second,
 	}
-	
+
 	transport := newProductionTransport()
 	transport.DialContext = dialer.DialContext
 	transport.DialTLSContext = createTLSDialer(dialer, false, "")
-	
+
 	return &http.Client{Transport: transport}
 }
 
@@ -214,7 +259,7 @@ func CreateConnCounterClient() (*http.Client, error) {
 	dialer := &net.Dialer{
 		Timeout: 10 * time.Second,
 	}
-	
+
 	// Plain TCP dialer with byte counter
 	dialPlain := func(ctx context.Context, network, addr string) (net.Conn, error) {
 		conn, err := dialer.DialContext(ctx, network, addr)
@@ -228,11 +273,11 @@ func CreateConnCounterClient() (*http.Client, error) {
 		bc := &connCounter{Conn: conn, ByteCounter: byteCounter}
 		return bc, nil
 	}
-	
+
 	transport := newProductionTransport()
 	transport.DialContext = dialPlain
 	// Use "tls:" prefix to distinguish from plain connections
 	transport.DialTLSContext = createTLSDialer(dialer, true, "tls:")
-	
+
 	return &http.Client{Transport: transport}, nil
 }

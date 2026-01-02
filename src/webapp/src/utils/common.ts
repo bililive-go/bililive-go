@@ -93,6 +93,21 @@ class Utils {
     }
 
     /**
+     * Patch request
+     * @param url URL
+     * @param body Request body
+     */
+    requestPatch(url: string, body?: object) {
+        return customFetch(url, {
+            method: 'PATCH',
+            body: JSON.stringify(body),
+            headers: new Headers({
+                'Content-Type': 'application/json'
+            })
+        });
+    }
+
+    /**
      * Show Error 
      * @param err error Object
      */

@@ -6,8 +6,11 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/live"
+	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
 	"github.com/bililive-go/bililive-go/src/types"
 	"github.com/hr3lxphr6j/requests"
@@ -19,6 +22,7 @@ type BaseLive struct {
 	LiveId         types.LiveID
 	Options        *live.Options
 	RequestSession *requests.Session
+	Logger         *livelogger.LiveLogger
 }
 
 func genLiveId(url *url.URL) types.LiveID {
@@ -51,10 +55,21 @@ func NewBaseLive(url *url.URL) BaseLive {
 		client := utils.CreateDefaultClient()
 		requestSession = requests.NewSession(client)
 	}
+
+	// 先生成 LiveId
+	liveId := genLiveId(url)
+
+	// 创建直播间专属的 logger（使用默认 64KB 缓冲区，并绑定 roomID）
+	logger := livelogger.NewWithRoomID(0, logrus.Fields{
+		"host": url.Host,
+		"room": url.Path,
+	}, string(liveId))
+
 	return BaseLive{
 		Url:            url,
-		LiveId:         genLiveId(url),
+		LiveId:         liveId,
 		RequestSession: requestSession,
+		Logger:         logger,
 	}
 }
 
@@ -99,6 +114,21 @@ func (a *BaseLive) SetLastStartTime(time time.Time) {
 func (a *BaseLive) GetOptions() *live.Options {
 	return a.Options
 }
+
+// GetLogger 返回直播间专属的日志记录器
+func (a *BaseLive) GetLogger() *livelogger.LiveLogger {
+	return a.Logger
+}
+
+// GetInfoWithInterval 默认实现，直接返回错误
+// 实际的实现应该在 WrappedLive 中
+func (a *BaseLive) GetInfoWithInterval(ctx context.Context) (*live.Info, error) {
+	return nil, live.ErrNotImplemented
+}
+
+// Close 默认实现，不做任何事情
+// 实际的资源释放在 WrappedLive 中处理
+func (a *BaseLive) Close() {}
 
 // TODO: remove this method
 func (a *BaseLive) GetStreamUrls() ([]*url.URL, error) {

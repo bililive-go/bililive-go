@@ -6,10 +6,11 @@ import (
 	"errors"
 
 	"github.com/bililive-go/bililive-go/src/live"
+	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 )
 
 type Builder interface {
-	Build(cfg map[string]string) (Parser, error)
+	Build(cfg map[string]string, logger *livelogger.LiveLogger) (Parser, error)
 }
 
 type Parser interface {
@@ -28,10 +29,10 @@ func Register(name string, b Builder) {
 	m[name] = b
 }
 
-func New(name string, cfg map[string]string) (Parser, error) {
+func New(name string, cfg map[string]string, logger *livelogger.LiveLogger) (Parser, error) {
 	builder, ok := m[name]
 	if !ok {
 		return nil, errors.New("unknown parser")
 	}
-	return builder.Build(cfg)
+	return builder.Build(cfg, logger)
 }

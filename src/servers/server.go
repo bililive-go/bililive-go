@@ -60,7 +60,7 @@ func initMux(ctx context.Context) *mux.Router {
 				),
 			)
 		})
-	}, log)
+	} /* , log */)
 
 	// api router
 	apiRoute := m.PathPrefix(apiRouterPrefix).Subrouter()
@@ -68,16 +68,26 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/info", getInfo).Methods("GET")
 	apiRoute.HandleFunc("/config", getConfig).Methods("GET")
 	apiRoute.HandleFunc("/config", putConfig).Methods("PUT")
+	apiRoute.HandleFunc("/config", updateConfig).Methods("PATCH")               // 新增：部分更新配置
+	apiRoute.HandleFunc("/config/effective", getEffectiveConfig).Methods("GET") // 新增：获取实际生效的配置
+	apiRoute.HandleFunc("/config/platforms", getPlatformStats).Methods("GET")   // 新增：获取平台统计
+	apiRoute.HandleFunc("/config/platforms/{platform}", updatePlatformConfig).Methods("PUT", "PATCH")
+	apiRoute.HandleFunc("/config/platforms/{platform}", deletePlatformConfig).Methods("DELETE")
+	apiRoute.HandleFunc("/config/rooms/{url:.*}", updateRoomConfig).Methods("PUT", "PATCH")
+	apiRoute.HandleFunc("/config/rooms/id/{id}", updateRoomConfigById).Methods("PUT", "PATCH")
+	apiRoute.HandleFunc("/config/preview-template", previewOutputTmpl).Methods("POST") // 新增：模板预览
 	apiRoute.HandleFunc("/raw-config", getRawConfig).Methods("GET")
 	apiRoute.HandleFunc("/raw-config", putRawConfig).Methods("PUT")
 	apiRoute.HandleFunc("/lives", getAllLives).Methods("GET")
 	apiRoute.HandleFunc("/lives", addLives).Methods("POST")
 	apiRoute.HandleFunc("/lives/{id}", getLive).Methods("GET")
 	apiRoute.HandleFunc("/lives/{id}", removeLive).Methods("DELETE")
+	apiRoute.HandleFunc("/lives/{id}/logs", getLiveLogs).Methods("GET")
 	apiRoute.HandleFunc("/lives/{id}/{action}", parseLiveAction).Methods("GET")
 	apiRoute.HandleFunc("/file/{path:.*}", getFileInfo).Methods("GET")
 	apiRoute.HandleFunc("/cookies", getLiveHostCookie).Methods("GET")
 	apiRoute.HandleFunc("/cookies", putLiveHostCookie).Methods("PUT")
+	apiRoute.HandleFunc("/sse", sseHandler).Methods("GET") // SSE 实时推送端点
 	apiRoute.Handle("/metrics", promhttp.Handler())
 
 	m.PathPrefix("/files/").Handler(
@@ -199,6 +209,8 @@ func (s *Server) Start(ctx context.Context) error {
 func (s *Server) Close(ctx context.Context) {
 	inst := instance.GetInstance(ctx)
 	inst.WaitGroup.Done()
+	// 先关闭所有 SSE 连接，避免 Shutdown 时等待
+	GetSSEHub().Close()
 	ctx2, cancel := context.WithCancel(ctx)
 	if err := s.server.Shutdown(ctx2); err != nil {
 		applog.GetLogger().WithError(err).Error("failed to shutdown server")

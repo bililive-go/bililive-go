@@ -8,7 +8,6 @@ import (
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/interfaces"
 	"github.com/bililive-go/bililive-go/src/live"
-	applog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
 	"github.com/bililive-go/bililive-go/src/types"
 )
@@ -41,28 +40,46 @@ func (m *manager) registryListener(ctx context.Context, ed events.Dispatcher) {
 	ed.AddEventListener(RoomInitializingFinished, events.NewEventListener(func(event *events.Event) {
 		param := event.Object.(live.InitializingFinishedParam)
 		initializingLive := param.InitializingLive
-		live := param.Live
+		originalLive := param.Live
 		info := param.Info
 		if info.CustomLiveId != "" {
-			live.SetLiveIdByString(info.CustomLiveId)
+			originalLive.SetLiveIdByString(info.CustomLiveId)
 		}
 		inst := instance.GetInstance(ctx)
-		logger := applog.GetLogger()
-		inst.Lives[live.GetLiveId()] = live
+		logger := originalLive.GetLogger()
+
+		// 删除旧的 InitializingLive
+		oldLiveId := initializingLive.GetLiveId()
+		delete(inst.Lives, oldLiveId)
+
+		// 将原始 Live 包装为 WrappedLive（使用全局缓存）
+		// 这样 parseInfo 可以通过缓存获取信息
+		// 传入 ctx 以便调度器可以被统一取消
+		wrappedLive := live.NewWrappedLive(ctx, originalLive, inst.Cache)
+
+		// 添加新的 Live 对象到 Lives map
+		inst.Lives[wrappedLive.GetLiveId()] = wrappedLive
+
+		// 直接将已有的 info 存入缓存，避免再次调用 GetInfo() 触发 API 请求
+		// info.Live 需要更新为新的 wrappedLive，确保后续 JSON 序列化正确
+		info.Live = wrappedLive
+		if err := inst.Cache.Set(wrappedLive, info); err != nil {
+			logger.WithError(err).Warn("failed to cache info for new live")
+		}
 
 		cfg := configs.GetCurrentConfig()
-		room, err := cfg.GetLiveRoomByUrl(live.GetRawUrl())
+		room, err := cfg.GetLiveRoomByUrl(wrappedLive.GetRawUrl())
 		if err != nil {
 			logger.WithFields(map[string]any{
-				"room": live.GetRawUrl(),
+				"room": wrappedLive.GetRawUrl(),
 			}).Error(err)
 			panic(err)
 		}
-		configs.SetLiveRoomId(live.GetRawUrl(), live.GetLiveId())
+		configs.SetLiveRoomId(wrappedLive.GetRawUrl(), wrappedLive.GetLiveId())
 		if room.IsListening {
-			if err := m.replaceListener(ctx, initializingLive, live); err != nil {
+			if err := m.replaceListener(ctx, initializingLive, wrappedLive); err != nil {
 				logger.WithFields(map[string]any{
-					"url": live.GetRawUrl(),
+					"url": wrappedLive.GetRawUrl(),
 				}).Error(err)
 			}
 		}

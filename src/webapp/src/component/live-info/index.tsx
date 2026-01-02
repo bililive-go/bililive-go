@@ -1,7 +1,6 @@
 import React from "react";
 import API from '../../utils/api';
 import {
-    PageHeader,
     Descriptions,
     Button
 } from 'antd';
@@ -10,7 +9,7 @@ import copy from 'copy-to-clipboard';
 const api = new API();
 
 interface Props {
-
+    // 不需要任何 props
 }
 
 interface IState {
@@ -91,12 +90,19 @@ Is In Container: ${inContainer ? "是" : "否"}${extra}
     render() {
         return (
             <div>
-                <div style={{ backgroundColor: '#F5F5F5', }}>
-                    <PageHeader
-                        ghost={false}
-                        title="系统状态"
-                        subTitle="System Info">
-                    </PageHeader>
+                <div style={{
+                    padding: '16px 24px',
+                    backgroundColor: '#fff',
+                    borderBottom: '1px solid #e8e8e8',
+                    marginBottom: 16,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                }}>
+                    <div>
+                        <span style={{ fontSize: '20px', fontWeight: 600, color: 'rgba(0,0,0,0.85)', marginRight: 12 }}>系统状态</span>
+                        <span style={{ fontSize: '14px', color: 'rgba(0,0,0,0.45)' }}>System Info</span>
+                    </div>
                 </div>
                 <Descriptions bordered>
                     <Descriptions.Item label="App Name">{this.state.appName}</Descriptions.Item>

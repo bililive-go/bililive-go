@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/bluele/gcache"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/bililive-go/bililive-go/src/configs"
@@ -15,6 +16,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
 	evtmock "github.com/bililive-go/bililive-go/src/pkg/events/mock"
+	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -34,6 +36,9 @@ func TestRefresh(t *testing.T) {
 	})
 	log.New(ctx)
 	live := livemock.NewMockLive(ctrl)
+	// 创建一个测试用的 LiveLogger
+	testLogger := livelogger.New(1024, logrus.Fields{"test": "listener"})
+	live.EXPECT().GetLogger().Return(testLogger).AnyTimes()
 	l := NewListener(ctx, live).(*listener)
 
 	// false -> false
@@ -88,6 +93,9 @@ func TestRefreshWithError(t *testing.T) {
 	})
 	log.New(ctx)
 	live := livemock.NewMockLive(ctrl)
+	// 创建一个测试用的 LiveLogger
+	testLogger := livelogger.New(1024, logrus.Fields{"test": "listener"})
+	live.EXPECT().GetLogger().Return(testLogger).AnyTimes()
 	l := NewListener(ctx, live).(*listener)
 
 	live.EXPECT().GetInfo().Return(nil, errors.New("this is error"))
@@ -113,6 +121,9 @@ func TestListenerStartAndClose(t *testing.T) {
 	})
 	log.New(ctx)
 	live := livemock.NewMockLive(ctrl)
+	// 创建一个测试用的 LiveLogger
+	testLogger := livelogger.New(1024, logrus.Fields{"test": "listener"})
+	live.EXPECT().GetLogger().Return(testLogger).AnyTimes()
 	live.EXPECT().GetInfo().Return(&livepkg.Info{Status: false}, nil).AnyTimes()
 	live.EXPECT().GetPlatformCNName().Return("platform").AnyTimes()
 	live.EXPECT().GetRawUrl().Return("").AnyTimes() // 添加对GetRawUrl方法的期望调用

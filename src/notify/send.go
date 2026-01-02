@@ -1,20 +1,19 @@
 package notify
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/consts"
-	blog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/notify/email"
 	"github.com/bililive-go/bililive-go/src/notify/telegram"
+	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 )
 
 // SendNotification 发送统一通知函数
 // 检测用户是否开启了telegram和email通知服务，然后分别发送通知
-// 参数: ctx(context上下文), hostName(主播姓名), platform(直播平台), liveURL(直播地址), status(直播状态: consts.LiveStatusStart/consts.LiveStatusStop)
-func SendNotification(ctx context.Context, hostName, platform, liveURL, status string) error {
+// 参数: logger(LiveLogger), hostName(主播姓名), platform(直播平台), liveURL(直播地址), status(直播状态: consts.LiveStatusStart/consts.LiveStatusStop)
+func SendNotification(logger *livelogger.LiveLogger, hostName, platform, liveURL, status string) error {
 	// 获取当前配置
 	cfg := configs.GetCurrentConfig()
 	if cfg == nil {
@@ -48,7 +47,7 @@ func SendNotification(ctx context.Context, hostName, platform, liveURL, status s
 			cfg.Notify.Telegram.WithNotification, // 发送带提醒的消息
 		)
 		if err != nil {
-			blog.GetLogger().WithError(err).Error("Failed to send Telegram message")
+			logger.WithError(err).Error("Failed to send Telegram message")
 			// 注意：即使Telegram发送失败，我们仍然继续尝试发送邮件
 		}
 	}
@@ -62,7 +61,7 @@ func SendNotification(ctx context.Context, hostName, platform, liveURL, status s
 		// 发送Email通知
 		err := email.SendEmail(emailSubject, emailBody)
 		if err != nil {
-			blog.GetLogger().WithError(err).Error("Failed to send email")
+			logger.WithError(err).Error("Failed to send email")
 		}
 	}
 
@@ -70,16 +69,16 @@ func SendNotification(ctx context.Context, hostName, platform, liveURL, status s
 }
 
 // SendTestNotification 发送测试通知
-func SendTestNotification(ctx context.Context) {
+func SendTestNotification(logger *livelogger.LiveLogger) {
 	// 测试开始直播通知
-	err := SendNotification(ctx, "测试主播", "测试平台", "https://example.com/live", consts.LiveStatusStart)
+	err := SendNotification(logger, "测试主播", "测试平台", "https://example.com/live", consts.LiveStatusStart)
 	if err != nil {
-		blog.GetLogger().WithError(err).Error("Failed to send start live test notification")
+		logger.WithError(err).Error("Failed to send start live test notification")
 	}
 
 	// 测试结束直播通知
-	err = SendNotification(ctx, "测试主播", "测试平台", "https://example.com/live", consts.LiveStatusStop)
+	err = SendNotification(logger, "测试主播", "测试平台", "https://example.com/live", consts.LiveStatusStop)
 	if err != nil {
-		blog.GetLogger().WithError(err).Error("Failed to send stop live test notification")
+		logger.WithError(err).Error("Failed to send stop live test notification")
 	}
 }

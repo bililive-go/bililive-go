@@ -29,6 +29,29 @@ const (
 
 var currentToolStatus atomic.Int32
 
+// bililive-tools 状态跟踪
+type btoolsStatusValue int32
+
+const (
+	BToolsStatusNotStarted btoolsStatusValue = iota
+	BToolsStatusStarting
+	BToolsStatusReady
+	BToolsStatusFailed
+)
+
+var currentBToolsStatus atomic.Int32
+
+// IsBToolsReady 检查 bililive-tools 是否已就绪
+func IsBToolsReady() bool {
+	return btoolsStatusValue(currentBToolsStatus.Load()) == BToolsStatusReady
+}
+
+// IsBToolsStarting 检查 bililive-tools 是否正在启动
+func IsBToolsStarting() bool {
+	status := btoolsStatusValue(currentBToolsStatus.Load())
+	return status == BToolsStatusStarting || status == BToolsStatusNotStarted
+}
+
 func AsyncInit() {
 	go func() {
 		err := Init()
@@ -170,34 +193,43 @@ func Init() (err error) {
 }
 
 func startBTools() error {
+	// 设置状态为正在启动
+	currentBToolsStatus.Store(int32(BToolsStatusStarting))
+
 	// bililive-tools 依赖 node 环境
 	err := DownloadIfNecessary("node")
 	if err != nil {
+		currentBToolsStatus.Store(int32(BToolsStatusFailed))
 		return fmt.Errorf("failed to install node: %w", err)
 	}
 	api := tools.Get()
 	if api == nil {
+		currentBToolsStatus.Store(int32(BToolsStatusFailed))
 		return errors.New("failed to get remotetools API instance")
 	}
 
 	node, err := api.GetTool("node")
 	if err != nil {
+		currentBToolsStatus.Store(int32(BToolsStatusFailed))
 		return err
 	}
 	if !node.DoesToolExist() {
 		err = node.Install()
 		if err != nil {
+			currentBToolsStatus.Store(int32(BToolsStatusFailed))
 			return err
 		}
 	}
 
 	btools, err := api.GetTool("biliLive-tools")
 	if err != nil {
+		currentBToolsStatus.Store(int32(BToolsStatusFailed))
 		return err
 	}
 	if !btools.DoesToolExist() {
 		err = btools.Install()
 		if err != nil {
+			currentBToolsStatus.Store(int32(BToolsStatusFailed))
 			return err
 		}
 	}
@@ -209,6 +241,7 @@ func startBTools() error {
 	}
 	nodePath, err := filepath.Abs(node.GetToolPath())
 	if err != nil {
+		currentBToolsStatus.Store(int32(BToolsStatusFailed))
 		return err
 	}
 	cmd := exec.Command(
@@ -225,6 +258,10 @@ func startBTools() error {
 	cmd.Stderr = utils.NewLogFilterWriter(os.Stderr)
 
 	blog.GetLogger().Infoln("Starting bililive-tools server…")
+
+	// 设置状态为已就绪（服务已启动）
+	currentBToolsStatus.Store(int32(BToolsStatusReady))
+
 	// 在 Windows 下使用 Job Object，确保主进程退出时子进程被一并终止
 	return runWithKillOnClose(cmd)
 }

@@ -1,4 +1,4 @@
-import { Modal, Input,notification } from 'antd';
+import { Modal, Input, notification } from 'antd';
 import React from 'react';
 import API from '../../utils/api';
 import './edit-cookie.css'
@@ -6,10 +6,11 @@ import './edit-cookie.css'
 const api = new API();
 
 interface Props {
-    refresh?: any
+    refresh?: any;
+    children?: React.ReactNode;
 }
 
-const {TextArea} = Input
+const { TextArea } = Input
 
 class EditCookieDialog extends React.Component<Props> {
     state = {
@@ -17,26 +18,26 @@ class EditCookieDialog extends React.Component<Props> {
         visible: false,
         confirmLoading: false,
         textView: '',
-        alertVisible:false,
-        errorInfo:'',
-        Host:'',
-        Platform_cn_name:''
+        alertVisible: false,
+        errorInfo: '',
+        Host: '',
+        Platform_cn_name: ''
     };
 
-    showModal = (data:any) => {
+    showModal = (data: any) => {
         var tmpcookie = data.Cookie
-        if(!tmpcookie){
-            tmpcookie=""
+        if (!tmpcookie) {
+            tmpcookie = ""
         }
         this.setState({
             ModalText: '请输入Cookie',
             visible: true,
             confirmLoading: false,
-            textView:tmpcookie,
-            alertVisible:false,
-            errorInfo:'',
-            Host:data.Host,
-            Platform_cn_name:data.Platform_cn_name
+            textView: tmpcookie,
+            alertVisible: false,
+            errorInfo: '',
+            Host: data.Host,
+            Platform_cn_name: data.Platform_cn_name
         });
     };
 
@@ -46,16 +47,16 @@ class EditCookieDialog extends React.Component<Props> {
             confirmLoading: true,
         });
 
-        api.saveCookie({Host:this.state.Host,Cookie:this.state.textView})
+        api.saveCookie({ Host: this.state.Host, Cookie: this.state.textView })
             .then((rsp) => {
                 // 保存设置
                 api.saveSettingsInBackground();
                 this.setState({
                     visible: false,
                     confirmLoading: false,
-                    textView:'',
-                    Host:'',
-                    Platform_cn_name:''
+                    textView: '',
+                    Host: '',
+                    Platform_cn_name: ''
                 });
                 this.props.refresh();
                 notification.open({
@@ -67,67 +68,67 @@ class EditCookieDialog extends React.Component<Props> {
                 this.setState({
                     visible: false,
                     confirmLoading: false,
-                    textView:''
+                    textView: ''
                 });
             })
     };
     handleCancel = () => {
         this.setState({
             visible: false,
-            textView:'',
-            alertVisible:false,
-            errorInfo:'',
-            Host:'',
-            Platform_cn_name:''
+            textView: '',
+            alertVisible: false,
+            errorInfo: '',
+            Host: '',
+            Platform_cn_name: ''
         });
     };
 
     textChange = (e: any) => {
         this.setState({
             textView: e.target.value,
-            alertVisible:false,
-            errorInfo:''
+            alertVisible: false,
+            errorInfo: ''
         })
         let cookiearr = this.state.textView.split(";")
-        cookiearr.forEach((cookie,index)=>{
-            if(cookie.indexOf("=")===-1){
-                this.setState({alertVisible:true,errorInfo:'cookie格式错误'})
+        cookiearr.forEach((cookie, index) => {
+            if (cookie.indexOf("=") === -1) {
+                this.setState({ alertVisible: true, errorInfo: 'cookie格式错误' })
                 return
             }
-            if(cookie.indexOf("expire")>-1){
+            if (cookie.indexOf("expire") > -1) {
                 //可能是cookie过期时间
                 let value = cookie.split("=")[1]
                 let tmpdate
-                if(value.indexOf("-")>-1){
+                if (value.indexOf("-") > -1) {
                     //可能是日期格式
                     tmpdate = new Date(value)
-                }else if(value.length===10){
-                    tmpdate = new Date(value+"000")
-                }else if(value.length===13){
+                } else if (value.length === 10) {
+                    tmpdate = new Date(value + "000")
+                } else if (value.length === 13) {
                     tmpdate = new Date(value)
                 }
-                if(tmpdate){
-                    if(tmpdate<new Date()){
-                        this.setState({alertVisible:true,errorInfo:'cookie可能已经过期'})
+                if (tmpdate) {
+                    if (tmpdate < new Date()) {
+                        this.setState({ alertVisible: true, errorInfo: 'cookie可能已经过期' })
                     }
                 }
             }
         })
     }
     render() {
-        const { visible, confirmLoading, ModalText,textView,alertVisible,errorInfo,
-        Host,Platform_cn_name} = this.state;
+        const { visible, confirmLoading, ModalText, textView, alertVisible, errorInfo,
+            Host, Platform_cn_name } = this.state;
         return (
             <div>
                 <Modal
-                    title={"修改"+Platform_cn_name+"("+Host+")Cookie"}
-                    visible={visible}
+                    title={"修改" + Platform_cn_name + "(" + Host + ")Cookie"}
+                    open={visible}
                     onOk={this.handleOk}
                     confirmLoading={confirmLoading}
                     onCancel={this.handleCancel}>
                     <p>{ModalText}</p>
                     <TextArea autoSize={{ minRows: 2, maxRows: 6 }} value={textView} placeholder="请输入Cookie" onChange={this.textChange} allowClear />
-                    <div id="errorinfo" className={alertVisible?'word-style':'word-style:hide'}>{errorInfo}</div>
+                    <div id="errorinfo" className={alertVisible ? 'word-style' : 'word-style:hide'}>{errorInfo}</div>
                 </Modal>
             </div>
         );

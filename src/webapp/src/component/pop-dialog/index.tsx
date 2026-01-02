@@ -1,9 +1,11 @@
-import { Popconfirm, Icon } from 'antd';
+import { Popconfirm } from 'antd';
+import { QuestionCircleOutlined } from '@ant-design/icons';
 import React from 'react';
 
-interface DialogContent{
+interface DialogContent {
     title: string,
-    onConfirm?: (e?: React.MouseEvent<HTMLElement>) => void
+    onConfirm?: (e?: React.MouseEvent<HTMLElement>) => void,
+    children?: React.ReactNode
 }
 
 class PopDialog extends React.Component<DialogContent> {
@@ -11,7 +13,7 @@ class PopDialog extends React.Component<DialogContent> {
         return (
             <Popconfirm
                 title={this.props.title}
-                icon={<Icon type="question-circle-o" style={{ color: 'red' }} />}
+                icon={<QuestionCircleOutlined style={{ color: 'red' }} />}
                 onConfirm={this.props.onConfirm}>
                 {this.props.children}
             </Popconfirm>
