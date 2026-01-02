@@ -30,7 +30,7 @@ func genLiveIdByString(value string) types.LiveID {
 }
 
 func NewBaseLive(url *url.URL) BaseLive {
-	requestSession := requests.DefaultSession
+	var requestSession *requests.Session
 	config := configs.GetCurrentConfig()
 	if config != nil && config.Debug {
 		client, _ := utils.CreateConnCounterClient()
