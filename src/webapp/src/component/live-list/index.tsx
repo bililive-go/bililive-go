@@ -431,32 +431,32 @@ class LiveList extends React.Component<Props, IState> {
     }
 
     toggleExpandRow = (roomId: string) => {
-        const { expandedRowKeys, sseSubscriptions } = this.state;
-        const isExpanded = expandedRowKeys.includes(roomId);
+        const isCurrentlyExpanded = this.state.expandedRowKeys.includes(roomId);
 
-        if (isExpanded) {
+        if (isCurrentlyExpanded) {
             // 收起 - 取消 SSE 订阅
-            if (sseSubscriptions[roomId]) {
-                unsubscribeSSE(sseSubscriptions[roomId]);
-                const newSubscriptions = { ...sseSubscriptions };
-                delete newSubscriptions[roomId];
-                this.setState({
-                    expandedRowKeys: expandedRowKeys.filter(key => key !== roomId),
-                    sseSubscriptions: newSubscriptions
-                });
-            } else {
-                this.setState({
-                    expandedRowKeys: expandedRowKeys.filter(key => key !== roomId)
-                });
+            const subscriptionId = this.state.sseSubscriptions[roomId];
+            if (subscriptionId) {
+                unsubscribeSSE(subscriptionId);
             }
+            this.setState(prevState => {
+                const newSubscriptions = { ...prevState.sseSubscriptions };
+                delete newSubscriptions[roomId];
+                return {
+                    expandedRowKeys: prevState.expandedRowKeys.filter(key => key !== roomId),
+                    sseSubscriptions: newSubscriptions
+                };
+            });
         } else {
             // 展开 - 获取详细信息和日志，并订阅 SSE
-            this.setState({
-                expandedRowKeys: [...expandedRowKeys, roomId]
+            this.setState(prevState => ({
+                expandedRowKeys: [...prevState.expandedRowKeys, roomId]
+            }), () => {
+                // 在状态更新后执行副作用
+                this.loadRoomDetail(roomId);
+                this.loadRoomLogs(roomId);
+                this.subscribeRoomSSE(roomId);
             });
-            this.loadRoomDetail(roomId);
-            this.loadRoomLogs(roomId);
-            this.subscribeRoomSSE(roomId);
         }
     }
 
@@ -467,12 +467,12 @@ class LiveList extends React.Component<Props, IState> {
             this.handleSSEMessage(roomId, message);
         });
 
-        this.setState({
+        this.setState(prevState => ({
             sseSubscriptions: {
-                ...this.state.sseSubscriptions,
+                ...prevState.sseSubscriptions,
                 [roomId]: subscriptionId
             }
-        });
+        }));
     }
 
     // 处理 SSE 消息
@@ -502,18 +502,21 @@ class LiveList extends React.Component<Props, IState> {
 
             case 'conn_stats':
                 // 更新连接统计
-                const currentDetail = this.state.expandedDetails[roomId];
-                if (currentDetail) {
-                    this.setState({
-                        expandedDetails: {
-                            ...this.state.expandedDetails,
-                            [roomId]: {
-                                ...currentDetail,
-                                conn_stats: message.data
+                this.setState(prevState => {
+                    const currentDetail = prevState.expandedDetails[roomId];
+                    if (currentDetail) {
+                        return {
+                            expandedDetails: {
+                                ...prevState.expandedDetails,
+                                [roomId]: {
+                                    ...currentDetail,
+                                    conn_stats: message.data
+                                }
                             }
-                        }
-                    });
-                }
+                        };
+                    }
+                    return null;
+                });
                 break;
         }
     }
@@ -521,12 +524,12 @@ class LiveList extends React.Component<Props, IState> {
     loadRoomDetail = (roomId: string) => {
         api.getLiveDetail(roomId)
             .then((detail: any) => {
-                this.setState({
+                this.setState(prevState => ({
                     expandedDetails: {
-                        ...this.state.expandedDetails,
+                        ...prevState.expandedDetails,
                         [roomId]: detail
                     }
-                });
+                }));
             })
             .catch(err => {
                 message.error(`获取直播间详情失败: ${err}`);
@@ -536,12 +539,12 @@ class LiveList extends React.Component<Props, IState> {
     loadRoomLogs = (roomId: string) => {
         api.getLiveLogs(roomId, 100)
             .then((logs: any) => {
-                this.setState({
+                this.setState(prevState => ({
                     expandedLogs: {
-                        ...this.state.expandedLogs,
+                        ...prevState.expandedLogs,
                         [roomId]: logs.lines || []
                     }
-                });
+                }));
             })
             .catch(err => {
                 message.warning(`获取直播间日志失败: ${err}`);
