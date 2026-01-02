@@ -80,22 +80,16 @@ func (m *ConnCounterManagerType) PrintMap() {
 	}
 }
 
-var (
-	edgesrvWarningLogged bool
-	edgesrvWarningMutex  sync.Mutex
-)
+var edgesrvWarningOnce sync.Once
 
 // createTLSConfig creates a TLS configuration for the given host
 // For edgesrv.com domains, it enables weak TLS 1.2 cipher suites for compatibility
 func createTLSConfig(host string) *tls.Config {
 	if strings.HasSuffix(host, ".edgesrv.com") || host == "edgesrv.com" {
 		// Log warning only once to avoid log spam
-		edgesrvWarningMutex.Lock()
-		if !edgesrvWarningLogged {
+		edgesrvWarningOnce.Do(func() {
 			blog.GetLogger().Warnf("Enabling weak TLS 1.2 cipher suites for edgesrv.com domains. This may reduce connection security for these specific domains.")
-			edgesrvWarningLogged = true
-		}
-		edgesrvWarningMutex.Unlock()
+		})
 		
 		// Enable weak TLS 1.2 cipher suites for edgesrv.com
 		// Based on SSL Labs report, edgesrv.com servers require CBC-mode RSA cipher suites

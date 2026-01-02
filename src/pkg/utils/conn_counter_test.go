@@ -4,14 +4,15 @@ import (
 	"crypto/tls"
 	"errors"
 	"net/http"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestCreateTLSConfig(t *testing.T) {
-	// Reset warning flag for testing
-	edgesrvWarningLogged = false
+	// Reset warning once for testing
+	edgesrvWarningOnce = sync.Once{}
 	
 	tests := []struct {
 		name                string
