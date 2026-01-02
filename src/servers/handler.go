@@ -305,7 +305,7 @@ func parseLiveAction(writer http.ResponseWriter, r *http.Request) {
 			writeJsonWithStatusCode(writer, http.StatusBadRequest, resp)
 		}
 		if _, err := configs.SetLiveRoomListening(live.GetRawUrl(), true); err != nil {
-			l.getLogger().Error("failed to set live room listening: " + err.Error())
+			live.GetLogger().Error("failed to set live room listening: " + err.Error())
 		}
 	case "stop":
 		if err := stopListening(r.Context(), live.GetLiveId()); err != nil {
@@ -314,7 +314,7 @@ func parseLiveAction(writer http.ResponseWriter, r *http.Request) {
 			writeJsonWithStatusCode(writer, http.StatusBadRequest, resp)
 		}
 		if _, err := configs.SetLiveRoomListening(live.GetRawUrl(), false); err != nil {
-			l.getLogger().Error("failed to set live room listening: " + err.Error())
+			live.GetLogger().Error("failed to set live room listening: " + err.Error())
 		}
 	case "forceRefresh":
 		// 强制刷新：忽略平台访问频率限制，立即获取最新信息
