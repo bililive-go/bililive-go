@@ -105,6 +105,16 @@ func (a *BaseLive) GetLogger() *livelogger.LiveLogger {
 	return a.Logger
 }
 
+// GetInfoWithInterval 默认实现，直接返回错误
+// 实际的实现应该在 WrappedLive 中
+func (a *BaseLive) GetInfoWithInterval(ctx context.Context) (*live.Info, error) {
+	return nil, live.ErrNotImplemented
+}
+
+// Close 默认实现，不做任何事情
+// 实际的资源释放在 WrappedLive 中处理
+func (a *BaseLive) Close() {}
+
 // TODO: remove this method
 func (a *BaseLive) GetStreamUrls() ([]*url.URL, error) {
 	return nil, live.ErrNotImplemented

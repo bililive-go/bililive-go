@@ -6,13 +6,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/lthibault/jitterbug"
-
 	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/consts"
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/live"
-	"github.com/bililive-go/bililive-go/src/live/system"
 	applog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/notify"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
@@ -32,12 +29,16 @@ type Listener interface {
 
 func NewListener(ctx context.Context, live live.Live) Listener {
 	inst := instance.GetInstance(ctx)
+	// 创建一个可取消的 context，用于控制 run 循环中的等待
+	runCtx, cancel := context.WithCancel(ctx)
 	return &listener{
-		Live:   live,
-		status: status{},
-		stop:   make(chan struct{}),
-		ed:     inst.EventDispatcher.(events.Dispatcher),
-		state:  begin,
+		Live:      live,
+		status:    status{},
+		stop:      make(chan struct{}),
+		ed:        inst.EventDispatcher.(events.Dispatcher),
+		state:     begin,
+		runCtx:    runCtx,
+		runCancel: cancel,
 	}
 }
 
@@ -46,8 +47,10 @@ type listener struct {
 	status status
 	ed     events.Dispatcher
 
-	state uint32
-	stop  chan struct{}
+	state     uint32
+	stop      chan struct{}
+	runCtx    context.Context    // 用于控制 run 循环中的等待
+	runCancel context.CancelFunc // 取消 runCtx
 }
 
 func (l *listener) Start() error {
@@ -67,6 +70,7 @@ func (l *listener) Close() {
 		return
 	}
 	l.ed.DispatchEvent(events.NewEvent(ListenStop, l.Live))
+	l.runCancel() // 取消 run 循环中的等待
 	close(l.stop)
 }
 
@@ -78,6 +82,7 @@ func (l *listener) sendLiveNotification(hostName, status string) {
 	}
 }
 
+// refresh 用于启动时的第一次信息获取（不等待间隔）
 func (l *listener) refresh() {
 	info, err := l.Live.GetInfo()
 	if err != nil {
@@ -87,7 +92,37 @@ func (l *listener) refresh() {
 			Error("failed to load room info")
 		return
 	}
+	l.processInfo(info)
+}
 
+func (l *listener) run() {
+	// 使用 GetInfoWithInterval 来处理等待和请求
+	// 它会自动获取配置的间隔时间，并在尊重平台速率限制的前提下等待后发送请求
+	for {
+		select {
+		case <-l.stop:
+			return
+		default:
+			// 使用 GetInfoWithInterval，它会等待配置的间隔时间后再发送请求
+			info, err := l.Live.GetInfoWithInterval(l.runCtx)
+			if err != nil {
+				// 如果是 context 取消导致的错误，说明 listener 正在关闭
+				if l.runCtx.Err() != nil {
+					return
+				}
+				l.Live.GetLogger().
+					WithError(err).
+					WithField("url", l.Live.GetRawUrl()).
+					Error("failed to load room info")
+				continue
+			}
+			l.processInfo(info)
+		}
+	}
+}
+
+// processInfo 处理获取到的直播间信息，检测状态变化并触发事件
+func (l *listener) processInfo(info *live.Info) {
 	// 尝试从缓存中获取主播姓名，以防API调用失败
 	hostName := info.HostName
 	if hostName == "" {
@@ -128,8 +163,6 @@ func (l *listener) refresh() {
 	case roomNameChangedEvt:
 		cfg := configs.GetCurrentConfig()
 		if cfg == nil {
-			// 如果配置为空，可能是系统正在初始化或关闭，这不一定是错误，但在这里返回是安全的
-			// 为了防止 NPE，我们需要显式检查
 			return
 		}
 		if !cfg.VideoSplitStrategies.OnRoomNameChanged {
@@ -141,51 +174,5 @@ func (l *listener) refresh() {
 	if isStatusChanged {
 		l.ed.DispatchEvent(events.NewEvent(evtTyp, l.Live))
 		applog.GetLogger().WithFields(fields).Info(logInfo)
-	}
-
-	if info.Initializing {
-		initializingLive := l.Live.(*live.WrappedLive).Live.(*system.InitializingLive)
-		info, err = initializingLive.OriginalLive.GetInfo()
-		if err == nil {
-			l.ed.DispatchEvent(events.NewEvent(RoomInitializingFinished, live.InitializingFinishedParam{
-				InitializingLive: l.Live,
-				Live:             initializingLive.OriginalLive,
-				Info:             info,
-			}))
-		}
-	}
-}
-
-func (l *listener) run() {
-	// 获取房间配置信息以使用解析后的配置
-	cfg := configs.GetCurrentConfig()
-	interval := 30
-	if cfg != nil {
-		room, err := cfg.GetLiveRoomByUrl(l.Live.GetRawUrl())
-		if err == nil {
-			platformKey := configs.GetPlatformKeyFromUrl(l.Live.GetRawUrl())
-			resolvedConfig := cfg.ResolveConfigForRoom(room, platformKey)
-			interval = resolvedConfig.Interval
-		} else if cfg.Interval > 0 {
-			interval = cfg.Interval
-		} else {
-			applog.GetLogger().Warn("config interval is <= 0, using default 30s")
-		}
-	}
-	ticker := jitterbug.New(
-		time.Duration(interval)*time.Second,
-		jitterbug.Norm{
-			Stdev: time.Second * 3,
-		},
-	)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-l.stop:
-			return
-		case <-ticker.C:
-			l.refresh()
-		}
 	}
 }

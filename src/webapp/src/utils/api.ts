@@ -141,6 +141,84 @@ class API {
     getLiveLogs(id: string, lines: number = 100) {
         return utils.requestGet(`${BASE_URL}/lives/${id}/logs?lines=${lines}`);
     }
+
+    /**
+     * 获取实际生效的配置值（用于GUI模式显示）
+     */
+    getEffectiveConfig() {
+        return utils.requestGet(`${BASE_URL}/config/effective`);
+    }
+
+    /**
+     * 获取平台统计信息
+     */
+    getPlatformStats() {
+        return utils.requestGet(`${BASE_URL}/config/platforms`);
+    }
+
+    /**
+     * 更新全局配置（部分更新）
+     * @param updates 要更新的配置项
+     */
+    updateConfig(updates: any) {
+        return utils.requestPatch(`${BASE_URL}/config`, updates);
+    }
+
+    /**
+     * 更新平台配置
+     * @param platformKey 平台标识
+     * @param updates 要更新的配置项
+     */
+    updatePlatformConfig(platformKey: string, updates: any) {
+        return utils.requestPatch(`${BASE_URL}/config/platforms/${platformKey}`, updates);
+    }
+
+    /**
+     * 删除平台配置
+     * @param platformKey 平台标识
+     */
+    deletePlatformConfig(platformKey: string) {
+        return utils.requestDelete(`${BASE_URL}/config/platforms/${platformKey}`);
+    }
+
+    /**
+     * 更新直播间配置
+     * @param roomUrl 直播间URL
+     * @param updates 要更新的配置项
+     */
+    updateRoomConfig(roomUrl: string, updates: any) {
+        return utils.requestPatch(`${BASE_URL}/config/rooms/${encodeURIComponent(roomUrl)}`, updates);
+    }
+
+    /**
+     * 通过 ID 更新直播间配置
+     * @param liveId 直播间ID
+     * @param updates 要更新的配置项
+     */
+    updateRoomConfigById(liveId: string, updates: any) {
+        return utils.requestPatch(`${BASE_URL}/config/rooms/id/${liveId}`, updates);
+    }
+
+    /**
+     * 预览输出模板生成的路径
+     * @param template 模板字符串
+     * @param outPutPath 输出路径
+     */
+    previewOutputTemplate(template: string, outPutPath: string) {
+        return utils.requestPost(`${BASE_URL}/config/preview-template`, {
+            template,
+            out_put_path: outPutPath
+        });
+    }
+
+    /**
+     * 强制刷新直播间信息
+     * 忽略平台访问频率限制，立即获取最新信息
+     * @param liveId 直播间ID
+     */
+    forceRefreshLive(liveId: string) {
+        return utils.requestGet(`${BASE_URL}/lives/${liveId}/forceRefresh`);
+    }
 }
 
 export default API;

@@ -12,7 +12,7 @@ const App: React.FC = () => {
     <RootLayout>
       <Routes>
         <Route path="/fileList/*" element={<FileList />} />
-        <Route path="/configInfo" element={<ConfigInfo />} />
+        <Route path="/configInfo/*" element={<ConfigInfo />} />
         <Route path="/liveInfo" element={<LiveInfo />} />
         <Route path="/" element={<LiveList />} />
       </Routes>

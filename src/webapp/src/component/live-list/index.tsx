@@ -10,6 +10,7 @@ import './live-list.css';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate, NavigateFunction } from "react-router-dom";
 import EditCookieDialog from "../edit-cookie/index";
+import { RoomConfigForm } from "../config-info";
 
 const api = new API();
 const { Text } = Typography;
@@ -30,6 +31,7 @@ interface IState {
     expandedDetails: { [key: string]: any }, // 直播间详细信息缓存
     expandedLogs: { [key: string]: string[] }, // 直播间日志缓存
     sseSubscriptions: { [key: string]: string }, // roomId -> subscriptionId 映射
+    globalConfig: any, // 全局配置缓存
 }
 
 interface ItemData {
@@ -156,6 +158,16 @@ class LiveList extends React.Component<Props, IState> {
                 <Button type="link" size="small" onClick={(e) => {
                     this.props.navigate(`/fileList/${data.address}/${data.name}`);
                 }}>文件</Button>
+                <Divider type="vertical" />
+                <a
+                    href={`/#/configInfo#rooms-live-${data.roomId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ fontSize: 12 }}
+                >
+                    配置
+                </a>
             </span>
         ),
     };
@@ -240,15 +252,34 @@ class LiveList extends React.Component<Props, IState> {
             expandedDetails: {},
             expandedLogs: {},
             sseSubscriptions: {},
+            globalConfig: null,
         }
     }
 
+    pendingRoomId: string | null = null;
+
     componentDidMount() {
-        //refresh data
-        this.requestListData();
+        // 解析 URL 参数以支持深度链接
+        const hash = window.location.hash;
+        if (hash.includes('?')) {
+            const searchParams = new URLSearchParams(hash.split('?')[1]);
+            this.pendingRoomId = searchParams.get('room');
+        }
+
+        this.requestData("livelist"); // Call with a specific targetKey
+        this.fetchGlobalConfig();
         this.timer = setInterval(() => {
-            this.requestListData();
+            this.requestData("livelist"); // Call with a specific targetKey
         }, REFRESH_TIME);
+    }
+
+    fetchGlobalConfig = async () => {
+        try {
+            const config = await api.getEffectiveConfig();
+            this.setState({ globalConfig: config });
+        } catch (error) {
+            console.error('Failed to fetch global config:', error);
+        }
     }
 
     componentWillUnmount() {
@@ -350,6 +381,26 @@ class LiveList extends React.Component<Props, IState> {
             .then((data: ItemData[]) => {
                 this.setState({
                     list: data
+                }, () => {
+                    // 处理深度链接自动展开
+                    if (this.pendingRoomId) {
+                        const targetRoom = data.find(item => item.roomId === this.pendingRoomId);
+                        if (targetRoom) {
+                            if (!this.state.expandedRowKeys.includes(this.pendingRoomId)) {
+                                this.toggleExpandRow(this.pendingRoomId);
+                            }
+                            // 滚动到该行
+                            setTimeout(() => {
+                                const element = document.getElementById(`row-live-${this.pendingRoomId}`);
+                                if (element) {
+                                    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    element.classList.add('highlight-row'); // 可以添加 CSS 动画
+                                }
+                            }, 500);
+                        }
+                        // 清除 pending，避免后续刷新重复操作
+                        this.pendingRoomId = null;
+                    }
                 });
             })
             .catch(err => {
@@ -501,6 +552,9 @@ class LiveList extends React.Component<Props, IState> {
         const { expandedDetails, expandedLogs } = this.state;
         const detail = expandedDetails[record.roomId];
         const logs = expandedLogs[record.roomId] || [];
+        const liveId = record.roomId;
+        // 保存 this 引用供嵌套函数使用
+        const component = this;
 
         // 配置来源对应的颜色
         const sourceColors: { [key: string]: string } = {
@@ -592,67 +646,122 @@ class LiveList extends React.Component<Props, IState> {
         );
 
         // 运行时信息面板
-        const renderRuntimePanel = () => (
-            <div>
-                {detail ? (
-                    <div>
-                        <div style={{ padding: '4px 0' }}>
-                            <div style={configRowStyle}>
-                                <span style={configLabelStyle}>监控状态</span>
-                                <Tag color={detail.listening ? 'green' : undefined}>
-                                    {detail.listening ? '监控中' : '已停止'}
-                                </Tag>
-                            </div>
-                            <div style={configRowStyle}>
-                                <span style={configLabelStyle}>录制状态</span>
-                                <Tag color={detail.recording ? 'red' : undefined}>
-                                    {detail.recording ? '录制中' : '未录制'}
-                                </Tag>
-                            </div>
-                            <div style={configRowStyle}>
-                                <span style={configLabelStyle}>开播时间</span>
-                                <span>{detail.live_start_time || '未知'}</span>
-                            </div>
-                            <div style={{ ...configRowStyle, borderBottom: 'none' }}>
-                                <span style={configLabelStyle}>上次录制</span>
-                                <span>{detail.last_record_time || '无'}</span>
-                            </div>
-                        </div>
-                        <Divider style={{ margin: '8px 0' }}>网络连接统计</Divider>
-                        <div style={{ padding: '0 12px 8px' }}>
-                            {detail.conn_stats && detail.conn_stats.length > 0 ? (
-                                <List
-                                    size="small"
-                                    dataSource={detail.conn_stats}
-                                    split={false}
-                                    renderItem={(item: any) => (
-                                        <List.Item style={{ padding: '6px 0', borderBottom: '1px dashed #f0f0f0' }}>
-                                            <div style={{ width: '100%' }}>
-                                                <Text strong style={{ fontSize: 13 }}>{item.host}</Text>
-                                                <div style={{ marginTop: 4 }}>
-                                                    <Text type="secondary">↓ 接收: </Text>
-                                                    <Tag color="blue" style={{ marginRight: 16 }}>{item.received_format}</Tag>
-                                                    <Text type="secondary">↑ 发送: </Text>
-                                                    <Tag color="green">{item.sent_format}</Tag>
-                                                </div>
-                                            </div>
-                                        </List.Item>
-                                    )}
-                                />
-                            ) : (
-                                <div style={{ padding: '12px 0', textAlign: 'center', color: '#999' }}>
-                                    暂无网络连接统计数据
+        const renderRuntimePanel = () => {
+            const handleForceRefresh = async () => {
+                try {
+                    const result = await api.forceRefreshLive(liveId) as { success?: boolean; message?: string };
+                    if (result.success) {
+                        message.success('强制刷新成功');
+                        // 重新加载详细信息
+                        component.loadRoomDetail(liveId);
+                    } else {
+                        message.error(result.message || '强制刷新失败');
+                    }
+                } catch (error) {
+                    message.error('强制刷新失败');
+                }
+            };
+
+            return (
+                <div>
+                    {detail ? (
+                        <div>
+                            <div style={{ padding: '4px 0' }}>
+                                <div style={configRowStyle}>
+                                    <span style={configLabelStyle}>监控状态</span>
+                                    <Tag color={detail.listening ? 'green' : undefined}>
+                                        {detail.listening ? '监控中' : '已停止'}
+                                    </Tag>
                                 </div>
-                            )}
+                                <div style={configRowStyle}>
+                                    <span style={configLabelStyle}>录制状态</span>
+                                    <Tag color={detail.recording ? 'red' : undefined}>
+                                        {detail.recording ? '录制中' : '未录制'}
+                                    </Tag>
+                                </div>
+                                <div style={configRowStyle}>
+                                    <span style={configLabelStyle}>开播时间</span>
+                                    <span>{detail.live_start_time || '未知'}</span>
+                                </div>
+                                <div style={{ ...configRowStyle, borderBottom: 'none' }}>
+                                    <span style={configLabelStyle}>上次录制</span>
+                                    <span>{detail.last_record_time || '无'}</span>
+                                </div>
+                            </div>
+
+                            <Divider style={{ margin: '8px 0' }}>平台访问频率控制</Divider>
+                            <div style={{ padding: '0 12px 8px' }}>
+                                {detail.rate_limit_info ? (
+                                    <div>
+                                        <div style={configRowStyle}>
+                                            <span style={configLabelStyle}>最小访问间隔</span>
+                                            <Tag>{detail.rate_limit_info.min_interval_sec || detail.platform_rate_limit} 秒</Tag>
+                                        </div>
+                                        <div style={configRowStyle}>
+                                            <span style={configLabelStyle}>距上次请求</span>
+                                            <span>{Math.round(detail.rate_limit_info.waited_seconds || 0)} 秒</span>
+                                        </div>
+                                        <div style={configRowStyle}>
+                                            <span style={configLabelStyle}>预计下次请求</span>
+                                            <Tag color={(detail.rate_limit_info.next_request_in_sec || 0) > 0 ? 'orange' : 'green'}>
+                                                {(detail.rate_limit_info.next_request_in_sec || 0) > 0
+                                                    ? `${Math.round(detail.rate_limit_info.next_request_in_sec)} 秒后`
+                                                    : '立即可用'}
+                                            </Tag>
+                                        </div>
+                                        <div style={{ marginTop: 12, borderBottom: 'none' }}>
+                                            <Button
+                                                type="primary"
+                                                size="small"
+                                                onClick={handleForceRefresh}
+                                            >
+                                                强制刷新（突破频率限制）
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div style={{ padding: '8px 0', textAlign: 'center', color: '#999' }}>
+                                        暂无访问频率信息
+                                    </div>
+                                )}
+                            </div>
+
+                            <Divider style={{ margin: '8px 0' }}>网络连接统计</Divider>
+                            <div style={{ padding: '0 12px 8px' }}>
+                                {detail.conn_stats && detail.conn_stats.length > 0 ? (
+                                    <List
+                                        size="small"
+                                        dataSource={detail.conn_stats}
+                                        split={false}
+                                        renderItem={(item: any) => (
+                                            <List.Item style={{ padding: '6px 0', borderBottom: '1px dashed #f0f0f0' }}>
+                                                <div style={{ width: '100%' }}>
+                                                    <Text strong style={{ fontSize: 13 }}>{item.host}</Text>
+                                                    <div style={{ marginTop: 4 }}>
+                                                        <Text type="secondary">↓ 接收: </Text>
+                                                        <Tag color="blue" style={{ marginRight: 16 }}>{item.received_format}</Tag>
+                                                        <Text type="secondary">↑ 发送: </Text>
+                                                        <Tag color="green">{item.sent_format}</Tag>
+                                                    </div>
+                                                </div>
+                                            </List.Item>
+                                        )}
+                                    />
+                                ) : (
+                                    <div style={{ padding: '12px 0', textAlign: 'center', color: '#999' }}>
+                                        暂无网络连接统计数据
+                                    </div>
+                                )}
+                            </div>
                         </div>
-                    </div>
-                ) : (
-                    <div style={{ padding: '20px', textAlign: 'center', color: '#999' }}>
-                        加载运行时信息中...
-                    </div>
-                )}
-            </div>
-        );
+                    ) : (
+                        <div style={{ padding: '20px', textAlign: 'center', color: '#999' }}>
+                            加载运行时信息中...
+                        </div>
+                    )}
+                </div>
+            );
+        };
 
         // 日志面板
         const renderLogsPanel = () => {
@@ -683,7 +792,7 @@ class LiveList extends React.Component<Props, IState> {
                 boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
             }}>
                 <Tabs
-                    defaultActiveKey="config"
+                    defaultActiveKey="runtime"
                     size="small"
                     animated={false}
                     style={{ margin: 0 }}
@@ -695,11 +804,28 @@ class LiveList extends React.Component<Props, IState> {
                         borderRadius: '6px 6px 0 0'
                     }}
                 >
-                    <Tabs.TabPane tab="配置信息" key="config">
-                        {renderConfigPanel()}
-                    </Tabs.TabPane>
                     <Tabs.TabPane tab="运行时信息" key="runtime">
                         {renderRuntimePanel()}
+                    </Tabs.TabPane>
+                    <Tabs.TabPane tab="设置" key="settings">
+                        <div style={{ padding: '16px 20px' }}>
+                            {this.state.globalConfig && detail && detail.room_config ? (
+                                <RoomConfigForm
+                                    room={detail.room_config}
+                                    globalConfig={this.state.globalConfig}
+                                    platformId={detail.platform_key}
+                                    onSave={async (updates) => {
+                                        await api.updateRoomConfigById(detail.live_id, updates);
+                                        // 更新后重新加载详情以获取最新配置状态
+                                        await this.loadRoomDetail(record.roomId);
+                                    }}
+                                    loading={false}
+                                    onRefresh={() => this.loadRoomDetail(record.roomId)}
+                                />
+                            ) : (
+                                <div style={{ textAlign: 'center', padding: '20px' }}>正在加载配置...</div>
+                            )}
+                        </div>
                     </Tabs.TabPane>
                     <Tabs.TabPane tab="最近日志" key="logs">
                         {renderLogsPanel()}
@@ -760,6 +886,8 @@ class LiveList extends React.Component<Props, IState> {
                             rowKey={record => record.roomId}
                             onExpand={(expanded, record) => this.toggleExpandRow(record.roomId)}
                             onRow={(record) => ({
+                                id: `row-live-${record.roomId}`,
+                                style: { transition: 'background-color 1s' },
                                 onClick: (e) => {
                                     // 只有点击 td 单元格本身（空白处）才触发展开
                                     // 如果点击的是 td 内的内容元素，则不触发

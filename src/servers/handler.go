@@ -1,6 +1,7 @@
 package servers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"text/template"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/tidwall/gjson"
@@ -25,6 +28,8 @@ import (
 	"github.com/bililive-go/bililive-go/src/listeners"
 	"github.com/bililive-go/bililive-go/src/live"
 	applog "github.com/bililive-go/bililive-go/src/log"
+	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
+	"github.com/bililive-go/bililive-go/src/pkg/ratelimit"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
 	"github.com/bililive-go/bililive-go/src/recorders"
 	"github.com/bililive-go/bililive-go/src/types"
@@ -33,8 +38,25 @@ import (
 // FIXME: remove this
 func parseInfo(ctx context.Context, l live.Live) *live.Info {
 	inst := instance.GetInstance(ctx)
-	obj, _ := inst.Cache.Get(l)
-	info := obj.(*live.Info)
+
+	// 尝试从缓存获取信息
+	obj, err := inst.Cache.Get(l)
+
+	var info *live.Info
+	if err != nil || obj == nil {
+		// 缓存中没有信息，可能是 InitializingLive 还未初始化
+		// 创建一个基础信息
+		info = &live.Info{
+			Live:         l,
+			HostName:     "初始化中...",
+			RoomName:     l.GetRawUrl(),
+			Status:       false,
+			Initializing: true,
+		}
+	} else {
+		info = obj.(*live.Info)
+	}
+
 	info.Listening = inst.ListenerManager.(listeners.Manager).HasListener(ctx, l.GetLiveId())
 	info.Recording = inst.RecorderManager.(recorders.Manager).HasRecorder(ctx, l.GetLiveId())
 	if info.HostName == "" {
@@ -111,6 +133,9 @@ func getLive(writer http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 获取平台等待状态信息
+	waitInfo := ratelimit.GetGlobalRateLimiter().GetPlatformWaitInfo(platformKey)
+
 	// 构造详细响应
 	detailedInfo := map[string]interface{}{
 		// 基本信息
@@ -124,6 +149,7 @@ func getLive(writer http.ResponseWriter, r *http.Request) {
 		"platform":  info.Live.GetPlatformCNName(),
 
 		// 有效配置信息
+		"platform_key":          platformKey,
 		"effective_interval":    resolvedConfig.Interval,
 		"effective_out_path":    resolvedConfig.OutPutPath,
 		"effective_ffmpeg_path": resolvedConfig.FfmpegPath,
@@ -132,6 +158,13 @@ func getLive(writer http.ResponseWriter, r *http.Request) {
 
 		// 平台访问限制
 		"platform_rate_limit": cfg.GetPlatformMinAccessInterval(platformKey),
+
+		// 平台等待状态
+		"rate_limit_info": map[string]interface{}{
+			"waited_seconds":      waitInfo.WaitedSeconds,
+			"next_request_in_sec": waitInfo.NextRequestInSec,
+			"min_interval_sec":    waitInfo.MinIntervalSec,
+		},
 
 		// 配置来源信息
 		"config_sources": map[string]string{
@@ -146,6 +179,9 @@ func getLive(writer http.ResponseWriter, r *http.Request) {
 		// 时间信息（目前为模拟数据，需要后续实现真实的时间跟踪）
 		"live_start_time":  "未知",
 		"last_record_time": "无",
+
+		// 原始配置信息
+		"room_config": room,
 	}
 
 	writeJSON(writer, detailedInfo)
@@ -280,6 +316,29 @@ func parseLiveAction(writer http.ResponseWriter, r *http.Request) {
 		if _, err := configs.SetLiveRoomListening(live.GetRawUrl(), false); err != nil {
 			live.GetLogger().Error("failed to set live room listening: " + err.Error())
 		}
+	case "forceRefresh":
+		// 强制刷新：忽略平台访问频率限制，立即获取最新信息
+		platformKey := configs.GetPlatformKeyFromUrl(live.GetRawUrl())
+		ratelimit.GetGlobalRateLimiter().ForceAccess(platformKey)
+
+		// 手动调用 GetInfo 获取最新信息
+		info, err := live.GetInfo()
+		if err != nil {
+			resp.ErrNo = http.StatusInternalServerError
+			resp.ErrMsg = fmt.Sprintf("force refresh failed: %s", err.Error())
+			writeJsonWithStatusCode(writer, http.StatusInternalServerError, resp)
+			return
+		}
+
+		// 返回刷新后的信息
+		writeJSON(writer, map[string]interface{}{
+			"success":   true,
+			"message":   "强制刷新成功",
+			"host_name": info.HostName,
+			"room_name": info.RoomName,
+			"status":    info.Status,
+		})
+		return
 	default:
 		resp.ErrNo = http.StatusBadRequest
 		resp.ErrMsg = fmt.Sprintf("invalid Action: %s", vars["action"])
@@ -557,6 +616,832 @@ func applyLiveRoomsByConfig(ctx context.Context, oldConfig *configs.Config, newC
 
 func getInfo(writer http.ResponseWriter, r *http.Request) {
 	writeJSON(writer, consts.AppInfo)
+}
+
+// EffectiveConfigResponse 用于返回配置及其实际生效值
+type EffectiveConfigResponse struct {
+	*configs.Config
+
+	// 额外的实际生效值字段
+	ActualOutPutPath         string `json:"actual_out_put_path"`
+	ActualFfmpegPath         string `json:"actual_ffmpeg_path"`
+	ActualLogFolder          string `json:"actual_log_folder"`
+	ActualAppDataPath        string `json:"actual_app_data_path"`
+	ActualReadOnlyToolFolder string `json:"actual_read_only_tool_folder"`
+	ActualToolRootFolder     string `json:"actual_tool_root_folder"`
+	DefaultOutPutTmpl        string `json:"default_out_put_tmpl"`
+	TimeoutInSeconds         int    `json:"timeout_in_seconds"`
+	LiveRoomsCount           int    `json:"live_rooms_count"`
+}
+
+// getEffectiveConfig 获取实际生效的配置值（用于GUI模式显示）
+func getEffectiveConfig(writer http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	cfg := configs.GetCurrentConfig()
+	if cfg == nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "配置未初始化",
+		})
+		return
+	}
+
+	// 获取实际的 ffmpeg 路径
+	actualFfmpegPath, err := utils.GetFFmpegPath(ctx)
+	if err == nil {
+		actualFfmpegPath, _ = filepath.Abs(actualFfmpegPath)
+	} else {
+		actualFfmpegPath = "未找到"
+	}
+
+	// 获取输出路径的绝对路径
+	actualOutPutPath, _ := filepath.Abs(cfg.OutPutPath)
+
+	// 获取日志输出目录的绝对路径
+	actualLogFolder := cfg.Log.OutPutFolder
+	if actualLogFolder != "" {
+		actualLogFolder, _ = filepath.Abs(actualLogFolder)
+	}
+
+	// 获取应用数据目录的绝对路径
+	actualAppDataPath := cfg.AppDataPath
+	if actualAppDataPath == "" {
+		actualAppDataPath = filepath.Join(cfg.OutPutPath, ".appdata")
+	}
+	actualAppDataPath, _ = filepath.Abs(actualAppDataPath)
+
+	// 获取只读工具目录的绝对路径
+	actualReadOnlyToolFolder := cfg.ReadOnlyToolFolder
+	if actualReadOnlyToolFolder != "" {
+		actualReadOnlyToolFolder, _ = filepath.Abs(actualReadOnlyToolFolder)
+	}
+
+	// 获取可写工具目录的绝对路径
+	actualToolRootFolder := cfg.ToolRootFolder
+	if actualToolRootFolder != "" {
+		actualToolRootFolder, _ = filepath.Abs(actualToolRootFolder)
+	}
+
+	// 默认输出模板
+	defaultOutputTmpl := `{{ .Live.GetPlatformCNName }}/{{ with .Live.GetOptions.NickName }}{{ . | filenameFilter }}{{ else }}{{ .HostName | filenameFilter }}{{ end }}/[{{ now | date "2006-01-02 15-04-05"}}][{{ .HostName | filenameFilter }}][{{ .RoomName | filenameFilter }}].flv`
+
+	// 构建响应
+	response := &EffectiveConfigResponse{
+		Config:                   cfg,
+		ActualOutPutPath:         actualOutPutPath,
+		ActualFfmpegPath:         actualFfmpegPath,
+		ActualLogFolder:          actualLogFolder,
+		ActualAppDataPath:        actualAppDataPath,
+		ActualReadOnlyToolFolder: actualReadOnlyToolFolder,
+		ActualToolRootFolder:     actualToolRootFolder,
+		DefaultOutPutTmpl:        defaultOutputTmpl,
+		TimeoutInSeconds:         cfg.TimeoutInUs / 1000000,
+		LiveRoomsCount:           len(cfg.LiveRooms),
+	}
+
+	writeJSON(writer, response)
+}
+
+// getPlatformStats 获取平台相关的直播间统计
+func getPlatformStats(writer http.ResponseWriter, r *http.Request) {
+	inst := instance.GetInstance(r.Context())
+	cfg := configs.GetCurrentConfig()
+	if cfg == nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "配置未初始化",
+		})
+		return
+	}
+
+	// 统计每个平台的直播间（只统计正在监控的）
+	platformRooms := make(map[string][]map[string]interface{})
+	platformListeningCount := make(map[string]int) // 每个平台正在监控的直播间数量
+
+	for _, room := range cfg.LiveRooms {
+		platformKey := configs.GetPlatformKeyFromUrl(room.Url)
+		if platformKey == "" {
+			platformKey = "unknown"
+		}
+
+		roomInfo := map[string]interface{}{
+			"url":          room.Url,
+			"is_listening": room.IsListening,
+			"quality":      room.Quality,
+			"audio_only":   room.AudioOnly,
+			"nick_name":    room.NickName,
+			"live_id":      string(room.LiveId),
+		}
+
+		// 从缓存获取直播间信息（不触发网络请求）
+		if liveInstance, ok := inst.Lives[room.LiveId]; ok {
+			if obj, err := inst.Cache.Get(liveInstance); err == nil {
+				if info, ok := obj.(*live.Info); ok && info != nil {
+					roomInfo["host_name"] = info.HostName
+					roomInfo["room_name"] = info.RoomName
+					roomInfo["status"] = info.Status
+				}
+			}
+		}
+
+		platformRooms[platformKey] = append(platformRooms[platformKey], roomInfo)
+		if room.IsListening {
+			platformListeningCount[platformKey]++
+		}
+	}
+
+	// 所有已知平台列表
+	allKnownPlatforms := []string{
+		"bilibili", "douyin", "douyu", "huya", "kuaishou", "yy", "acfun",
+		"lang", "missevan", "openrec", "weibolive", "xiaohongshu", "yizhibo",
+		"hongdoufm", "zhanqi", "cc", "twitch", "qq", "huajiao",
+	}
+
+	// 构建平台统计响应
+	stats := make([]map[string]interface{}, 0)
+
+	// 首先添加有直播间的平台（按是否有配置和直播间数量排序）
+	processedPlatforms := make(map[string]bool)
+
+	// 1. 先添加配置中定义且有直播间的平台
+	for platformKey, platformConfig := range cfg.PlatformConfigs {
+		rooms := platformRooms[platformKey]
+		if rooms == nil {
+			rooms = []map[string]interface{}{}
+		}
+		listeningCount := platformListeningCount[platformKey]
+
+		// 计算实际访问间隔
+		interval := cfg.Interval
+		if platformConfig.Interval != nil {
+			interval = *platformConfig.Interval
+		}
+		actualAccessInterval := 0.0
+		if listeningCount > 0 {
+			actualAccessInterval = float64(interval) / float64(listeningCount)
+		}
+
+		// 检查是否低于最小访问间隔
+		warningMessage := ""
+		if listeningCount > 0 && platformConfig.MinAccessIntervalSec > 0 && actualAccessInterval < float64(platformConfig.MinAccessIntervalSec) {
+			effectiveInterval := float64(platformConfig.MinAccessIntervalSec) * float64(listeningCount)
+			warningMessage = fmt.Sprintf("当前设置下实际每个直播间的检测间隔约为 %.1f 秒（受最小访问间隔限制）", effectiveInterval)
+		}
+
+		stats = append(stats, map[string]interface{}{
+			"platform_key":            platformKey,
+			"platform_name":           platformConfig.Name,
+			"room_count":              len(rooms),
+			"listening_count":         listeningCount,
+			"rooms":                   rooms,
+			"has_config":              true,
+			"has_rooms":               len(rooms) > 0,
+			"min_access_interval_sec": platformConfig.MinAccessIntervalSec,
+			"interval":                platformConfig.Interval,
+			"effective_interval":      interval,
+			"actual_access_interval":  actualAccessInterval,
+			"warning_message":         warningMessage,
+			"out_put_path":            platformConfig.OutPutPath,
+			"ffmpeg_path":             platformConfig.FfmpegPath,
+		})
+		processedPlatforms[platformKey] = true
+	}
+
+	// 2. 添加有直播间但没有配置的平台
+	for platformKey, rooms := range platformRooms {
+		if processedPlatforms[platformKey] {
+			continue
+		}
+		listeningCount := platformListeningCount[platformKey]
+
+		// 使用全局间隔计算实际访问间隔
+		actualAccessInterval := 0.0
+		if listeningCount > 0 {
+			actualAccessInterval = float64(cfg.Interval) / float64(listeningCount)
+		}
+
+		stats = append(stats, map[string]interface{}{
+			"platform_key":           platformKey,
+			"room_count":             len(rooms),
+			"listening_count":        listeningCount,
+			"rooms":                  rooms,
+			"has_config":             false,
+			"has_rooms":              true,
+			"effective_interval":     cfg.Interval,
+			"actual_access_interval": actualAccessInterval,
+		})
+		processedPlatforms[platformKey] = true
+	}
+
+	// 3. 添加没有直播间但有配置的平台
+	for platformKey, platformConfig := range cfg.PlatformConfigs {
+		if processedPlatforms[platformKey] {
+			continue
+		}
+		stats = append(stats, map[string]interface{}{
+			"platform_key":            platformKey,
+			"platform_name":           platformConfig.Name,
+			"room_count":              0,
+			"listening_count":         0,
+			"rooms":                   []map[string]interface{}{},
+			"has_config":              true,
+			"has_rooms":               false,
+			"min_access_interval_sec": platformConfig.MinAccessIntervalSec,
+			"interval":                platformConfig.Interval,
+			"out_put_path":            platformConfig.OutPutPath,
+			"ffmpeg_path":             platformConfig.FfmpegPath,
+		})
+		processedPlatforms[platformKey] = true
+	}
+
+	// 返回所有已知平台（用于添加新平台配置）
+	availablePlatforms := make([]string, 0)
+	for _, p := range allKnownPlatforms {
+		if !processedPlatforms[p] {
+			availablePlatforms = append(availablePlatforms, p)
+		}
+	}
+
+	response := map[string]interface{}{
+		"platforms":           stats,
+		"available_platforms": availablePlatforms,
+		"global_interval":     cfg.Interval,
+	}
+
+	writeJSON(writer, response)
+}
+
+// previewOutputTmpl 预览输出模板生成的路径
+func previewOutputTmpl(writer http.ResponseWriter, r *http.Request) {
+	cfg := configs.GetCurrentConfig()
+	if cfg == nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "配置未初始化",
+		})
+		return
+	}
+
+	b, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
+
+	var req struct {
+		Template   string `json:"template"`
+		OutPutPath string `json:"out_put_path"`
+	}
+	if err := json.Unmarshal(b, &req); err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "无效的JSON格式: " + err.Error(),
+		})
+		return
+	}
+
+	// 使用默认模板如果未提供
+	templateStr := req.Template
+	if templateStr == "" {
+		templateStr = `{{ .Live.GetPlatformCNName }}/{{ with .Live.GetOptions.NickName }}{{ . | filenameFilter }}{{ else }}{{ .HostName | filenameFilter }}{{ end }}/[{{ now | date "2006-01-02 15-04-05"}}][{{ .HostName | filenameFilter }}][{{ .RoomName | filenameFilter }}].flv`
+	}
+
+	outPutPath := req.OutPutPath
+	if outPutPath == "" {
+		outPutPath = cfg.OutPutPath
+	}
+
+	// 解析模板
+	tmpl, err := template.New("preview").Funcs(utils.GetFuncMap(cfg)).Parse(templateStr)
+	if err != nil {
+		writeJSON(writer, map[string]interface{}{
+			"success":    false,
+			"error":      "模板语法错误: " + err.Error(),
+			"error_type": "parse_error",
+		})
+		return
+	}
+
+	// 创建模拟数据
+	mockInfo := &live.Info{
+		HostName: "示例主播",
+		RoomName: "示例直播间标题",
+	}
+
+	// 创建一个模拟的 Live 对象用于预览
+	mockLive := &mockLiveForPreview{
+		platformCNName: "示例平台",
+		options: &live.Options{
+			NickName: "示例昵称",
+		},
+	}
+	mockInfo.Live = mockLive
+
+	// 执行模板
+	buf := new(bytes.Buffer)
+	if err := tmpl.Execute(buf, mockInfo); err != nil {
+		writeJSON(writer, map[string]interface{}{
+			"success":    false,
+			"error":      "模板执行错误: " + err.Error(),
+			"error_type": "execute_error",
+		})
+		return
+	}
+
+	// 计算最终路径
+	absOutPutPath, _ := filepath.Abs(outPutPath)
+	previewPath := filepath.Join(absOutPutPath, buf.String())
+
+	writeJSON(writer, map[string]interface{}{
+		"success":       true,
+		"preview_path":  previewPath,
+		"relative_path": buf.String(),
+		"base_path":     absOutPutPath,
+	})
+}
+
+// mockLiveForPreview 用于模板预览的模拟 Live 对象
+type mockLiveForPreview struct {
+	platformCNName string
+	options        *live.Options
+}
+
+func (m *mockLiveForPreview) GetPlatformCNName() string {
+	return m.platformCNName
+}
+
+func (m *mockLiveForPreview) GetOptions() *live.Options {
+	return m.options
+}
+
+// 实现 live.Live 接口的其他方法（返回空值）
+func (m *mockLiveForPreview) SetLiveIdByString(string)     {}
+func (m *mockLiveForPreview) GetLiveId() types.LiveID      { return "" }
+func (m *mockLiveForPreview) GetRawUrl() string            { return "" }
+func (m *mockLiveForPreview) GetInfo() (*live.Info, error) { return nil, nil }
+func (m *mockLiveForPreview) GetInfoWithInterval(ctx context.Context) (*live.Info, error) {
+	return nil, nil
+}
+func (m *mockLiveForPreview) GetStreamUrls() ([]*url.URL, error)             { return nil, nil }
+func (m *mockLiveForPreview) Close()                                         {}
+func (m *mockLiveForPreview) GetStreamInfos() ([]*live.StreamUrlInfo, error) { return nil, nil }
+func (m *mockLiveForPreview) GetLastStartTime() time.Time                    { return time.Time{} }
+func (m *mockLiveForPreview) SetLastStartTime(time.Time)                     {}
+func (m *mockLiveForPreview) UpdateLiveOptionsbyConfig(ctx context.Context, room *configs.LiveRoom) error {
+	return nil
+}
+func (m *mockLiveForPreview) GetLogger() *livelogger.LiveLogger { return nil }
+
+// updateConfig 更新配置（支持部分更新）
+func updateConfig(writer http.ResponseWriter, r *http.Request) {
+	b, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
+
+	var updates map[string]interface{}
+	if err := json.Unmarshal(b, &updates); err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "无效的JSON格式: " + err.Error(),
+		})
+		return
+	}
+
+	_, err = configs.UpdateWithRetry(func(c *configs.Config) error {
+		// 应用更新到配置
+		return applyConfigUpdates(c, updates)
+	}, 3, 10*time.Millisecond)
+
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "更新配置失败: " + err.Error(),
+		})
+		return
+	}
+
+	writeJSON(writer, commonResp{
+		Data: "OK",
+	})
+}
+
+// applyConfigUpdates 将更新应用到配置
+func applyConfigUpdates(c *configs.Config, updates map[string]interface{}) error {
+	// 处理 RPC 配置
+	if rpc, ok := updates["rpc"].(map[string]interface{}); ok {
+		if enable, ok := rpc["enable"].(bool); ok {
+			c.RPC.Enable = enable
+		}
+		if bind, ok := rpc["bind"].(string); ok {
+			c.RPC.Bind = bind
+		}
+	}
+
+	// 处理基本配置
+	if debug, ok := updates["debug"].(bool); ok {
+		c.Debug = debug
+	}
+	if interval, ok := updates["interval"].(float64); ok {
+		c.Interval = int(interval)
+	}
+	if outPutPath, ok := updates["out_put_path"].(string); ok {
+		c.OutPutPath = outPutPath
+	}
+	if ffmpegPath, ok := updates["ffmpeg_path"].(string); ok {
+		c.FfmpegPath = ffmpegPath
+	}
+	if outputTmpl, ok := updates["out_put_tmpl"].(string); ok {
+		c.OutputTmpl = outputTmpl
+	}
+	if timeoutSec, ok := updates["timeout_in_seconds"].(float64); ok {
+		c.TimeoutInUs = int(timeoutSec * 1000000)
+	}
+	if appDataPath, ok := updates["app_data_path"].(string); ok {
+		c.AppDataPath = appDataPath
+	}
+	if readOnlyToolFolder, ok := updates["read_only_tool_folder"].(string); ok {
+		c.ReadOnlyToolFolder = readOnlyToolFolder
+	}
+	if toolRootFolder, ok := updates["tool_root_folder"].(string); ok {
+		c.ToolRootFolder = toolRootFolder
+	}
+
+	// 处理日志配置
+	if log, ok := updates["log"].(map[string]interface{}); ok {
+		if outPutFolder, ok := log["out_put_folder"].(string); ok {
+			c.Log.OutPutFolder = outPutFolder
+		}
+		if saveLastLog, ok := log["save_last_log"].(bool); ok {
+			c.Log.SaveLastLog = saveLastLog
+		}
+		if saveEveryLog, ok := log["save_every_log"].(bool); ok {
+			c.Log.SaveEveryLog = saveEveryLog
+		}
+		if rotateDays, ok := log["rotate_days"].(float64); ok {
+			c.Log.RotateDays = int(rotateDays)
+		}
+	}
+
+	// 处理功能特性配置
+	if feature, ok := updates["feature"].(map[string]interface{}); ok {
+		if useNativeFlvParser, ok := feature["use_native_flv_parser"].(bool); ok {
+			c.Feature.UseNativeFlvParser = useNativeFlvParser
+		}
+		if removeSymbolOther, ok := feature["remove_symbol_other_character"].(bool); ok {
+			c.Feature.RemoveSymbolOtherCharacter = removeSymbolOther
+		}
+	}
+
+	// 处理视频分割策略
+	if vss, ok := updates["video_split_strategies"].(map[string]interface{}); ok {
+		if onRoomNameChanged, ok := vss["on_room_name_changed"].(bool); ok {
+			c.VideoSplitStrategies.OnRoomNameChanged = onRoomNameChanged
+		}
+		if maxDuration, ok := vss["max_duration"].(float64); ok {
+			c.VideoSplitStrategies.MaxDuration = time.Duration(maxDuration)
+		}
+		if maxFileSize, ok := vss["max_file_size"].(float64); ok {
+			c.VideoSplitStrategies.MaxFileSize = int(maxFileSize)
+		}
+	}
+
+	// 处理录制完成后动作
+	if orf, ok := updates["on_record_finished"].(map[string]interface{}); ok {
+		if convertToMp4, ok := orf["convert_to_mp4"].(bool); ok {
+			c.OnRecordFinished.ConvertToMp4 = convertToMp4
+		}
+		if deleteFlv, ok := orf["delete_flv_after_convert"].(bool); ok {
+			c.OnRecordFinished.DeleteFlvAfterConvert = deleteFlv
+		}
+		if customCmd, ok := orf["custom_commandline"].(string); ok {
+			c.OnRecordFinished.CustomCommandline = customCmd
+		}
+		if fixFlv, ok := orf["fix_flv_at_first"].(bool); ok {
+			c.OnRecordFinished.FixFlvAtFirst = fixFlv
+		}
+	}
+
+	// 处理通知配置
+	if notify, ok := updates["notify"].(map[string]interface{}); ok {
+		if telegram, ok := notify["telegram"].(map[string]interface{}); ok {
+			if enable, ok := telegram["enable"].(bool); ok {
+				c.Notify.Telegram.Enable = enable
+			}
+			if withNotification, ok := telegram["withNotification"].(bool); ok {
+				c.Notify.Telegram.WithNotification = withNotification
+			}
+			if botToken, ok := telegram["botToken"].(string); ok {
+				c.Notify.Telegram.BotToken = botToken
+			}
+			if chatID, ok := telegram["chatID"].(string); ok {
+				c.Notify.Telegram.ChatID = chatID
+			}
+		}
+		if email, ok := notify["email"].(map[string]interface{}); ok {
+			if enable, ok := email["enable"].(bool); ok {
+				c.Notify.Email.Enable = enable
+			}
+			if smtpHost, ok := email["smtpHost"].(string); ok {
+				c.Notify.Email.SMTPHost = smtpHost
+			}
+			if smtpPort, ok := email["smtpPort"].(float64); ok {
+				c.Notify.Email.SMTPPort = int(smtpPort)
+			}
+			if senderEmail, ok := email["senderEmail"].(string); ok {
+				c.Notify.Email.SenderEmail = senderEmail
+			}
+			if senderPassword, ok := email["senderPassword"].(string); ok {
+				c.Notify.Email.SenderPassword = senderPassword
+			}
+			if recipientEmail, ok := email["recipientEmail"].(string); ok {
+				c.Notify.Email.RecipientEmail = recipientEmail
+			}
+		}
+	}
+
+	return nil
+}
+
+// updatePlatformConfig 更新平台配置
+func updatePlatformConfig(writer http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	platformKey := vars["platform"]
+
+	b, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
+
+	var updates map[string]interface{}
+	if err := json.Unmarshal(b, &updates); err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "无效的JSON格式: " + err.Error(),
+		})
+		return
+	}
+
+	_, err = configs.UpdateWithRetry(func(c *configs.Config) error {
+		if c.PlatformConfigs == nil {
+			c.PlatformConfigs = make(map[string]configs.PlatformConfig)
+		}
+
+		pc := c.PlatformConfigs[platformKey]
+
+		// 更新平台配置
+		if name, ok := updates["name"].(string); ok {
+			pc.Name = name
+		}
+		if minInterval, ok := updates["min_access_interval_sec"].(float64); ok {
+			pc.MinAccessIntervalSec = int(minInterval)
+		}
+		// 使用助手函数更新可覆盖配置
+		applyOverridableConfigUpdates(&pc.OverridableConfig, updates)
+
+		c.PlatformConfigs[platformKey] = pc
+		return nil
+	}, 3, 10*time.Millisecond)
+
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "更新平台配置失败: " + err.Error(),
+		})
+		return
+	}
+
+	writeJSON(writer, commonResp{
+		Data: "OK",
+	})
+}
+
+// deletePlatformConfig 删除平台配置
+func deletePlatformConfig(writer http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	platformKey := vars["platform"]
+
+	_, err := configs.UpdateWithRetry(func(c *configs.Config) error {
+		if c.PlatformConfigs != nil {
+			delete(c.PlatformConfigs, platformKey)
+		}
+		return nil
+	}, 3, 10*time.Millisecond)
+
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "删除平台配置失败: " + err.Error(),
+		})
+		return
+	}
+
+	writeJSON(writer, commonResp{
+		Data: "OK",
+	})
+}
+
+// updateRoomConfigById 通过 ID 更新直播间配置
+func updateRoomConfigById(writer http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	liveId := vars["id"]
+
+	b, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
+
+	var updates map[string]interface{}
+	if err := json.Unmarshal(b, &updates); err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "无效的JSON格式: " + err.Error(),
+		})
+		return
+	}
+
+	_, err = configs.UpdateWithRetry(func(c *configs.Config) error {
+		// 查找直播间
+		roomIdx := -1
+		for i, room := range c.LiveRooms {
+			if string(room.LiveId) == liveId {
+				roomIdx = i
+				break
+			}
+		}
+
+		if roomIdx == -1 {
+			return fmt.Errorf("未找到直播间: %s", liveId)
+		}
+
+		room := &c.LiveRooms[roomIdx]
+
+		// 更新直播间特有字段
+		if url, ok := updates["url"].(string); ok {
+			room.Url = url
+		}
+		if isListening, ok := updates["is_listening"].(bool); ok {
+			room.IsListening = isListening
+		}
+		if quality, ok := updates["quality"].(float64); ok {
+			room.Quality = int(quality)
+		}
+		if audioOnly, ok := updates["audio_only"].(bool); ok {
+			room.AudioOnly = audioOnly
+		}
+		if nickName, ok := updates["nick_name"].(string); ok {
+			room.NickName = nickName
+		}
+
+		// 更新可覆盖配置
+		applyOverridableConfigUpdates(&room.OverridableConfig, updates)
+
+		return nil
+	}, 3, 10*time.Millisecond)
+
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "更新直播间配置失败: " + err.Error(),
+		})
+		return
+	}
+
+	writeJSON(writer, commonResp{
+		Data: "OK",
+	})
+}
+
+// applyOverridableConfigUpdates 统一处理可覆盖配置的更新
+func applyOverridableConfigUpdates(oc *configs.OverridableConfig, updates map[string]interface{}) {
+	if interval, ok := updates["interval"].(float64); ok {
+		val := int(interval)
+		oc.Interval = &val
+	}
+	if outPutPath, ok := updates["out_put_path"].(string); ok {
+		if outPutPath == "" {
+			oc.OutPutPath = nil
+		} else {
+			oc.OutPutPath = &outPutPath
+		}
+	}
+	if ffmpegPath, ok := updates["ffmpeg_path"].(string); ok {
+		if ffmpegPath == "" {
+			oc.FfmpegPath = nil
+		} else {
+			oc.FfmpegPath = &ffmpegPath
+		}
+	}
+	if outPutTmpl, ok := updates["out_put_tmpl"].(string); ok {
+		if outPutTmpl == "" {
+			oc.OutputTmpl = nil
+		} else {
+			oc.OutputTmpl = &outPutTmpl
+		}
+	}
+	if timeoutSec, ok := updates["timeout_in_seconds"].(float64); ok {
+		val := int(timeoutSec * 1000000)
+		oc.TimeoutInUs = &val
+	}
+}
+
+// updateRoomConfig 更新直播间配置
+func updateRoomConfig(writer http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	roomUrl := vars["url"]
+
+	// URL 解码
+	decodedUrl, err := url.QueryUnescape(roomUrl)
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "无效的URL: " + err.Error(),
+		})
+		return
+	}
+
+	b, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
+
+	var updates map[string]interface{}
+	if err := json.Unmarshal(b, &updates); err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "无效的JSON格式: " + err.Error(),
+		})
+		return
+	}
+
+	_, err = configs.UpdateWithRetry(func(c *configs.Config) error {
+		room, err := c.GetLiveRoomByUrl(decodedUrl)
+		if err != nil {
+			return errors.New("找不到直播间: " + decodedUrl)
+		}
+
+		// 更新直播间配置
+		if quality, ok := updates["quality"].(float64); ok {
+			room.Quality = int(quality)
+		}
+		if audioOnly, ok := updates["audio_only"].(bool); ok {
+			room.AudioOnly = audioOnly
+		}
+		if nickName, ok := updates["nick_name"].(string); ok {
+			room.NickName = nickName
+		}
+		if interval, ok := updates["interval"].(float64); ok {
+			val := int(interval)
+			room.Interval = &val
+		}
+		if outPutPath, ok := updates["out_put_path"].(string); ok {
+			if outPutPath == "" {
+				room.OutPutPath = nil
+			} else {
+				room.OutPutPath = &outPutPath
+			}
+		}
+		if ffmpegPath, ok := updates["ffmpeg_path"].(string); ok {
+			if ffmpegPath == "" {
+				room.FfmpegPath = nil
+			} else {
+				room.FfmpegPath = &ffmpegPath
+			}
+		}
+
+		return nil
+	}, 3, 10*time.Millisecond)
+
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "更新直播间配置失败: " + err.Error(),
+		})
+		return
+	}
+
+	writeJSON(writer, commonResp{
+		Data: "OK",
+	})
 }
 
 func getFileInfo(writer http.ResponseWriter, r *http.Request) {

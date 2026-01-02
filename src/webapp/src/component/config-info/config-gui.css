@@ -1,0 +1,351 @@
+/* GUI模式设置页面样式 */
+
+/* 设置页面容器 */
+.config-gui-container {
+  padding: 0;
+  background: #f5f5f5;
+  min-height: 100%;
+}
+
+/* 设置页面头部 */
+.config-gui-header {
+  padding: 16px 24px;
+  background-color: #fff;
+  border-bottom: 1px solid #e8e8e8;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.config-gui-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.85);
+  margin-right: 12px;
+}
+
+.config-gui-subtitle {
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+/* 模式切换标签 */
+.config-mode-tabs {
+  margin-bottom: 0;
+}
+
+/* 设置内容区域 */
+.config-content {
+  padding: 16px;
+  background: #fff;
+  margin: 16px;
+  border-radius: 4px;
+}
+
+/* 设置分组 */
+.config-section {
+  margin-bottom: 24px;
+}
+
+.config-section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.85);
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e8e8e8;
+}
+
+/* 设置项样式 */
+.config-item {
+  display: flex;
+  align-items: flex-start;
+  padding: 12px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.config-item:last-child {
+  border-bottom: none;
+}
+
+.config-item-label {
+  width: 200px;
+  flex-shrink: 0;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.85);
+  padding-top: 4px;
+}
+
+.config-item-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.config-item-input {
+  max-width: 400px;
+}
+
+.config-item-description {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+/* 实际生效值显示 */
+.config-effective-value {
+  font-size: 12px;
+  color: #1890ff;
+  background: #e6f7ff;
+  padding: 2px 8px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 继承标识 */
+.inheritance-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 0 6px;
+  border-radius: 4px;
+  line-height: 20px;
+  height: 20px;
+}
+
+/* 修复 Badge 切割问题及样式调整 */
+.ant-badge {
+  vertical-align: middle;
+}
+
+.ant-tag .ant-badge {
+  margin-top: 0;
+}
+
+/* 移除未读红点样式，改用更柔和的数字显示 */
+.ant-badge-count {
+  background: #f0f0f0 !important;
+  color: rgba(0, 0, 0, 0.45) !important;
+  box-shadow: 0 0 0 1px #d9d9d9 inset !important;
+  min-width: 16px;
+  height: 16px;
+  line-height: 16px;
+  padding: 0 4px;
+}
+
+/* 修复 Badge 被 ant-card-head-title 的 overflow: hidden 截断的问题 */
+.ant-card .ant-card-head-title {
+  overflow: visible !important;
+}
+
+.inheritance-indicator.global {
+  background: #f6ffed;
+  color: #52c41a;
+  border: 1px solid #b7eb8f;
+}
+
+.inheritance-indicator.platform {
+  background: #fff7e6;
+  color: #fa8c16;
+  border: 1px solid #ffd591;
+}
+
+.inheritance-indicator.room {
+  background: #e6f7ff;
+  color: #1890ff;
+  border: 1px solid #91d5ff;
+}
+
+.inheritance-indicator.default {
+  background: #f0f0f0;
+  color: rgba(0, 0, 0, 0.65);
+  border: 1px solid #d9d9d9;
+}
+
+.inheritance-indicator-link {
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.inheritance-indicator-link:hover {
+  color: #096dd9;
+}
+
+/* 平台设置卡片 */
+.platform-card {
+  margin-bottom: 16px;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.platform-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: #fafafa;
+  border-bottom: 1px solid #e8e8e8;
+  cursor: pointer;
+}
+
+.platform-card-header:hover {
+  background: #f0f0f0;
+}
+
+.platform-card-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.platform-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.platform-room-count {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.platform-card-body {
+  padding: 16px;
+}
+
+/* 直播间列表 */
+.room-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background: #fafafa;
+  margin-bottom: 8px;
+}
+
+.room-list-item:last-child {
+  margin-bottom: 0;
+}
+
+.room-list-item:hover {
+  background: #f0f0f0;
+}
+
+.room-list-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.room-list-item-name {
+  font-weight: 500;
+}
+
+.room-list-item-url {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.room-list-item-link {
+  cursor: pointer;
+  color: #1890ff;
+}
+
+.room-list-item-link:hover {
+  color: #40a9ff;
+}
+
+/* 通知服务设置 */
+.notify-section {
+  background: #fafafa;
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.notify-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+/* 响应式调整 */
+@media screen and (max-width: 768px) {
+  .config-item {
+    flex-direction: column;
+  }
+
+  .config-item-label {
+    width: 100%;
+    margin-bottom: 8px;
+  }
+
+  .config-item-input {
+    max-width: 100%;
+  }
+}
+
+/* 代码编辑器样式兼容 */
+.config-gui-container pre+textarea::selection {
+  -webkit-text-fill-color: white;
+}
+
+/* 左侧导航样式 */
+.config-nav-menu {
+  background: #fff;
+  border-right: 1px solid #e8e8e8;
+  height: 100%;
+}
+
+/* 配置详情页面 */
+.config-detail-container {
+  padding: 16px;
+}
+
+.config-detail-breadcrumb {
+  margin-bottom: 16px;
+}
+
+/* 空状态 */
+.config-empty-state {
+  text-align: center;
+  padding: 48px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+/* 加载状态 */
+.config-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+}
+
+/* 操作按钮组 */
+.config-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* 锚点聚焦高亮效果 */
+@keyframes highlight-fade {
+  0% {
+    background-color: rgba(24, 144, 255, 0.2);
+  }
+
+  100% {
+    background-color: transparent;
+  }
+}
+
+.config-item-highlight {
+  animation: highlight-fade 2s ease-out;
+  border-radius: 4px;
+}

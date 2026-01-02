@@ -5,7 +5,7 @@ import {
   PlayCircleOutlined,
   PauseCircleOutlined,
   DeleteOutlined,
-  DownloadOutlined,
+  SaveOutlined,
   CloseCircleOutlined,
   UpOutlined,
   DownOutlined
@@ -328,7 +328,7 @@ const LogPanel: React.FC<LogPanelProps> = ({ logs, onLogsChange, roomName }) => 
         </Tooltip>
         <Tooltip title="保存日志">
           <div className="log-toolbar-btn" onClick={saveLogs}>
-            <DownloadOutlined />
+            <SaveOutlined />
           </div>
         </Tooltip>
 

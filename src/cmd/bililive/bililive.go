@@ -6,8 +6,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
-	"time"
 
 	"github.com/bluele/gcache"
 	kiratools "github.com/kira1928/remotetools/pkg/tools"
@@ -23,6 +23,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/metrics"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
 	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
+	"github.com/bililive-go/bililive-go/src/pkg/ratelimit"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
 	"github.com/bililive-go/bililive-go/src/recorders"
 	"github.com/bililive-go/bililive-go/src/servers"
@@ -86,7 +87,11 @@ func main() {
 	// TODO: Replace gcache with hashmap.
 	// LRU seems not necessary here.
 	inst.Cache = gcache.New(4096).LRU().Build()
-	ctx := context.WithValue(context.Background(), instance.Key, inst)
+
+	// 创建可取消的根 context，所有 goroutine 都应该使用派生自此 context 的子 context
+	// 这样可以通过取消根 context 来优雅地关闭所有 goroutine
+	rootCtx, rootCancel := context.WithCancel(context.Background())
+	ctx := context.WithValue(rootCtx, instance.Key, inst)
 
 	logger := log.New(ctx)
 	logger.Infof("%s Version: %s Link Start", consts.AppName, consts.AppVersion)
@@ -127,26 +132,26 @@ func main() {
 
 	events.NewDispatcher(ctx)
 
-	inst.Lives = make(map[types.LiveID]live.Live)
-	cfg := configs.GetCurrentConfig()
-	for index := range cfg.LiveRooms {
-		room := cfg.LiveRooms[index]
-
-		l, liveErr := live.New(ctx, &room, inst.Cache)
-		if liveErr != nil {
-			logger.WithField("url", room).Error(liveErr.Error())
-			continue
-		}
-		if _, ok := inst.Lives[l.GetLiveId()]; ok {
-			logger.Errorf("%v is exist!", room)
-			continue
-		}
-		inst.Lives[l.GetLiveId()] = l
-		configs.SetLiveRoomId(room.Url, l.GetLiveId())
-	}
-
+	// 先初始化 manager（不启动），因为 server 依赖它们
 	lm := listeners.NewManager(ctx)
 	rm := recorders.NewManager(ctx)
+
+	// 尽早启动 HTTP 服务器，让用户可以快速访问 Web 界面
+	// 即使 live rooms 还在初始化，用户也能看到页面
+	if cfg := configs.GetCurrentConfig(); cfg != nil && cfg.RPC.Enable {
+		if err = servers.NewServer(ctx).Start(ctx); err != nil {
+			logger.WithError(err).Fatalf("failed to init server")
+		}
+		// 注册 SSE 事件监听器
+		servers.RegisterSSEEventListeners(inst)
+		// 设置日志回调，将日志推送到 SSE
+		livelogger.SetLogCallback(func(roomID string, logLine string) {
+			servers.GetSSEHub().BroadcastLog(types.LiveID(roomID), logLine)
+		})
+		logger.Info("HTTP server started, initializing live rooms...")
+	}
+
+	// 启动 manager
 	if err = lm.Start(ctx); err != nil {
 		logger.Fatalf("failed to init listener manager, error: %s", err)
 	}
@@ -158,43 +163,145 @@ func main() {
 		logger.Fatalf("failed to init metrics collector, error: %s", err)
 	}
 
-	// 启动 server 要在上面的 manager 初始化之后，否则可能会出现空指针异常
-	if cfg := configs.GetCurrentConfig(); cfg != nil && cfg.RPC.Enable {
-		if err = servers.NewServer(ctx).Start(ctx); err != nil {
-			logger.WithError(err).Fatalf("failed to init server")
+	// 初始化 live rooms
+	// 第一步：立即为所有配置的直播间创建 InitializingLive，让前端可以看到
+	inst.Lives = make(map[types.LiveID]live.Live)
+	cfg := configs.GetCurrentConfig()
+
+	// 确保所有平台都有最小访问限制（用于控制并行初始化时的请求速度）
+	for _, room := range cfg.LiveRooms {
+		platformKey := configs.GetPlatformKeyFromUrl(room.Url)
+		if platformKey != "" {
+			minInterval := cfg.GetPlatformMinAccessInterval(platformKey)
+			ratelimit.GetGlobalRateLimiter().SetPlatformLimit(platformKey, minInterval)
 		}
-		// 注册 SSE 事件监听器
-		servers.RegisterSSEEventListeners(inst)
-		// 设置日志回调，将日志推送到 SSE
-		livelogger.SetLogCallback(func(roomID string, logLine string) {
-			servers.GetSSEHub().BroadcastLog(types.LiveID(roomID), logLine)
-		})
 	}
 
-	for _, _live := range inst.Lives {
-		cfg = configs.GetCurrentConfig()
-		room, err := cfg.GetLiveRoomByUrl(_live.GetRawUrl())
-		if err != nil {
-			logger.WithFields(map[string]any{"room": _live.GetRawUrl()}).Error(err)
-			panic(err)
-		}
-		if room.IsListening {
-			if err := lm.AddListener(ctx, _live); err != nil {
-				logger.WithFields(map[string]any{"url": _live.GetRawUrl()}).Error(err)
-			}
-		}
-		time.Sleep(time.Second * 1)
+	// 分两批处理：监听中的直播间和非监听的直播间
+	var listeningRooms []live.Live
+	var nonListeningRooms []live.Live
+
+	// 创建初始化完成的回调函数
+	// 当 InitializingLive.GetInfo() 成功获取真实信息时，会自动调用此回调
+	ed := inst.EventDispatcher.(events.Dispatcher)
+	onInitFinished := func(initializingLive live.Live, originalLive live.Live, info *live.Info) {
+		// 触发 RoomInitializingFinished 事件，让 manager 处理后续逻辑
+		ed.DispatchEvent(events.NewEvent(listeners.RoomInitializingFinished, live.InitializingFinishedParam{
+			InitializingLive: initializingLive,
+			Live:             originalLive,
+			Info:             info,
+		}))
 	}
+
+	for index := range cfg.LiveRooms {
+		room := cfg.LiveRooms[index]
+
+		// 先创建 InitializingLive，状态为初始化中，让前端立即可见
+		// 传入回调函数，当 GetInfo() 成功时会自动触发事件
+		l, liveErr := live.NewInitializing(ctx, &room, inst.Cache, onInitFinished)
+		if liveErr != nil {
+			logger.WithField("url", room).Error(liveErr.Error())
+			continue
+		}
+		if _, ok := inst.Lives[l.GetLiveId()]; ok {
+			logger.Errorf("%v is exist!", room)
+			continue
+		}
+		inst.Lives[l.GetLiveId()] = l
+		configs.SetLiveRoomId(room.Url, l.GetLiveId())
+
+		// 分类直播间
+		if room.IsListening {
+			listeningRooms = append(listeningRooms, l)
+		} else {
+			nonListeningRooms = append(nonListeningRooms, l)
+		}
+	}
+
+	// 优先为监听中的直播间添加 Listener（它们会自动调用 GetInfo）
+	for _, l := range listeningRooms {
+		if err := lm.AddListener(ctx, l); err != nil {
+			logger.WithFields(map[string]any{"url": l.GetRawUrl()}).Error(err)
+		}
+	}
+
+	// 在后台为非监听的直播间循环请求信息（结束初始化状态）
+	// 每个直播间启动一个 goroutine，这样不同平台的直播间可以并行
+	// 同一平台的直播间会被平台速率限制自然串行化
+	// 同一直播间的多次请求会被 WrappedLive 的调度器合并
+	var initWg sync.WaitGroup
+	for _, l := range nonListeningRooms {
+		initWg.Add(1)
+		go func(l live.Live) {
+			defer initWg.Done()
+
+			for {
+				// 检查是否已完成初始化
+				if wrappedLive, ok := l.(*live.WrappedLive); ok {
+					if setter, ok := wrappedLive.Live.(live.InitializingLiveSetter); ok {
+						if setter.IsFinished() {
+							// 已完成初始化，退出循环
+							return
+						}
+					}
+				}
+
+				// 使用 GetInfoWithInterval 等待间隔后发送请求
+				// 由于每个直播间有自己的调度器，不同平台的直播间会并行
+				// 同一平台的直播间会被平台速率限制自然串行化
+				// 使用 ctx（派生自 rootCtx），当 rootCancel() 被调用时会自动取消
+				_, err := l.GetInfoWithInterval(ctx)
+				if err != nil {
+					// 如果是 context 取消导致的错误，说明程序正在退出
+					if ctx.Err() != nil {
+						return
+					}
+					logger.WithFields(map[string]any{"url": l.GetRawUrl()}).Warn("failed to initialize non-listening room: " + err.Error())
+					// 继续重试
+					continue
+				}
+
+				// GetInfo 成功后，InitializingLive 会自动触发回调完成初始化
+				// 检查是否真的完成了初始化
+				if wrappedLive, ok := l.(*live.WrappedLive); ok {
+					if setter, ok := wrappedLive.Live.(live.InitializingLiveSetter); ok {
+						if setter.IsFinished() {
+							// 初始化完成，退出循环
+							return
+						}
+					}
+				}
+				// 如果还没完成，继续循环重试
+			}
+		}(l)
+	}
+
+	// 在另一个 goroutine 中等待所有初始化完成
+	go func() {
+		initWg.Wait()
+		logger.Info("all non-listening rooms initialized")
+	}()
+
+	logger.Infof("Created %d live rooms (%d listening, %d not listening)",
+		len(inst.Lives), len(listeningRooms), len(nonListeningRooms))
 
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+	// 使用 os.Interrupt 更跨平台，在 Windows 上 SIGHUP 可能不被支持
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
+		logger.Info("Received shutdown signal, closing...")
+		// 取消根 context，这会导致所有派生的 context 被取消
+		// 包括：WrappedLive 的调度器、非监听直播间的初始化循环等
+		rootCancel()
+		// 关闭 HTTP 服务器
 		if cfg := configs.GetCurrentConfig(); cfg != nil && cfg.RPC.Enable {
 			inst.Server.Close(ctx)
 		}
+		// 关闭管理器
 		inst.ListenerManager.Close(ctx)
 		inst.RecorderManager.Close(ctx)
+		logger.Info("Shutdown complete")
 	}()
 
 	inst.WaitGroup.Wait()

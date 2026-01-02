@@ -168,4 +168,5 @@ node_modules
 !src/cmd/build/
 .appdata/
 coverage.txt
-bililive
+.agent/artifacts/
+.agent/workflows/
