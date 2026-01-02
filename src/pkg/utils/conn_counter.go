@@ -58,6 +58,19 @@ func (m *ConnCounterManagerType) GetConnCounter(url string) *ByteCounter {
 	return bc
 }
 
+// GetOrCreateConnCounter atomically gets or creates a ByteCounter for the given URL
+// This ensures thread-safety by performing the check-then-act operation atomically
+func (m *ConnCounterManagerType) GetOrCreateConnCounter(url string) *ByteCounter {
+	m.mapLock.Lock()
+	defer m.mapLock.Unlock()
+	bc, ok := m.bcMap[url]
+	if !ok {
+		bc = &ByteCounter{}
+		m.bcMap[url] = bc
+	}
+	return bc
+}
+
 func (m *ConnCounterManagerType) PrintMap() {
 	m.mapLock.Lock()
 	defer m.mapLock.Unlock()
@@ -170,11 +183,7 @@ func createTLSDialer(dialer *net.Dialer, withByteCounter bool, keyPrefix string)
 		// Wrap with byte counter if needed
 		if withByteCounter {
 			key := keyPrefix + addr
-			byteCounter := ConnCounterManager.GetConnCounter(key)
-			if byteCounter == nil {
-				byteCounter = &ByteCounter{}
-				ConnCounterManager.SetConn(key, byteCounter)
-			}
+			byteCounter := ConnCounterManager.GetOrCreateConnCounter(key)
 			return &connCounter{Conn: tlsConn, ByteCounter: byteCounter}, nil
 		}
 		
@@ -214,11 +223,7 @@ func CreateConnCounterClient() (*http.Client, error) {
 
 		// Use "plain:" prefix to distinguish from TLS connections
 		key := "plain:" + addr
-		byteCounter := ConnCounterManager.GetConnCounter(key)
-		if byteCounter == nil {
-			byteCounter = &ByteCounter{}
-			ConnCounterManager.SetConn(key, byteCounter)
-		}
+		byteCounter := ConnCounterManager.GetOrCreateConnCounter(key)
 		bc := &connCounter{Conn: conn, ByteCounter: byteCounter}
 		return bc, nil
 	}
