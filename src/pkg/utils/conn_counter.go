@@ -75,6 +75,9 @@ func (m *ConnCounterManagerType) PrintMap() {
 // For edgesrv.com domains, it enables weak TLS 1.2 cipher suites for compatibility
 func createTLSConfig(host string) *tls.Config {
 	if strings.HasSuffix(host, ".edgesrv.com") || host == "edgesrv.com" {
+		// Log warning about using weak cipher suites
+		blog.GetLogger().Warnf("Enabling weak TLS 1.2 cipher suites for edgesrv.com domain: %s. This may reduce connection security.", host)
+		
 		// Enable weak TLS 1.2 cipher suites for edgesrv.com
 		return &tls.Config{
 			ServerName: host,
@@ -110,12 +113,16 @@ func isTLSError(err error) bool {
 	if errors.As(err, &recordHeaderError) {
 		return true
 	}
+	var certVerifyErr *tls.CertificateVerificationError
+	if errors.As(err, &certVerifyErr) {
+		return true
+	}
 	// Check error message with more specific patterns to reduce false positives
 	errMsg := strings.ToLower(err.Error())
 	return strings.Contains(errMsg, "tls: handshake") || 
 		strings.Contains(errMsg, "tls handshake") || 
 		strings.Contains(errMsg, "tls: bad certificate") ||
-		strings.Contains(errMsg, "x509:") ||
+		strings.Contains(errMsg, "x509: certificate") ||
 		strings.Contains(errMsg, "remote error: tls")
 }
 
@@ -138,9 +145,16 @@ func createTLSDialer(dialer *net.Dialer, withByteCounter bool, keyPrefix string)
 		// Create TLS config
 		tlsConfig := createTLSConfig(host)
 		
-		// Dial the connection with context support
-		conn, err := tls.DialWithDialer(dialer, network, addr, tlsConfig)
+		// First establish TCP connection with context support
+		rawConn, err := dialer.DialContext(ctx, network, addr)
 		if err != nil {
+			return nil, err
+		}
+		
+		// Perform TLS handshake
+		tlsConn := tls.Client(rawConn, tlsConfig)
+		if err := tlsConn.HandshakeContext(ctx); err != nil {
+			rawConn.Close()
 			// Log TLS errors with domain information
 			if isTLSError(err) {
 				blog.GetLogger().Errorf("TLS connection failed for domain %s: %v", host, err)
@@ -156,10 +170,10 @@ func createTLSDialer(dialer *net.Dialer, withByteCounter bool, keyPrefix string)
 				byteCounter = &ByteCounter{}
 				ConnCounterManager.SetConn(key, byteCounter)
 			}
-			return &connCounter{Conn: conn, ByteCounter: byteCounter}, nil
+			return &connCounter{Conn: tlsConn, ByteCounter: byteCounter}, nil
 		}
 		
-		return conn, nil
+		return tlsConn, nil
 	}
 }
 
@@ -169,8 +183,14 @@ func CreateDefaultClient() *http.Client {
 	}
 	
 	transport := &http.Transport{
-		DialContext:    dialer.DialContext,
-		DialTLSContext: createTLSDialer(dialer, false, ""),
+		DialContext:           dialer.DialContext,
+		DialTLSContext:        createTLSDialer(dialer, false, ""),
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
 	}
 	return &http.Client{Transport: transport}
 }
@@ -199,9 +219,15 @@ func CreateConnCounterClient() (*http.Client, error) {
 	}
 	
 	transport := &http.Transport{
-		DialContext:    dialPlain,
+		DialContext:           dialPlain,
 		// Use "tls:" prefix to distinguish from plain connections
-		DialTLSContext: createTLSDialer(dialer, true, "tls:"),
+		DialTLSContext:        createTLSDialer(dialer, true, "tls:"),
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
 	}
 	return &http.Client{Transport: transport}, nil
 }
