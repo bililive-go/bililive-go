@@ -663,7 +663,7 @@ const PlatformSettings: React.FC<{
   onRefresh: () => void;
 }> = ({ platformStats, globalConfig, onUpdate, onDelete, loading, onRefresh }) => {
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
-  const [, setAddPlatformVisible] = useState(false);
+  const [addPlatformVisible, setAddPlatformVisible] = useState(false);
 
   const location = useLocation();
 
@@ -691,7 +691,6 @@ const PlatformSettings: React.FC<{
   }, [location]);
 
   const [selectedNewPlatform, setSelectedNewPlatform] = useState<string>('');
-  useNavigate(); // 用于Router上下文
 
   if (!platformStats) {
     return <Spin />;
@@ -1339,7 +1338,6 @@ const ConfigInfo: React.FC = () => {
   const [platformStats, setPlatformStats] = useState<PlatformStatsResponse | null>(null);
   const [rawConfig, setRawConfig] = useState('');
   const [activeTab, setActiveTab] = useState('global');
-  useNavigate(); // 用于Router上下文
 
   // 加载配置
   const loadConfig = useCallback(async () => {

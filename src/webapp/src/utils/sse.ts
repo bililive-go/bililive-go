@@ -172,7 +172,7 @@ class SSEManager {
     eventType: SSEEventType | '*',
     callback: SSECallback
   ): string {
-    const subscriptionId = `${roomId}_${eventType}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const subscriptionId = `${roomId}_${eventType}_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 
     this.subscriptions.set(subscriptionId, {
       roomId,

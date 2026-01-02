@@ -515,7 +515,7 @@ class LiveList extends React.Component<Props, IState> {
                             }
                         };
                     }
-                    return null;
+                    return prevState;
                 });
                 break;
         }
@@ -695,12 +695,12 @@ class LiveList extends React.Component<Props, IState> {
         // 日志面板
         const renderLogsPanel = () => {
             const handleLogsChange = (newLogs: string[]) => {
-                this.setState({
+                this.setState(prevState => ({
                     expandedLogs: {
-                        ...this.state.expandedLogs,
+                        ...prevState.expandedLogs,
                         [record.roomId]: newLogs
                     }
-                });
+                }));
             };
 
             return (
