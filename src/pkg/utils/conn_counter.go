@@ -1,8 +1,10 @@
 package utils
 
 import (
+	"crypto/tls"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,6 +40,10 @@ type ConnCounterManagerType struct {
 
 var ConnCounterManager ConnCounterManagerType
 
+func init() {
+	ConnCounterManager.bcMap = make(map[string]*ByteCounter)
+}
+
 func (m *ConnCounterManagerType) SetConn(url string, bc *ByteCounter) {
 	m.mapLock.Lock()
 	defer m.mapLock.Unlock()
@@ -63,9 +69,130 @@ func (m *ConnCounterManagerType) PrintMap() {
 	}
 }
 
+func CreateDefaultClient() *http.Client {
+	dialer := &net.Dialer{
+		Timeout: 10 * time.Second,
+	}
+	
+	// Create TLS dialer with custom config
+	dialTLS := func(network, addr string) (net.Conn, error) {
+		// Extract hostname from addr (format is "host:port")
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			host = addr
+		}
+		
+		// Create TLS config
+		var tlsConfig *tls.Config
+		if strings.HasSuffix(host, ".edgesrv.com") || host == "edgesrv.com" {
+			// Enable weak TLS 1.2 cipher suites for edgesrv.com
+			tlsConfig = &tls.Config{
+				ServerName: host,
+				MinVersion: tls.VersionTLS12,
+				CipherSuites: []uint16{
+					// Standard secure ciphers first
+					tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+					tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+					tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+					tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+					// Weak RSA cipher suites for compatibility with edgesrv.com
+					tls.TLS_RSA_WITH_AES_128_CBC_SHA,
+					tls.TLS_RSA_WITH_AES_256_CBC_SHA,
+					tls.TLS_RSA_WITH_AES_128_CBC_SHA256,
+					tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
+					tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
+				},
+			}
+		} else {
+			// For other domains, use default secure configuration
+			tlsConfig = &tls.Config{
+				ServerName: host,
+			}
+		}
+		
+		// Dial the connection
+		conn, err := tls.DialWithDialer(dialer, network, addr, tlsConfig)
+		if err != nil {
+			// Log TLS errors with domain information
+			if strings.Contains(err.Error(), "tls") || strings.Contains(err.Error(), "handshake") {
+				blog.GetLogger().Errorf("TLS connection failed for domain %s: %v", host, err)
+			}
+			return nil, err
+		}
+		
+		return conn, nil
+	}
+	
+	transport := &http.Transport{
+		Dial:    dialer.Dial,
+		DialTLS: dialTLS,
+	}
+	return &http.Client{Transport: transport}
+}
+
 func CreateConnCounterClient() (*http.Client, error) {
-	dialer := func(network, addr string) (net.Conn, error) {
-		conn, err := net.DialTimeout(network, addr, 10*time.Second)
+	dialer := &net.Dialer{
+		Timeout: 10 * time.Second,
+	}
+	
+	// Create TLS dialer with custom config
+	dialTLS := func(network, addr string) (net.Conn, error) {
+		// Extract hostname from addr (format is "host:port")
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			host = addr
+		}
+		
+		// Create TLS config
+		var tlsConfig *tls.Config
+		if strings.HasSuffix(host, ".edgesrv.com") || host == "edgesrv.com" {
+			// Enable weak TLS 1.2 cipher suites for edgesrv.com
+			tlsConfig = &tls.Config{
+				ServerName: host,
+				MinVersion: tls.VersionTLS12,
+				CipherSuites: []uint16{
+					// Standard secure ciphers first
+					tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+					tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+					tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+					tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+					// Weak RSA cipher suites for compatibility with edgesrv.com
+					tls.TLS_RSA_WITH_AES_128_CBC_SHA,
+					tls.TLS_RSA_WITH_AES_256_CBC_SHA,
+					tls.TLS_RSA_WITH_AES_128_CBC_SHA256,
+					tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
+					tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
+				},
+			}
+		} else {
+			// For other domains, use default secure configuration
+			tlsConfig = &tls.Config{
+				ServerName: host,
+			}
+		}
+		
+		// Dial the connection
+		conn, err := tls.DialWithDialer(dialer, network, addr, tlsConfig)
+		if err != nil {
+			// Log TLS errors with domain information
+			if strings.Contains(err.Error(), "tls") || strings.Contains(err.Error(), "handshake") {
+				blog.GetLogger().Errorf("TLS connection failed for domain %s: %v", host, err)
+			}
+			return nil, err
+		}
+		
+		// Wrap with byte counter
+		byteCounter := ConnCounterManager.GetConnCounter(addr)
+		if byteCounter == nil {
+			byteCounter = &ByteCounter{}
+			ConnCounterManager.SetConn(addr, byteCounter)
+		}
+		bc := &connCounter{Conn: conn, ByteCounter: byteCounter}
+		return bc, nil
+	}
+	
+	dialPlain := func(network, addr string) (net.Conn, error) {
+		conn, err := dialer.Dial(network, addr)
 		if err != nil {
 			return nil, err
 		}
@@ -78,8 +205,10 @@ func CreateConnCounterClient() (*http.Client, error) {
 		bc := &connCounter{Conn: conn, ByteCounter: byteCounter}
 		return bc, nil
 	}
+	
 	transport := &http.Transport{
-		Dial: dialer,
+		Dial:    dialPlain,
+		DialTLS: dialTLS,
 	}
 	return &http.Client{Transport: transport}, nil
 }

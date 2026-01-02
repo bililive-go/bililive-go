@@ -35,6 +35,10 @@ func NewBaseLive(url *url.URL) BaseLive {
 	if config != nil && config.Debug {
 		client, _ := utils.CreateConnCounterClient()
 		requestSession = requests.NewSession(client)
+	} else {
+		// Use custom client with TLS support for edgesrv.com even in non-debug mode
+		client := utils.CreateDefaultClient()
+		requestSession = requests.NewSession(client)
 	}
 	return BaseLive{
 		Url:            url,
