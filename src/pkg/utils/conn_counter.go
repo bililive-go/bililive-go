@@ -185,14 +185,10 @@ func createTLSDialer(dialer *net.Dialer, withByteCounter bool, keyPrefix string)
 	}
 }
 
-func CreateDefaultClient() *http.Client {
-	dialer := &net.Dialer{
-		Timeout: 10 * time.Second,
-	}
-	
-	transport := &http.Transport{
-		DialContext:           dialer.DialContext,
-		DialTLSContext:        createTLSDialer(dialer, false, ""),
+// newProductionTransport creates a http.Transport with production-ready configuration.
+// The caller should set DialContext and DialTLSContext fields.
+func newProductionTransport() *http.Transport {
+	return &http.Transport{
 		MaxIdleConns:          100,
 		MaxIdleConnsPerHost:   10,
 		IdleConnTimeout:       90 * time.Second,
@@ -200,6 +196,17 @@ func CreateDefaultClient() *http.Client {
 		ResponseHeaderTimeout: 10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 	}
+}
+
+func CreateDefaultClient() *http.Client {
+	dialer := &net.Dialer{
+		Timeout: 10 * time.Second,
+	}
+	
+	transport := newProductionTransport()
+	transport.DialContext = dialer.DialContext
+	transport.DialTLSContext = createTLSDialer(dialer, false, "")
+	
 	return &http.Client{Transport: transport}
 }
 
@@ -222,16 +229,10 @@ func CreateConnCounterClient() (*http.Client, error) {
 		return bc, nil
 	}
 	
-	transport := &http.Transport{
-		DialContext:           dialPlain,
-		// Use "tls:" prefix to distinguish from plain connections
-		DialTLSContext:        createTLSDialer(dialer, true, "tls:"),
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   10,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-	}
+	transport := newProductionTransport()
+	transport.DialContext = dialPlain
+	// Use "tls:" prefix to distinguish from plain connections
+	transport.DialTLSContext = createTLSDialer(dialer, true, "tls:")
+	
 	return &http.Client{Transport: transport}, nil
 }
