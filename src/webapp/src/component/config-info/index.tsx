@@ -8,7 +8,7 @@ import {
   SettingOutlined, GlobalOutlined, AppstoreOutlined,
   BellOutlined, LinkOutlined, InfoCircleOutlined, SaveOutlined,
   ReloadOutlined, EditOutlined, DeleteOutlined,
-  RightOutlined, EyeOutlined, PlusOutlined, WarningOutlined,
+  RightOutlined, PlusOutlined, WarningOutlined,
   ExclamationCircleOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
@@ -663,7 +663,7 @@ const PlatformSettings: React.FC<{
   onRefresh: () => void;
 }> = ({ platformStats, globalConfig, onUpdate, onDelete, loading, onRefresh }) => {
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
-  const [addPlatformVisible, setAddPlatformVisible] = useState(false);
+  const [, setAddPlatformVisible] = useState(false);
 
   const location = useLocation();
 
@@ -691,7 +691,7 @@ const PlatformSettings: React.FC<{
   }, [location]);
 
   const [selectedNewPlatform, setSelectedNewPlatform] = useState<string>('');
-  const navigate = useNavigate();
+  useNavigate(); // 用于Router上下文
 
   if (!platformStats) {
     return <Spin />;
@@ -737,10 +737,7 @@ const PlatformSettings: React.FC<{
     }
   };
 
-  const handleNavigateToRoom = (liveId: string) => {
-    // 跳转到直播间设置并展开
-    window.location.hash = `#rooms-live-${liveId}`;
-  };
+
 
   const renderPlatformCard = (platform: PlatformStat) => {
     const isExpanded = expandedKeys.includes(platform.platform_key);
@@ -1342,7 +1339,7 @@ const ConfigInfo: React.FC = () => {
   const [platformStats, setPlatformStats] = useState<PlatformStatsResponse | null>(null);
   const [rawConfig, setRawConfig] = useState('');
   const [activeTab, setActiveTab] = useState('global');
-  const navigate = useNavigate();
+  useNavigate(); // 用于Router上下文
 
   // 加载配置
   const loadConfig = useCallback(async () => {

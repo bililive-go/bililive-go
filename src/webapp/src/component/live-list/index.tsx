@@ -587,7 +587,8 @@ class LiveList extends React.Component<Props, IState> {
         };
 
         // 配置信息面板
-        const renderConfigPanel = () => (
+        // 配置面板 - 保留供后续配置标签页使用
+        const _renderConfigPanel = () => (
             <div>
                 {/* 配置来源图例 */}
                 <div style={{

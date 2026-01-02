@@ -32,9 +32,7 @@ clean:
 
 .PHONY: generate
 generate:
-	@echo "Code generation skipped. Uncomment the line in Makefile to enable it."
-# Uncomment the next line to regenerate code
-# go run build.go generate
+	go run build.go generate
 
 .PHONY: build-web
 build-web:

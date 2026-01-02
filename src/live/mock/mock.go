@@ -17,6 +17,7 @@ import (
 
 	configs "github.com/bililive-go/bililive-go/src/configs"
 	live "github.com/bililive-go/bililive-go/src/live"
+	livelogger "github.com/bililive-go/bililive-go/src/pkg/livelogger"
 	types "github.com/bililive-go/bililive-go/src/types"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -45,6 +46,18 @@ func (m *MockLive) EXPECT() *MockLiveMockRecorder {
 	return m.recorder
 }
 
+// Close mocks base method.
+func (m *MockLive) Close() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "Close")
+}
+
+// Close indicates an expected call of Close.
+func (mr *MockLiveMockRecorder) Close() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockLive)(nil).Close))
+}
+
 // GetInfo mocks base method.
 func (m *MockLive) GetInfo() (*live.Info, error) {
 	m.ctrl.T.Helper()
@@ -58,6 +71,21 @@ func (m *MockLive) GetInfo() (*live.Info, error) {
 func (mr *MockLiveMockRecorder) GetInfo() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInfo", reflect.TypeOf((*MockLive)(nil).GetInfo))
+}
+
+// GetInfoWithInterval mocks base method.
+func (m *MockLive) GetInfoWithInterval(ctx context.Context) (*live.Info, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetInfoWithInterval", ctx)
+	ret0, _ := ret[0].(*live.Info)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetInfoWithInterval indicates an expected call of GetInfoWithInterval.
+func (mr *MockLiveMockRecorder) GetInfoWithInterval(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInfoWithInterval", reflect.TypeOf((*MockLive)(nil).GetInfoWithInterval), ctx)
 }
 
 // GetLastStartTime mocks base method.
@@ -86,6 +114,20 @@ func (m *MockLive) GetLiveId() types.LiveID {
 func (mr *MockLiveMockRecorder) GetLiveId() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLiveId", reflect.TypeOf((*MockLive)(nil).GetLiveId))
+}
+
+// GetLogger mocks base method.
+func (m *MockLive) GetLogger() *livelogger.LiveLogger {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLogger")
+	ret0, _ := ret[0].(*livelogger.LiveLogger)
+	return ret0
+}
+
+// GetLogger indicates an expected call of GetLogger.
+func (mr *MockLiveMockRecorder) GetLogger() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLogger", reflect.TypeOf((*MockLive)(nil).GetLogger))
 }
 
 // GetOptions mocks base method.

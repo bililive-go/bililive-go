@@ -107,14 +107,15 @@ export const OutputTemplatePreview: React.FC<OutputTemplatePreviewProps> = ({
 // 位置：第 85-140 行
 // 用于统一全局、平台、直播间的 FFmpeg 路径显示逻辑
 // ============================================================================
-interface FFmpegPathFieldProps {
-  form: any;
-  level: 'global' | 'platform' | 'room';
-  globalFfmpegPath?: string | null;
-  platformFfmpegPath?: string | null;
-  actualFfmpegPath?: string;
-  fieldName?: string | string[];
-}
+// FFmpegPathFieldProps 接口预留供后续使用
+// interface FFmpegPathFieldProps {
+//   form: any;
+//   level: 'global' | 'platform' | 'room';
+//   globalFfmpegPath?: string | null;
+//   platformFfmpegPath?: string | null;
+//   actualFfmpegPath?: string;
+//   fieldName?: string | string[];
+// }
 
 /**
  * 获取 FFmpeg 路径的显示值
