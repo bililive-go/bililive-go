@@ -28,6 +28,11 @@ import (
 	"github.com/bililive-go/bililive-go/src/types"
 )
 
+const (
+	// Maximum number of log lines to return
+	maxLogLines = 1000
+)
+
 // FIXME: remove this
 func parseInfo(ctx context.Context, l live.Live) *live.Info {
 	inst := instance.GetInstance(ctx)
@@ -534,5 +539,45 @@ func putLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(writer, commonResp{
 		Data: "OK",
+	})
+}
+
+func getLogs(writer http.ResponseWriter, r *http.Request) {
+	inst := instance.GetInstance(r.Context())
+	logPath := filepath.Join(inst.Config.Log.OutPutFolder, "bililive-go.log")
+
+	// Check if log file exists
+	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+		writeJsonWithStatusCode(writer, http.StatusNotFound, commonResp{
+			ErrNo:  http.StatusNotFound,
+			ErrMsg: "日志文件不存在",
+		})
+		return
+	}
+
+	// Read the log file
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "读取日志文件失败: " + err.Error(),
+		})
+		return
+	}
+
+	// Return the last N lines (default 1000 lines)
+	lines := strings.Split(string(content), "\n")
+	startIndex := 0
+	if len(lines) > maxLogLines {
+		startIndex = len(lines) - maxLogLines
+	}
+
+	resultLines := lines[startIndex:]
+	result := strings.Join(resultLines, "\n")
+
+	writeJSON(writer, map[string]any{
+		"logs":        result,
+		"total_lines": len(lines),
+		"shown_lines": len(resultLines),
 	})
 }

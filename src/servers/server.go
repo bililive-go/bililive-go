@@ -78,6 +78,7 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/file/{path:.*}", getFileInfo).Methods("GET")
 	apiRoute.HandleFunc("/cookies", getLiveHostCookie).Methods("GET")
 	apiRoute.HandleFunc("/cookies", putLiveHostCookie).Methods("PUT")
+	apiRoute.HandleFunc("/logs", getLogs).Methods("GET")
 	apiRoute.Handle("/metrics", promhttp.Handler())
 
 	m.PathPrefix("/files/").Handler(

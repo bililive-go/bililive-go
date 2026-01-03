@@ -124,6 +124,13 @@ class API {
     saveCookie(json:any){
         return utils.requestPut(`${BASE_URL}/cookies`,json);
     }
+
+    /**
+     * 获取最新日志
+     */
+    getLogs() {
+        return utils.requestGet(`${BASE_URL}/logs`);
+    }
 }
 
 export default API;

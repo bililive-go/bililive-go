@@ -1,0 +1,19 @@
+.logs-container {
+    height: calc(100vh - 240px);
+    overflow-y: auto;
+    overflow-x: auto;
+    background-color: #1e1e1e;
+    padding: 16px;
+    margin: 16px;
+    border-radius: 4px;
+}
+
+.logs-content {
+    color: #d4d4d4;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    margin: 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
