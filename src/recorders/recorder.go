@@ -297,11 +297,24 @@ func (r *recorder) Close() {
 		return
 	}
 	close(r.stop)
+	
+	// Stop parser with timeout to prevent hanging
 	if p := r.getParser(); p != nil {
-		if err := p.Stop(); err != nil {
-			r.getLogger().WithError(err).Warn("failed to end recorder")
+		done := make(chan error, 1)
+		go func() {
+			done <- p.Stop()
+		}()
+		
+		select {
+		case err := <-done:
+			if err != nil {
+				r.getLogger().WithError(err).Warn("failed to end recorder")
+			}
+		case <-time.After(time.Second * 10):
+			r.getLogger().Warn("parser stop timeout, proceeding with close")
 		}
 	}
+	
 	r.getLogger().Info("Record End")
 	r.ed.DispatchEvent(events.NewEvent(RecorderStop, r.Live))
 }
@@ -327,5 +340,23 @@ func (r *recorder) GetStatus() (map[string]string, error) {
 	if !ok {
 		return nil, ErrParserNotSupportStatus
 	}
-	return statusP.Status()
+	
+	// Use a timeout channel to prevent blocking
+	type result struct {
+		status map[string]string
+		err    error
+	}
+	
+	resultCh := make(chan result, 1)
+	go func() {
+		status, err := statusP.Status()
+		resultCh <- result{status: status, err: err}
+	}()
+	
+	select {
+	case res := <-resultCh:
+		return res.status, res.err
+	case <-time.After(time.Second * 10):
+		return nil, fmt.Errorf("get status timeout")
+	}
 }

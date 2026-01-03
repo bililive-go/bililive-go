@@ -93,12 +93,28 @@ func (p *Parser) decodeFFmpegStatus(b []byte) (status map[string]string) {
 func (p *Parser) scheduler() {
 	defer close(p.statusResp)
 	statusCh := p.scanFFmpegStatus()
+	defer func() {
+		// drain remaining status requests to prevent deadlock
+		for {
+			select {
+			case <-p.statusReq:
+				select {
+				case p.statusResp <- nil:
+				default:
+				}
+			default:
+				return
+			}
+		}
+	}()
+	
 	for {
 		select {
 		case <-p.statusReq:
 			select {
 			case b, ok := <-statusCh:
 				if !ok {
+					p.statusResp <- nil
 					return
 				}
 				p.statusResp <- p.decodeFFmpegStatus(b)
@@ -115,8 +131,17 @@ func (p *Parser) scheduler() {
 
 func (p *Parser) Status() (map[string]string, error) {
 	// TODO: check parser is running
-	p.statusReq <- struct{}{}
-	return <-p.statusResp, nil
+	select {
+	case p.statusReq <- struct{}{}:
+		select {
+		case status := <-p.statusResp:
+			return status, nil
+		case <-time.After(time.Second * 5):
+			return nil, fmt.Errorf("status request timeout")
+		}
+	case <-time.After(time.Second * 1):
+		return nil, fmt.Errorf("unable to send status request")
+	}
 }
 
 func (p *Parser) ParseLiveStream(ctx context.Context, streamUrlInfo *live.StreamUrlInfo, live live.Live, file string) (err error) {
@@ -215,11 +240,38 @@ func (p *Parser) Stop() (err error) {
 		defer p.cmdLock.Unlock()
 		if p.cmd != nil && p.cmd.ProcessState == nil {
 			if p.cmdStdIn != nil && p.cmd.Process != nil {
-				if _, err = p.cmdStdIn.Write([]byte("q")); err != nil {
-					err = fmt.Errorf("error sending stop command to ffmpeg: %v", err)
+				// Use a goroutine with timeout for writing "q"
+				done := make(chan error, 1)
+				go func() {
+					defer close(done)
+					if _, writeErr := p.cmdStdIn.Write([]byte("q")); writeErr != nil {
+						done <- fmt.Errorf("error sending stop command to ffmpeg: %v", writeErr)
+					} else {
+						done <- nil
+					}
+				}()
+				
+				select {
+				case writeErr := <-done:
+					if writeErr != nil {
+						err = writeErr
+						// If writing "q" fails, try to kill the process
+						if p.cmd.Process != nil {
+							p.cmd.Process.Kill()
+						}
+					}
+				case <-time.After(time.Second * 2):
+					err = fmt.Errorf("timeout writing stop command to ffmpeg")
+					// Kill the process on timeout
+					if p.cmd.Process != nil {
+						p.cmd.Process.Kill()
+					}
 				}
 			} else if p.cmdStdIn == nil {
 				err = fmt.Errorf("p.cmdStdIn == nil")
+				if p.cmd.Process != nil {
+					p.cmd.Process.Kill()
+				}
 			} else if p.cmd.Process == nil {
 				err = fmt.Errorf("p.cmd.Process == nil")
 			}
