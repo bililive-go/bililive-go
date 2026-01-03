@@ -161,7 +161,27 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	r.setAndCloseParser(p)
 	r.startTime = time.Now()
 	r.getLogger().Debugln("Start ParseLiveStream(" + url.String() + ", " + fileName + ")")
-	r.getLogger().Println(r.parser.ParseLiveStream(ctx, streamInfo, r.Live, fileName))
+	if err = r.parser.ParseLiveStream(ctx, streamInfo, r.Live, fileName); err != nil {
+		// Handle common FFmpeg exit codes with more descriptive messages
+		errorMsg := "Recording failed"
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			switch exitErr.ExitCode() {
+			case 251:
+				errorMsg = "Recording failed - stream URL may be invalid or expired"
+			case 1:
+				errorMsg = "Recording failed - FFmpeg general error (stream may be offline)"
+			case 255:
+				errorMsg = "Recording failed - FFmpeg interrupted or stream disconnected"
+			default:
+				errorMsg = fmt.Sprintf("Recording failed - FFmpeg exit code %d", exitErr.ExitCode())
+			}
+		} else {
+			errorMsg = "Recording failed - " + err.Error()
+		}
+		r.getLogger().WithError(err).Warn(errorMsg)
+	} else {
+		r.getLogger().Info("Recording completed successfully")
+	}
 	r.getLogger().Debugln("End ParseLiveStream(" + url.String() + ", " + fileName + ")")
 	removeEmptyFile(fileName)
 	ffmpegPath, err := utils.GetFFmpegPath(ctx)
