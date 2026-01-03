@@ -144,9 +144,10 @@ func getLive(writer http.ResponseWriter, r *http.Request) {
 			recorder, err := recorderMgr.GetRecorder(r.Context(), info.Live.GetLiveId())
 			if err == nil {
 				status, statusErr := recorder.GetStatus()
-				if statusErr == nil && status != nil {
-					recorderStatus = status
+				if statusErr != nil {
+					info.Live.GetLogger().Warnf("failed to get recorder status: %v", statusErr)
 				}
+				recorderStatus = status
 			}
 		}
 	}
