@@ -56,6 +56,7 @@ type manager struct {
 	savers        map[types.LiveID]Recorder
 	statusTicker  *time.Ticker
 	statusStopCh  chan struct{}
+	statusWg      sync.WaitGroup // 用于等待广播 goroutine 退出
 }
 
 func (m *manager) registryListener(ctx context.Context, ed events.Dispatcher) {
@@ -109,6 +110,8 @@ func (m *manager) Close(ctx context.Context) {
 	}
 	if m.statusStopCh != nil {
 		close(m.statusStopCh)
+		// 等待广播 goroutine 退出
+		m.statusWg.Wait()
 	}
 	
 	m.lock.Lock()
@@ -206,9 +209,11 @@ func (m *manager) startStatusBroadcaster(ctx context.Context) {
 	// 每3秒广播一次录制器状态
 	m.statusTicker = time.NewTicker(3 * time.Second)
 	
+	m.statusWg.Add(1)
 	go func() {
-		// 需要导入 servers 包来访问 GetSSEHub
-		// 为了避免循环依赖，这里通过全局访问
+		defer m.statusWg.Done()
+		// 使用回调函数避免循环依赖
+		// 回调在 server 初始化时由 SetBroadcastRecorderStatusFunc 设置
 		for {
 			select {
 			case <-m.statusStopCh:
