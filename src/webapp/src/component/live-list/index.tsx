@@ -34,6 +34,7 @@ interface IState {
     globalConfig: any, // 全局配置缓存
     countdownTimers: { [key: string]: number }, // 倒计时值缓存（秒）
     lastUpdateTimes: { [key: string]: number }, // 上次更新时间戳（毫秒）
+    listSSESubscription: string | null, // 列表级别的SSE订阅ID
 }
 
 interface ItemData {
@@ -260,6 +261,7 @@ class LiveList extends React.Component<Props, IState> {
             globalConfig: null,
             countdownTimers: {},
             lastUpdateTimes: {},
+            listSSESubscription: null,
         }
     }
 
@@ -274,7 +276,10 @@ class LiveList extends React.Component<Props, IState> {
         }
 
         this.requestData("livelist"); // Call with a specific targetKey
-        this.fetchGlobalConfig();
+        this.fetchGlobalConfig().then(() => {
+            // 根据配置决定是否启用列表级别SSE
+            this.setupListSSE();
+        });
         this.timer = setInterval(() => {
             this.requestData("livelist"); // Call with a specific targetKey
         }, REFRESH_TIME);
@@ -294,11 +299,51 @@ class LiveList extends React.Component<Props, IState> {
         }
     }
 
+    // 设置列表级别的SSE订阅
+    setupListSSE = () => {
+        const { list, globalConfig } = this.state;
+        const threshold = globalConfig?.rpc?.sse_list_threshold || 50;
+        
+        // 如果列表数量小于阈值，订阅所有房间的更新
+        if (list.length < threshold) {
+            // 订阅通配符，接收所有房间的live_update事件
+            const subId = subscribeSSE('*', 'live_update', (message: SSEMessage) => {
+                // 刷新列表数据
+                this.requestListData();
+            });
+            this.setState({ listSSESubscription: subId });
+        }
+    }
+
+    // 根据列表大小更新SSE订阅策略
+    updateListSSESubscription = () => {
+        const { list, listSSESubscription, globalConfig } = this.state;
+        const threshold = globalConfig?.rpc?.sse_list_threshold || 50;
+        
+        if (list.length < threshold && !listSSESubscription) {
+            // 列表小于阈值但未订阅，创建订阅
+            const subId = subscribeSSE('*', 'live_update', (message: SSEMessage) => {
+                this.requestListData();
+            });
+            this.setState({ listSSESubscription: subId });
+        } else if (list.length >= threshold && listSSESubscription) {
+            // 列表超过阈值但已订阅，取消订阅
+            unsubscribeSSE(listSSESubscription);
+            this.setState({ listSSESubscription: null });
+        }
+    }
+
     componentWillUnmount() {
         //clear refresh timer
         clearInterval(this.timer);
         clearInterval(this.countdownTimer);
-        // 取消所有 SSE 订阅
+        
+        // 取消列表级别的SSE订阅
+        if (this.state.listSSESubscription) {
+            unsubscribeSSE(this.state.listSSESubscription);
+        }
+        
+        // 取消所有详情页的 SSE 订阅
         const { sseSubscriptions } = this.state;
         Object.values(sseSubscriptions).forEach(subId => {
             unsubscribeSSE(subId);
@@ -392,9 +437,15 @@ class LiveList extends React.Component<Props, IState> {
                 });
             })
             .then((data: ItemData[]) => {
+                const oldListLength = this.state.list.length;
                 this.setState({
                     list: data
                 }, () => {
+                    // 如果列表大小发生变化，重新评估SSE订阅策略
+                    if (oldListLength !== data.length) {
+                        this.updateListSSESubscription();
+                    }
+                    
                     // 处理深度链接自动展开
                     if (this.pendingRoomId) {
                         const targetRoom = data.find(item => item.roomId === this.pendingRoomId);
