@@ -154,7 +154,11 @@ func addLives(writer http.ResponseWriter, r *http.Request) {
 	gjson.ParseBytes(b).ForEach(func(key, value gjson.Result) bool {
 		isListen := value.Get("listen").Bool()
 		urlStr := strings.Trim(value.Get("url").String(), " ")
-		if retInfo, err := addLiveImpl(r.Context(), urlStr, isListen); err != nil {
+		roomType := value.Get("type").String()
+		if roomType == "" {
+			roomType = "live_room" // default to live_room for backward compatibility
+		}
+		if retInfo, err := addLiveImplWithType(r.Context(), urlStr, isListen, roomType); err != nil {
 			msg := urlStr + ": " + err.Error()
 			applog.GetLogger().Error(msg)
 			errorMessages = append(errorMessages, msg)
@@ -170,6 +174,16 @@ func addLives(writer http.ResponseWriter, r *http.Request) {
 }
 
 func addLiveImpl(ctx context.Context, urlStr string, isListen bool) (info *live.Info, err error) {
+	return addLiveImplWithType(ctx, urlStr, isListen, "live_room")
+}
+
+func addLiveImplWithType(ctx context.Context, urlStr string, isListen bool, roomType string) (info *live.Info, err error) {
+	// For M3U8 type, transform the URL to use our custom platform
+	if roomType == "m3u8" {
+		// Convert direct M3U8 URL to our custom format
+		urlStr = fmt.Sprintf("https://custom.m3u8/?url=%s&name=M3U8Stream", url.QueryEscape(urlStr))
+	}
+	
 	if !strings.HasPrefix(urlStr, "http://") && !strings.HasPrefix(urlStr, "https://") {
 		urlStr = "https://" + urlStr
 	}
@@ -184,6 +198,7 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool) (info *live.
 		liveRoom = &configs.LiveRoom{
 			Url:         u.String(),
 			IsListening: isListen,
+			Type:        roomType,
 		}
 		needAppend = true
 	}

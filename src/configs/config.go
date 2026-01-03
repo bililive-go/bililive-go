@@ -356,6 +356,7 @@ type LiveRoom struct {
 	Quality     int          `yaml:"quality,omitempty"`
 	AudioOnly   bool         `yaml:"audio_only,omitempty"`
 	NickName    string       `yaml:"nick_name,omitempty"`
+	Type        string       `yaml:"type,omitempty"` // "live_room" or "m3u8"
 }
 
 type liveRoomAlias LiveRoom

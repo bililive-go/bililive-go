@@ -5,6 +5,7 @@ import (
 	_ "github.com/bililive-go/bililive-go/src/live/acfun"
 	_ "github.com/bililive-go/bililive-go/src/live/bilibili"
 	_ "github.com/bililive-go/bililive-go/src/live/cc"
+	_ "github.com/bililive-go/bililive-go/src/live/custom"
 	_ "github.com/bililive-go/bililive-go/src/live/douyin"
 	_ "github.com/bililive-go/bililive-go/src/live/douyu"
 	_ "github.com/bililive-go/bililive-go/src/live/hongdoufm"

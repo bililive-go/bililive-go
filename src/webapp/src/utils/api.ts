@@ -28,12 +28,14 @@ class API {
     /**
      * 添加新的直播间
      * @param url URL
+     * @param type 房间类型 ("live_room" 或 "m3u8")
      */
-    addNewRoom(url: string) {
+    addNewRoom(url: string, type: string = "live_room") {
         const reqBody = [
             {
                 "url": url,
-                "listen": true
+                "listen": true,
+                "type": type
             }
         ];
         return utils.requestPost(`${BASE_URL}/lives`, reqBody);
