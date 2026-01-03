@@ -14,9 +14,23 @@ import (
 	"github.com/bililive-go/bililive-go/src/types"
 )
 
+// BroadcastRecorderStatusFunc 是用于广播录制器状态的回调函数类型
+type BroadcastRecorderStatusFunc func(liveId types.LiveID, status map[string]string)
+
+var (
+	// broadcastRecorderStatusFunc 全局广播函数，由 servers 包设置
+	broadcastRecorderStatusFunc BroadcastRecorderStatusFunc
+)
+
+// SetBroadcastRecorderStatusFunc 设置录制器状态广播函数
+func SetBroadcastRecorderStatusFunc(fn BroadcastRecorderStatusFunc) {
+	broadcastRecorderStatusFunc = fn
+}
+
 func NewManager(ctx context.Context) Manager {
 	rm := &manager{
-		savers: make(map[types.LiveID]Recorder),
+		savers:       make(map[types.LiveID]Recorder),
+		statusStopCh: make(chan struct{}),
 	}
 	instance.GetInstance(ctx).RecorderManager = rm
 
@@ -38,8 +52,10 @@ var (
 )
 
 type manager struct {
-	lock   sync.RWMutex
-	savers map[types.LiveID]Recorder
+	lock          sync.RWMutex
+	savers        map[types.LiveID]Recorder
+	statusTicker  *time.Ticker
+	statusStopCh  chan struct{}
 }
 
 func (m *manager) registryListener(ctx context.Context, ed events.Dispatcher) {
@@ -79,10 +95,22 @@ func (m *manager) Start(ctx context.Context) error {
 		inst.WaitGroup.Add(1)
 	}
 	m.registryListener(ctx, inst.EventDispatcher.(events.Dispatcher))
+	
+	// 启动定期广播录制器状态的 goroutine
+	m.startStatusBroadcaster(ctx)
+	
 	return nil
 }
 
 func (m *manager) Close(ctx context.Context) {
+	// 停止状态广播器
+	if m.statusTicker != nil {
+		m.statusTicker.Stop()
+	}
+	if m.statusStopCh != nil {
+		close(m.statusStopCh)
+	}
+	
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	for id, recorder := range m.savers {
@@ -171,4 +199,42 @@ func (m *manager) HasRecorder(ctx context.Context, liveId types.LiveID) bool {
 	defer m.lock.RUnlock()
 	_, ok := m.savers[liveId]
 	return ok
+}
+
+// startStatusBroadcaster 启动定期广播录制器状态的 goroutine
+func (m *manager) startStatusBroadcaster(ctx context.Context) {
+	// 每3秒广播一次录制器状态
+	m.statusTicker = time.NewTicker(3 * time.Second)
+	
+	go func() {
+		// 需要导入 servers 包来访问 GetSSEHub
+		// 为了避免循环依赖，这里通过全局访问
+		for {
+			select {
+			case <-m.statusStopCh:
+				return
+			case <-m.statusTicker.C:
+				m.broadcastAllRecorderStatus(ctx)
+			}
+		}
+	}()
+}
+
+// broadcastAllRecorderStatus 广播所有录制器的状态
+func (m *manager) broadcastAllRecorderStatus(ctx context.Context) {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+	
+	// 如果没有设置广播函数，直接返回
+	if broadcastRecorderStatusFunc == nil {
+		return
+	}
+	
+	// 遍历所有录制器并广播状态
+	for liveId, recorder := range m.savers {
+		status, err := recorder.GetStatus()
+		if err == nil && status != nil {
+			broadcastRecorderStatusFunc(liveId, status)
+		}
+	}
 }

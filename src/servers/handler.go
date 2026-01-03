@@ -142,7 +142,7 @@ func getLive(writer http.ResponseWriter, r *http.Request) {
 		// 如果正在录制，尝试获取recorder状态
 		if recorderMgr, ok := inst.RecorderManager.(recorders.Manager); ok {
 			recorder, err := recorderMgr.GetRecorder(r.Context(), info.Live.GetLiveId())
-			if err == nil && recorder != nil {
+			if err == nil {
 				status, statusErr := recorder.GetStatus()
 				if statusErr == nil && status != nil {
 					recorderStatus = status

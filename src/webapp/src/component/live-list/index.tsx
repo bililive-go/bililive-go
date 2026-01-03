@@ -445,17 +445,20 @@ class LiveList extends React.Component<Props, IState> {
         const isCurrentlyExpanded = this.state.expandedRowKeys.includes(roomId);
 
         if (isCurrentlyExpanded) {
-            // 收起 - 取消 SSE 订阅
+            // 收起 - 取消 SSE 订阅并清理倒计时状态
             const subscriptionId = this.state.sseSubscriptions[roomId];
             if (subscriptionId) {
                 unsubscribeSSE(subscriptionId);
             }
             this.setState(prevState => {
                 const newSubscriptions = { ...prevState.sseSubscriptions };
+                const newCountdowns = { ...prevState.countdownTimers };
                 delete newSubscriptions[roomId];
+                delete newCountdowns[roomId];
                 return {
                     expandedRowKeys: prevState.expandedRowKeys.filter(key => key !== roomId),
-                    sseSubscriptions: newSubscriptions
+                    sseSubscriptions: newSubscriptions,
+                    countdownTimers: newCountdowns
                 };
             });
         } else {
@@ -557,8 +560,8 @@ class LiveList extends React.Component<Props, IState> {
         api.getLiveDetail(roomId)
             .then((detail: any) => {
                 this.setState(prevState => {
-                    // 初始化倒计时值
-                    const nextRequestInSec = detail.rate_limit_info?.next_request_in_sec || 0;
+                    // 初始化倒计时值，使用 Math.ceil 避免过早显示"立即可用"
+                    const nextRequestInSec = Math.ceil(detail.rate_limit_info?.next_request_in_sec || 0);
                     return {
                         expandedDetails: {
                             ...prevState.expandedDetails,
@@ -667,7 +670,7 @@ class LiveList extends React.Component<Props, IState> {
                                         {detail.recording ? '录制中' : '未录制'}
                                     </Tag>
                                 </div>
-                                {detail.recording && detail.recorder_status && detail.recorder_status.speed && (
+                                {detail.recording && detail.recorder_status?.speed && (
                                     <div style={configRowStyle}>
                                         <span style={configLabelStyle}>下载速度</span>
                                         <Tag color="blue">{detail.recorder_status.speed}</Tag>
