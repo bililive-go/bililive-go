@@ -32,6 +32,7 @@ interface IState {
     expandedLogs: { [key: string]: string[] }, // 直播间日志缓存
     sseSubscriptions: { [key: string]: string }, // roomId -> subscriptionId 映射
     globalConfig: any, // 全局配置缓存
+    countdownTimers: { [key: string]: number }, // 倒计时值缓存（秒）
 }
 
 interface ItemData {
@@ -63,6 +64,9 @@ class LiveList extends React.Component<Props, IState> {
 
     //定时器
     timer!: NodeJS.Timeout;
+
+    //倒计时定时器
+    countdownTimer!: NodeJS.Timeout;
 
     runStatus: ColumnsType<ItemData>[number] = {
         title: '运行状态',
@@ -253,6 +257,7 @@ class LiveList extends React.Component<Props, IState> {
             expandedLogs: {},
             sseSubscriptions: {},
             globalConfig: null,
+            countdownTimers: {},
         }
     }
 
@@ -271,6 +276,11 @@ class LiveList extends React.Component<Props, IState> {
         this.timer = setInterval(() => {
             this.requestData("livelist"); // Call with a specific targetKey
         }, REFRESH_TIME);
+        
+        // 启动倒计时定时器，每秒更新一次
+        this.countdownTimer = setInterval(() => {
+            this.updateCountdowns();
+        }, 1000);
     }
 
     fetchGlobalConfig = async () => {
@@ -285,6 +295,7 @@ class LiveList extends React.Component<Props, IState> {
     componentWillUnmount() {
         //clear refresh timer
         clearInterval(this.timer);
+        clearInterval(this.countdownTimer);
         // 取消所有 SSE 订阅
         const { sseSubscriptions } = this.state;
         Object.values(sseSubscriptions).forEach(subId => {
@@ -506,6 +517,7 @@ class LiveList extends React.Component<Props, IState> {
                     const currentDetail = prevState.expandedDetails[roomId];
                     if (currentDetail) {
                         return {
+                            ...prevState,
                             expandedDetails: {
                                 ...prevState.expandedDetails,
                                 [roomId]: {
@@ -515,7 +527,7 @@ class LiveList extends React.Component<Props, IState> {
                             }
                         };
                     }
-                    return prevState;
+                    return null;
                 });
                 break;
         }
@@ -524,16 +536,42 @@ class LiveList extends React.Component<Props, IState> {
     loadRoomDetail = (roomId: string) => {
         api.getLiveDetail(roomId)
             .then((detail: any) => {
-                this.setState(prevState => ({
-                    expandedDetails: {
-                        ...prevState.expandedDetails,
-                        [roomId]: detail
-                    }
-                }));
+                this.setState(prevState => {
+                    // 初始化倒计时值
+                    const nextRequestInSec = detail.rate_limit_info?.next_request_in_sec || 0;
+                    return {
+                        expandedDetails: {
+                            ...prevState.expandedDetails,
+                            [roomId]: detail
+                        },
+                        countdownTimers: {
+                            ...prevState.countdownTimers,
+                            [roomId]: nextRequestInSec
+                        }
+                    };
+                });
             })
             .catch(err => {
                 message.error(`获取直播间详情失败: ${err}`);
             });
+    }
+
+    // 更新所有展开房间的倒计时
+    updateCountdowns = () => {
+        this.setState(prevState => {
+            const newCountdowns = { ...prevState.countdownTimers };
+            let hasChanges = false;
+
+            // 只更新展开的房间
+            prevState.expandedRowKeys.forEach(roomId => {
+                if (newCountdowns[roomId] !== undefined && newCountdowns[roomId] > 0) {
+                    newCountdowns[roomId] = Math.max(0, newCountdowns[roomId] - 1);
+                    hasChanges = true;
+                }
+            });
+
+            return hasChanges ? { ...prevState, countdownTimers: newCountdowns } : null;
+        });
     }
 
     loadRoomLogs = (roomId: string) => {
@@ -552,9 +590,10 @@ class LiveList extends React.Component<Props, IState> {
     }
 
     renderExpandedRow = (record: ItemData): JSX.Element => {
-        const { expandedDetails, expandedLogs } = this.state;
+        const { expandedDetails, expandedLogs, countdownTimers } = this.state;
         const detail = expandedDetails[record.roomId];
         const logs = expandedLogs[record.roomId] || [];
+        const countdown = countdownTimers[record.roomId] ?? 0;
         const liveId = record.roomId;
         // 保存 this 引用供嵌套函数使用
         const component = this;
@@ -631,10 +670,10 @@ class LiveList extends React.Component<Props, IState> {
                                             <span>{Math.round(detail.rate_limit_info.waited_seconds || 0)} 秒</span>
                                         </div>
                                         <div style={configRowStyle}>
-                                            <span style={configLabelStyle}>预计下次请求</span>
-                                            <Tag color={(detail.rate_limit_info.next_request_in_sec || 0) > 0 ? 'orange' : 'green'}>
-                                                {(detail.rate_limit_info.next_request_in_sec || 0) > 0
-                                                    ? `${Math.round(detail.rate_limit_info.next_request_in_sec)} 秒后`
+                                            <span style={configLabelStyle}>距下次GetInfo请求</span>
+                                            <Tag color={countdown > 0 ? 'orange' : 'green'}>
+                                                {countdown > 0
+                                                    ? `${countdown} 秒`
                                                     : '立即可用'}
                                             </Tag>
                                         </div>
