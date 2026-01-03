@@ -10,11 +10,13 @@ import (
 )
 
 type Instance struct {
-	WaitGroup       sync.WaitGroup
-	Lives           map[types.LiveID]live.Live
-	Cache           gcache.Cache
-	Server          interfaces.Module
-	EventDispatcher interfaces.Module
-	ListenerManager interfaces.Module
-	RecorderManager interfaces.Module
+	WaitGroup        sync.WaitGroup
+	Lives            map[types.LiveID]live.Live
+	Cache            gcache.Cache
+	Server           interfaces.Module
+	EventDispatcher  interfaces.Module
+	ListenerManager  interfaces.Module
+	RecorderManager  interfaces.Module
+	TaskQueueManager interfaces.Module
+	TaskEnqueuer     interfaces.TaskEnqueuer
 }

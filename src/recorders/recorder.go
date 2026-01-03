@@ -28,7 +28,6 @@ import (
 	"github.com/bililive-go/bililive-go/src/pkg/parser/ffmpeg"
 	"github.com/bililive-go/bililive-go/src/pkg/parser/native/flv"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
-	"github.com/bililive-go/bililive-go/src/tools"
 )
 
 const (
@@ -82,6 +81,10 @@ type recorder struct {
 
 	stop  chan struct{}
 	state uint32
+
+	// 当前录制文件信息
+	currentFileLock sync.RWMutex
+	currentFilePath string
 }
 
 func NewRecorder(ctx context.Context, live live.Live) (Recorder, error) {
@@ -172,22 +175,31 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	}
 	r.setAndCloseParser(p)
 	r.startTime = time.Now()
+
+	// 设置当前录制文件路径
+	r.setCurrentFilePath(fileName)
+
 	r.getLogger().Debugln("Start ParseLiveStream(" + url.String() + ", " + fileName + ")")
 	err = r.parser.ParseLiveStream(ctx, streamInfo, r.Live, fileName)
+
+	// 清除当前录制文件路径
+	r.setCurrentFilePath("")
+
 	if err != nil {
 		r.getLogger().WithError(err).Error("failed to parse live stream")
 		return
 	}
 	r.getLogger().Debugln("End ParseLiveStream(" + url.String() + ", " + fileName + ")")
 	removeEmptyFile(fileName)
-	ffmpegPath, err := utils.GetFFmpegPathForLive(ctx, r.Live)
-	if err != nil {
-		r.getLogger().WithError(err).Error("failed to find ffmpeg")
-		return
-	}
+
 	// 使用层级配置的 OnRecordFinished
 	cmdStr := strings.Trim(resolvedConfig.OnRecordFinished.CustomCommandline, "")
 	if len(cmdStr) > 0 {
+		ffmpegPath, ffmpegErr := utils.GetFFmpegPathForLive(ctx, r.Live)
+		if ffmpegErr != nil {
+			r.getLogger().WithError(ffmpegErr).Error("failed to find ffmpeg")
+			return
+		}
 		customTmpl, errCmdTmpl := template.New("custom_commandline").Funcs(utils.GetFuncMap(cfg)).Parse(cmdStr)
 		if errCmdTmpl != nil {
 			r.getLogger().WithError(errCmdTmpl).Error("custom commandline parse failure")
@@ -232,35 +244,27 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		}
 		r.getLogger().Debugf("end executing custom_commandline: %s", args[1])
 	} else {
-		outputFiles := []string{fileName}
+		// 使用任务队列处理后处理任务
+		inst := instance.GetInstance(ctx)
+		enqueuer := inst.TaskEnqueuer
+		if enqueuer == nil {
+			r.getLogger().Warn("task queue not available, skipping post-processing")
+			return
+		}
+
 		if resolvedConfig.OnRecordFinished.FixFlvAtFirst {
-			outputFiles, err = tools.FixFlvByBililiveRecorder(ctx, fileName)
-			if err != nil {
-				r.getLogger().WithError(err).Error("failed to fix flv file, skip this step")
+			if err := enqueuer.EnqueueFixFlvTask(fileName); err != nil {
+				r.getLogger().WithError(err).Error("failed to enqueue fix flv task")
+			} else {
+				r.getLogger().Infof("fix flv task enqueued: %s", fileName)
 			}
 		}
+
 		if resolvedConfig.OnRecordFinished.ConvertToMp4 {
-			for _, outputFile := range outputFiles {
-				//格式转换时去除原本后缀名
-				newFileName := outputFile[0:strings.LastIndex(outputFile, ".")]
-				convertCmd := exec.Command(
-					ffmpegPath,
-					"-hide_banner",
-					"-i",
-					outputFile,
-					"-c",
-					"copy",
-					newFileName+".mp4",
-				)
-				// 跟随全局 Debug 开关输出
-				convertCmd.Stdout = utils.NewDebugControlledWriter(os.Stdout)
-				convertCmd.Stderr = utils.NewDebugControlledWriter(os.Stderr)
-				if err = convertCmd.Run(); err != nil {
-					convertCmd.Process.Kill()
-					r.getLogger().Debugln(err)
-				} else if resolvedConfig.OnRecordFinished.DeleteFlvAfterConvert {
-					os.Remove(outputFile)
-				}
+			if err := enqueuer.EnqueueConvertMp4Task(fileName, resolvedConfig.OnRecordFinished.DeleteFlvAfterConvert); err != nil {
+				r.getLogger().WithError(err).Error("failed to enqueue convert mp4 task")
+			} else {
+				r.getLogger().Infof("convert mp4 task enqueued: %s", fileName)
 			}
 		}
 	}
@@ -327,10 +331,39 @@ func (r *recorder) getLogger() *livelogger.LiveLogger {
 	return r.Live.GetLogger()
 }
 
+// setCurrentFilePath 设置当前正在录制的文件路径
+func (r *recorder) setCurrentFilePath(path string) {
+	r.currentFileLock.Lock()
+	defer r.currentFileLock.Unlock()
+	r.currentFilePath = path
+}
+
+// getCurrentFilePath 获取当前正在录制的文件路径
+func (r *recorder) getCurrentFilePath() string {
+	r.currentFileLock.RLock()
+	defer r.currentFileLock.RUnlock()
+	return r.currentFilePath
+}
+
 func (r *recorder) GetStatus() (map[string]string, error) {
 	statusP, ok := r.getParser().(parser.StatusParser)
 	if !ok {
 		return nil, ErrParserNotSupportStatus
 	}
-	return statusP.Status()
+	status, err := statusP.Status()
+	if err != nil {
+		return nil, err
+	}
+
+	// 添加文件路径和文件大小信息
+	filePath := r.getCurrentFilePath()
+	if filePath != "" {
+		status["file_path"] = filePath
+		// 获取文件大小
+		if fileInfo, err := os.Stat(filePath); err == nil {
+			status["file_size"] = strconv.FormatInt(fileInfo.Size(), 10)
+		}
+	}
+
+	return status, nil
 }

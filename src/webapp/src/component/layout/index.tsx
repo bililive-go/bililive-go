@@ -1,7 +1,7 @@
 import React from 'react';
 import { HashRouter as Router, Link } from 'react-router-dom';
 import { Layout, Menu } from 'antd';
-import { MonitorOutlined } from '@ant-design/icons';
+import { MonitorOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import './layout.css';
 
 const { Header, Content, Sider } = Layout;
@@ -37,6 +37,11 @@ class RootLayout extends React.Component<Props> {
                                             { key: '4', label: <Link to="/fileList">文件</Link> },
                                             { key: '5', label: <a href="/tools/">工具</a> },
                                         ]
+                                    },
+                                    {
+                                        key: 'tasks',
+                                        icon: <UnorderedListOutlined />,
+                                        label: <Link to="/tasks">任务队列</Link>,
                                     }
                                 ]}
                             />

@@ -4,7 +4,7 @@
  */
 
 // SSE 事件类型
-export type SSEEventType = 'live_update' | 'log' | 'conn_stats' | 'recorder_status' | 'connected';
+export type SSEEventType = 'live_update' | 'log' | 'conn_stats' | 'recorder_status' | 'connected' | 'list_change' | 'rate_limit_update';
 
 // SSE 消息结构
 export interface SSEMessage {
@@ -94,6 +94,16 @@ class SSEManager {
       // 监听 recorder_status 事件
       this.eventSource.addEventListener('recorder_status', (event: MessageEvent) => {
         this.handleMessage('recorder_status', event.data);
+      });
+
+      // 监听 list_change 事件（直播间增删、监控开关等）
+      this.eventSource.addEventListener('list_change', (event: MessageEvent) => {
+        this.handleMessage('list_change', event.data);
+      });
+
+      // 监听 rate_limit_update 事件（强制刷新后更新频率限制信息）
+      this.eventSource.addEventListener('rate_limit_update', (event: MessageEvent) => {
+        this.handleMessage('rate_limit_update', event.data);
       });
 
     } catch (error) {

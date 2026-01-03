@@ -1,11 +1,12 @@
 import React from "react";
-import { Button, Divider, Table, Tag, Tabs, Row, Col, Tooltip, message, List, Typography } from 'antd';
-import { EditOutlined } from '@ant-design/icons';
+import { Button, Divider, Table, Tag, Tabs, Row, Col, Tooltip, message, List, Typography, Switch, Space } from 'antd';
+import { EditOutlined, SyncOutlined, CloudSyncOutlined, ReloadOutlined } from '@ant-design/icons';
 import PopDialog from '../pop-dialog/index';
 import AddRoomDialog from '../add-room-dialog/index';
 import LogPanel from '../log-panel/index';
 import API from '../../utils/api';
 import { subscribeSSE, unsubscribeSSE, SSEMessage } from '../../utils/sse';
+import { isListSSEEnabled, setListSSEEnabled, getPollIntervalMs } from '../../utils/settings';
 import './live-list.css';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate, NavigateFunction } from "react-router-dom";
@@ -15,12 +16,21 @@ import { RoomConfigForm } from "../config-info";
 const api = new API();
 const { Text } = Typography;
 
-const REFRESH_TIME = 3 * 60 * 1000;
+// 使用动态获取的刷新间隔
+const getRefreshTime = () => getPollIntervalMs();
 
 interface Props {
     navigate: NavigateFunction;
     refresh?: () => void;
 }
+
+// 刷新状态类型
+// idle: 可以立即刷新
+// waiting_interval: 等待配置的访问间隔
+// waiting_rate_limit: 等待平台访问频率限制
+// refreshing: 正在刷新
+// no_schedule: 未安排定期刷新（如未监控的直播间）
+type RefreshStatus = 'idle' | 'waiting_interval' | 'waiting_rate_limit' | 'refreshing' | 'no_schedule';
 
 interface IState {
     list: ItemData[],
@@ -34,7 +44,9 @@ interface IState {
     globalConfig: any, // 全局配置缓存
     countdownTimers: { [key: string]: number }, // 倒计时值缓存（秒）
     lastUpdateTimes: { [key: string]: number }, // 上次更新时间戳（毫秒）
+    refreshStatus: { [key: string]: RefreshStatus }, // 刷新状态
     listSSESubscription: string | null, // 列表级别的SSE订阅ID
+    enableListSSE: boolean, // 是否启用列表级别SSE（从localStorage读取）
 }
 
 interface ItemData {
@@ -261,11 +273,42 @@ class LiveList extends React.Component<Props, IState> {
             globalConfig: null,
             countdownTimers: {},
             lastUpdateTimes: {},
+            refreshStatus: {},
             listSSESubscription: null,
+            enableListSSE: isListSSEEnabled(),
         }
     }
 
     pendingRoomId: string | null = null;
+
+    // 监听localStorage设置变化的处理函数
+    handleLocalSettingsChange = (event: CustomEvent) => {
+        const newSettings = event.detail;
+        const oldEnableSSE = this.state.enableListSSE;
+        const newEnableSSE = newSettings.enableListSSE;
+
+        if (oldEnableSSE !== newEnableSSE) {
+            this.setState({ enableListSSE: newEnableSSE }, () => {
+                if (newEnableSSE) {
+                    // 启用SSE，设置SSE订阅
+                    this.setupListSSE();
+                    // 减少轮询频率（使用更长的间隔）
+                    clearInterval(this.timer);
+                    this.timer = setInterval(() => {
+                        this.requestData("livelist");
+                    }, getRefreshTime() * 2); // SSE模式下轮询作为备份，间隔翻倍
+                } else {
+                    // 禁用SSE，取消订阅
+                    this.cleanupListSSE();
+                    // 恢复正常轮询频率
+                    clearInterval(this.timer);
+                    this.timer = setInterval(() => {
+                        this.requestData("livelist");
+                    }, getRefreshTime());
+                }
+            });
+        }
+    };
 
     componentDidMount() {
         // 解析 URL 参数以支持深度链接
@@ -275,15 +318,23 @@ class LiveList extends React.Component<Props, IState> {
             this.pendingRoomId = searchParams.get('room');
         }
 
+        // 监听localStorage设置变化
+        window.addEventListener('localSettingsChanged', this.handleLocalSettingsChange as EventListener);
+
         this.requestData("livelist"); // Call with a specific targetKey
         this.fetchGlobalConfig().then(() => {
-            // 根据配置决定是否启用列表级别SSE
-            this.setupListSSE();
+            // 根据用户设置决定是否启用列表级别SSE
+            if (this.state.enableListSSE) {
+                this.setupListSSE();
+            }
         });
+
+        // 设置轮询定时器，SSE模式下使用更长的间隔作为备份
+        const refreshInterval = this.state.enableListSSE ? getRefreshTime() * 2 : getRefreshTime();
         this.timer = setInterval(() => {
             this.requestData("livelist"); // Call with a specific targetKey
-        }, REFRESH_TIME);
-        
+        }, refreshInterval);
+
         // 启动倒计时定时器，每秒更新一次
         this.countdownTimer = setInterval(() => {
             this.updateCountdowns();
@@ -301,35 +352,165 @@ class LiveList extends React.Component<Props, IState> {
 
     // 设置列表级别的SSE订阅
     setupListSSE = () => {
-        const { list, globalConfig } = this.state;
-        const threshold = globalConfig?.rpc?.sse_list_threshold || 50;
-        
-        // 如果列表数量小于阈值，订阅所有房间的更新
-        if (list.length < threshold) {
-            // 订阅通配符，接收所有房间的live_update事件
-            const subId = subscribeSSE('*', 'live_update', (message: SSEMessage) => {
-                // 刷新列表数据
-                this.requestListData();
+        // 如果已经有订阅，先清理
+        this.cleanupListSSE();
+
+        // 订阅所有房间的 live_update 事件（直播状态变化）
+        const liveUpdateSubId = subscribeSSE('*', 'live_update', (message: SSEMessage) => {
+            // 刷新列表数据
+            this.requestListData();
+            // 如果该房间已展开，也刷新详情
+            if (this.state.expandedRowKeys.includes(message.room_id)) {
+                this.loadRoomDetail(message.room_id);
+            }
+        });
+
+        // 订阅 list_change 事件（直播间增删、监控开关等）
+        const listChangeSubId = subscribeSSE('*', 'list_change', (message: SSEMessage) => {
+            console.log('[SSE] List change event:', message);
+            const roomId = message.room_id;
+            const changeType = message.data?.change_type;
+
+            // 刷新列表数据
+            this.requestListData();
+
+            // 如果该房间已展开，且是监控开关变化，重新加载详情（更新调度器状态）
+            if (roomId && this.state.expandedRowKeys.includes(roomId)) {
+                if (changeType === 'listen_start' || changeType === 'listen_stop') {
+                    // 稍微延迟以确保后端状态已更新
+                    setTimeout(() => {
+                        this.loadRoomDetail(roomId);
+                    }, 500);
+                }
+            }
+        });
+
+        // 订阅 rate_limit_update 事件（强制刷新后更新频率限制信息）
+        const rateLimitSubId = subscribeSSE('*', 'rate_limit_update', (message: SSEMessage) => {
+            console.log('[SSE] Rate limit update event:', message);
+            const roomId = message.room_id;
+            // 如果该房间已展开，更新频率限制信息
+            if (this.state.expandedRowKeys.includes(roomId)) {
+                this.handleRateLimitUpdate(roomId, message.data);
+            }
+        });
+
+        // 保存所有订阅ID（用下划线连接，或者使用新的数据结构）
+        this.setState({
+            listSSESubscription: `${liveUpdateSubId}|${listChangeSubId}|${rateLimitSubId}`
+        });
+    }
+
+    // 清理列表级别的SSE订阅
+    cleanupListSSE = () => {
+        const { listSSESubscription } = this.state;
+        if (listSSESubscription) {
+            // 取消所有订阅
+            const subIds = listSSESubscription.split('|');
+            subIds.forEach(subId => {
+                if (subId) {
+                    unsubscribeSSE(subId);
+                }
             });
-            this.setState({ listSSESubscription: subId });
+            this.setState({ listSSESubscription: null });
         }
     }
 
-    // 根据列表大小更新SSE订阅策略
+    // 处理频率限制更新事件（包括调度器刷新完成）
+    handleRateLimitUpdate = (roomId: string, updateData: any) => {
+        this.setState(prevState => {
+            const currentDetail = prevState.expandedDetails[roomId];
+            if (!currentDetail) {
+                return prevState;
+            }
+
+            // 检查是否是调度器刷新完成事件
+            const schedulerStatus = updateData?.scheduler_status;
+            if (schedulerStatus) {
+                // 从调度器状态计算倒计时
+                let countdown: number;
+                let status: RefreshStatus;
+
+                if (!schedulerStatus.scheduler_running || !schedulerStatus.has_waiters) {
+                    // 调度器未运行或没有等待者，无刷新计划
+                    countdown = -1;
+                    status = 'no_schedule';
+                } else if (schedulerStatus.seconds_until_next_request > 0) {
+                    // 有下次请求计划
+                    countdown = Math.ceil(schedulerStatus.seconds_until_next_request);
+                    status = 'waiting_interval';
+                } else {
+                    // 距离下次请求时间已过
+                    countdown = 0;
+                    status = 'idle';
+                }
+
+                // 更新详情中的调度器状态
+                const updatedDetail = {
+                    ...currentDetail,
+                    scheduler_status: schedulerStatus
+                };
+
+                return {
+                    ...prevState,
+                    expandedDetails: {
+                        ...prevState.expandedDetails,
+                        [roomId]: updatedDetail
+                    },
+                    countdownTimers: {
+                        ...prevState.countdownTimers,
+                        [roomId]: countdown
+                    },
+                    lastUpdateTimes: {
+                        ...prevState.lastUpdateTimes,
+                        [roomId]: Date.now()
+                    },
+                    refreshStatus: {
+                        ...prevState.refreshStatus,
+                        [roomId]: status
+                    }
+                };
+            }
+
+            // 旧的频率限制信息处理逻辑（兼容性保留）
+            const rateLimitInfo = updateData;
+            const updatedDetail = {
+                ...currentDetail,
+                rate_limit_info: rateLimitInfo
+            };
+
+            const nextRequestInSec = Math.ceil(rateLimitInfo?.next_request_in_sec || 0);
+            const minIntervalSec = rateLimitInfo?.min_interval_sec || currentDetail?.platform_rate_limit || 20;
+            const waitedSec = Math.round(rateLimitInfo?.waited_seconds || 0);
+            const initialCountdown = nextRequestInSec > 0 ? nextRequestInSec : minIntervalSec - waitedSec;
+
+            return {
+                ...prevState,
+                expandedDetails: {
+                    ...prevState.expandedDetails,
+                    [roomId]: updatedDetail
+                },
+                countdownTimers: {
+                    ...prevState.countdownTimers,
+                    [roomId]: Math.max(0, initialCountdown)
+                },
+                lastUpdateTimes: {
+                    ...prevState.lastUpdateTimes,
+                    [roomId]: Date.now()
+                },
+                refreshStatus: {
+                    ...prevState.refreshStatus,
+                    [roomId]: nextRequestInSec > 0 ? 'waiting_interval' : 'idle'
+                }
+            };
+        });
+    }
+
+    // 根据列表大小更新SSE订阅策略（保留但简化，因为现在SSE始终订阅）
     updateListSSESubscription = () => {
-        const { list, listSSESubscription, globalConfig } = this.state;
-        const threshold = globalConfig?.rpc?.sse_list_threshold || 50;
-        
-        if (list.length < threshold && !listSSESubscription) {
-            // 列表小于阈值但未订阅，创建订阅
-            const subId = subscribeSSE('*', 'live_update', (message: SSEMessage) => {
-                this.requestListData();
-            });
-            this.setState({ listSSESubscription: subId });
-        } else if (list.length >= threshold && listSSESubscription) {
-            // 列表超过阈值但已订阅，取消订阅
-            unsubscribeSSE(listSSESubscription);
-            this.setState({ listSSESubscription: null });
+        // 如果用户启用了SSE但尚未订阅，则设置订阅
+        if (this.state.enableListSSE && !this.state.listSSESubscription) {
+            this.setupListSSE();
         }
     }
 
@@ -337,12 +518,13 @@ class LiveList extends React.Component<Props, IState> {
         //clear refresh timer
         clearInterval(this.timer);
         clearInterval(this.countdownTimer);
-        
+
+        // 移除localStorage设置变化监听
+        window.removeEventListener('localSettingsChanged', this.handleLocalSettingsChange as EventListener);
+
         // 取消列表级别的SSE订阅
-        if (this.state.listSSESubscription) {
-            unsubscribeSSE(this.state.listSSESubscription);
-        }
-        
+        this.cleanupListSSE();
+
         // 取消所有详情页的 SSE 订阅
         const { sseSubscriptions } = this.state;
         Object.values(sseSubscriptions).forEach(subId => {
@@ -445,7 +627,7 @@ class LiveList extends React.Component<Props, IState> {
                     if (oldListLength !== data.length) {
                         this.updateListSSESubscription();
                     }
-                    
+
                     // 处理深度链接自动展开
                     if (this.pendingRoomId) {
                         const targetRoom = data.find(item => item.roomId === this.pendingRoomId);
@@ -507,14 +689,17 @@ class LiveList extends React.Component<Props, IState> {
                 const newSubscriptions = { ...prevState.sseSubscriptions };
                 const newCountdowns = { ...prevState.countdownTimers };
                 const newLastUpdateTimes = { ...prevState.lastUpdateTimes };
+                const newRefreshStatus = { ...prevState.refreshStatus };
                 delete newSubscriptions[roomId];
                 delete newCountdowns[roomId];
                 delete newLastUpdateTimes[roomId];
+                delete newRefreshStatus[roomId];
                 return {
                     expandedRowKeys: prevState.expandedRowKeys.filter(key => key !== roomId),
                     sseSubscriptions: newSubscriptions,
                     countdownTimers: newCountdowns,
-                    lastUpdateTimes: newLastUpdateTimes
+                    lastUpdateTimes: newLastUpdateTimes,
+                    refreshStatus: newRefreshStatus
                 };
             });
         } else {
@@ -616,14 +801,60 @@ class LiveList extends React.Component<Props, IState> {
         api.getLiveDetail(roomId)
             .then((detail: any) => {
                 this.setState(prevState => {
-                    // 初始化倒计时值，使用 Math.ceil 避免过早显示"立即可用"
-                    const nextRequestInSec = Math.ceil(detail.rate_limit_info?.next_request_in_sec || 0);
-                    const minIntervalSec = detail.rate_limit_info?.min_interval_sec || detail.platform_rate_limit || 20;
-                    const waitedSec = Math.round(detail.rate_limit_info?.waited_seconds || 0);
-                    
-                    // 如果 nextRequestInSec <= 0，说明可以立即请求，使用 minIntervalSec 作为初始值
-                    const initialCountdown = nextRequestInSec > 0 ? nextRequestInSec : minIntervalSec - waitedSec;
-                    
+                    // 优先使用 scheduler_status 来确定刷新状态
+                    const schedulerStatus = detail.scheduler_status;
+                    const rateLimitInfo = detail.rate_limit_info;
+
+                    let initialCountdown = 0;
+                    let initialStatus: RefreshStatus = 'idle';
+
+                    if (schedulerStatus) {
+                        // 有调度器状态信息
+                        if (!schedulerStatus.has_waiters) {
+                            // 没有等待者，说明没有安排定期刷新
+                            initialStatus = 'no_schedule';
+                            initialCountdown = -1; // 特殊值表示无计划
+                        } else if (schedulerStatus.seconds_until_next_request > 0) {
+                            // 有下次请求计划
+                            initialCountdown = Math.ceil(schedulerStatus.seconds_until_next_request);
+                            // 检查是否在等待平台限制
+                            if (rateLimitInfo?.next_request_in_sec > 0) {
+                                initialStatus = 'waiting_rate_limit';
+                            } else {
+                                initialStatus = 'waiting_interval';
+                            }
+                        } else if (schedulerStatus.seconds_until_next_request === 0) {
+                            // 即将发送请求或正在等待平台限制
+                            if (rateLimitInfo?.next_request_in_sec > 0) {
+                                initialCountdown = Math.ceil(rateLimitInfo.next_request_in_sec);
+                                initialStatus = 'waiting_rate_limit';
+                            } else {
+                                initialCountdown = 0;
+                                initialStatus = 'idle';
+                            }
+                        } else {
+                            // seconds_until_next_request < 0，表示没有计划
+                            initialStatus = 'no_schedule';
+                            initialCountdown = -1;
+                        }
+                    } else {
+                        // 回退到旧逻辑（兼容性）
+                        const nextRequestInSec = Math.ceil(rateLimitInfo?.next_request_in_sec || 0);
+                        const minIntervalSec = rateLimitInfo?.min_interval_sec || detail.platform_rate_limit || 20;
+                        const waitedSec = Math.round(rateLimitInfo?.waited_seconds || 0);
+
+                        if (nextRequestInSec > 0) {
+                            initialCountdown = nextRequestInSec;
+                            initialStatus = 'waiting_rate_limit';
+                        } else if (waitedSec < minIntervalSec) {
+                            initialCountdown = minIntervalSec - waitedSec;
+                            initialStatus = 'waiting_interval';
+                        } else {
+                            initialCountdown = 0;
+                            initialStatus = 'idle';
+                        }
+                    }
+
                     return {
                         expandedDetails: {
                             ...prevState.expandedDetails,
@@ -631,11 +862,15 @@ class LiveList extends React.Component<Props, IState> {
                         },
                         countdownTimers: {
                             ...prevState.countdownTimers,
-                            [roomId]: Math.max(0, initialCountdown)
+                            [roomId]: initialCountdown
                         },
                         lastUpdateTimes: {
                             ...prevState.lastUpdateTimes,
                             [roomId]: Date.now()
+                        },
+                        refreshStatus: {
+                            ...prevState.refreshStatus,
+                            [roomId]: initialStatus
                         }
                     };
                 });
@@ -649,36 +884,41 @@ class LiveList extends React.Component<Props, IState> {
     updateCountdowns = () => {
         this.setState(prevState => {
             const newCountdowns = { ...prevState.countdownTimers };
-            const newLastUpdateTimes = { ...prevState.lastUpdateTimes };
+            const newRefreshStatus = { ...prevState.refreshStatus };
             let hasChanges = false;
-            const now = Date.now();
 
             // 只更新展开的房间
             prevState.expandedRowKeys.forEach(roomId => {
-                if (newCountdowns[roomId] !== undefined) {
-                    const detail = prevState.expandedDetails[roomId];
-                    const minIntervalSec = detail?.rate_limit_info?.min_interval_sec || detail?.platform_rate_limit || 20;
-                    
+                const currentStatus = newRefreshStatus[roomId];
+                const currentCountdown = newCountdowns[roomId];
+
+                // 跳过无计划和正在刷新的状态
+                if (currentStatus === 'no_schedule' || currentStatus === 'refreshing') {
+                    return;
+                }
+
+                // 跳过无效的倒计时值
+                if (currentCountdown === undefined || currentCountdown < 0) {
+                    return;
+                }
+
+                if (currentCountdown > 0) {
                     // 递减倒计时
-                    if (newCountdowns[roomId] > 0) {
-                        newCountdowns[roomId] = Math.max(0, newCountdowns[roomId] - 1);
-                        hasChanges = true;
-                    } else {
-                        // 倒计时为0时，计算已经过去的时间并自动增加
-                        const lastUpdateTime = newLastUpdateTimes[roomId] || now;
-                        const elapsedSec = Math.floor((now - lastUpdateTime) / 1000);
-                        
-                        if (elapsedSec >= minIntervalSec) {
-                            // 已经过了一个周期，重置倒计时
-                            newCountdowns[roomId] = minIntervalSec;
-                            newLastUpdateTimes[roomId] = now;
-                            hasChanges = true;
-                        }
+                    newCountdowns[roomId] = currentCountdown - 1;
+                    hasChanges = true;
+
+                    // 如果倒计时归零，更新状态为 idle
+                    if (newCountdowns[roomId] === 0) {
+                        newRefreshStatus[roomId] = 'idle';
                     }
                 }
             });
 
-            return hasChanges ? { ...prevState, countdownTimers: newCountdowns, lastUpdateTimes: newLastUpdateTimes } : prevState;
+            return hasChanges ? {
+                ...prevState,
+                countdownTimers: newCountdowns,
+                refreshStatus: newRefreshStatus
+            } : prevState;
         });
     }
 
@@ -702,28 +942,28 @@ class LiveList extends React.Component<Props, IState> {
         if (!recorderStatus || !recorderStatus.bitrate) {
             return '';
         }
-        
+
         // ffmpeg bitrate 格式如 "2345.6kbits/s"
         const bitrateStr = recorderStatus.bitrate;
         const match = bitrateStr.match(/([\d.]+)(k?bits\/s)/i);
-        
+
         if (!match) {
             return recorderStatus.speed || ''; // 回退到原始 speed 值
         }
-        
+
         let bitsPerSec = parseFloat(match[1]);
         const unit = match[2].toLowerCase();
-        
+
         // 转换为 bits/s
         if (unit.startsWith('k')) {
             bitsPerSec *= 1000;
         }
-        
+
         // 转换为 MB/s 或 KB/s
         const bytesPerSec = bitsPerSec / 8;
         const mbPerSec = bytesPerSec / (1024 * 1024);
         const kbPerSec = bytesPerSec / 1024;
-        
+
         if (mbPerSec >= 1) {
             return `${mbPerSec.toFixed(2)} MB/s`;
         } else {
@@ -731,11 +971,31 @@ class LiveList extends React.Component<Props, IState> {
         }
     }
 
+    // 格式化文件大小：将字节转换为可读格式
+    formatFileSize = (sizeStr: string): string => {
+        const bytes = parseInt(sizeStr, 10);
+        if (isNaN(bytes) || bytes < 0) {
+            return '未知';
+        }
+
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let size = bytes;
+        let unitIndex = 0;
+
+        while (size >= 1024 && unitIndex < units.length - 1) {
+            size /= 1024;
+            unitIndex++;
+        }
+
+        return `${size.toFixed(2)} ${units[unitIndex]}`;
+    }
+
     renderExpandedRow = (record: ItemData): JSX.Element => {
-        const { expandedDetails, expandedLogs, countdownTimers } = this.state;
+        const { expandedDetails, expandedLogs, countdownTimers, refreshStatus } = this.state;
         const detail = expandedDetails[record.roomId];
         const logs = expandedLogs[record.roomId] || [];
         const countdown = countdownTimers[record.roomId] ?? 0;
+        const status = refreshStatus[record.roomId] ?? 'idle';
         const liveId = record.roomId;
         // 保存 this 引用供嵌套函数使用
         const component = this;
@@ -755,20 +1015,84 @@ class LiveList extends React.Component<Props, IState> {
             color: '#666',
         };
 
+        // 获取刷新状态的显示文本和颜色
+        const getRefreshStatusDisplay = () => {
+            // 暂无刷新计划状态
+            if (status === 'no_schedule') {
+                return {
+                    text: '未安排刷新',
+                    color: 'default' as const,
+                    icon: null
+                };
+            }
+
+            if (countdown > 0) {
+                if (status === 'waiting_rate_limit') {
+                    return {
+                        text: `等待平台限制 ${countdown} 秒`,
+                        color: 'red' as const,
+                        icon: <SyncOutlined spin />
+                    };
+                } else {
+                    return {
+                        text: `${countdown} 秒`,
+                        color: 'orange' as const,
+                        icon: null
+                    };
+                }
+            } else {
+                if (status === 'refreshing') {
+                    return {
+                        text: '正在刷新',
+                        color: 'blue' as const,
+                        icon: <SyncOutlined spin />
+                    };
+                } else {
+                    return {
+                        text: '立即可用',
+                        color: 'green' as const,
+                        icon: null
+                    };
+                }
+            }
+        };
+
         // 运行时信息面板
         const renderRuntimePanel = () => {
             const handleForceRefresh = async () => {
+                // 设置刷新中状态
+                component.setState(prevState => ({
+                    refreshStatus: {
+                        ...prevState.refreshStatus,
+                        [liveId]: 'refreshing'
+                    }
+                }));
+
                 try {
                     const result = await api.forceRefreshLive(liveId) as { success?: boolean; message?: string };
                     if (result.success) {
                         message.success('强制刷新成功');
-                        // 重新加载详细信息
+                        // 重新加载详细信息（会更新倒计时和状态）
                         component.loadRoomDetail(liveId);
                     } else {
                         message.error(result.message || '强制刷新失败');
+                        // 恢复状态
+                        component.setState(prevState => ({
+                            refreshStatus: {
+                                ...prevState.refreshStatus,
+                                [liveId]: 'idle'
+                            }
+                        }));
                     }
                 } catch (error) {
                     message.error('强制刷新失败');
+                    // 恢复状态
+                    component.setState(prevState => ({
+                        refreshStatus: {
+                            ...prevState.refreshStatus,
+                            [liveId]: 'idle'
+                        }
+                    }));
                 }
             };
 
@@ -795,13 +1119,37 @@ class LiveList extends React.Component<Props, IState> {
                                         <Tag color="blue">{this.formatDownloadSpeed(detail.recorder_status)}</Tag>
                                     </div>
                                 )}
+                                {detail.recording && detail.recorder_status?.file_size && (
+                                    <div style={configRowStyle}>
+                                        <span style={configLabelStyle}>当前文件大小</span>
+                                        <Tag color="green">{this.formatFileSize(detail.recorder_status.file_size)}</Tag>
+                                    </div>
+                                )}
+                                {detail.recording && detail.recorder_status?.file_path && (
+                                    <div style={configRowStyle}>
+                                        <span style={configLabelStyle}>录制文件路径</span>
+                                        <Tooltip title={detail.recorder_status.file_path}>
+                                            <span style={{
+                                                maxWidth: '200px',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                whiteSpace: 'nowrap',
+                                                display: 'inline-block',
+                                                verticalAlign: 'middle',
+                                                cursor: 'pointer'
+                                            }}>
+                                                {detail.recorder_status.file_path.split(/[/\\]/).pop() || detail.recorder_status.file_path}
+                                            </span>
+                                        </Tooltip>
+                                    </div>
+                                )}
                                 <div style={configRowStyle}>
                                     <span style={configLabelStyle}>开播时间</span>
-                                    <span>{detail.live_start_time || '未知'}</span>
+                                    <span>{detail.live_start_time || (detail.status ? '获取中...' : '未开播')}</span>
                                 </div>
                                 <div style={{ ...configRowStyle, borderBottom: 'none' }}>
-                                    <span style={configLabelStyle}>上次录制</span>
-                                    <span>{detail.last_record_time || '无'}</span>
+                                    <span style={configLabelStyle}>录制开始</span>
+                                    <span>{detail.last_record_time || (detail.recording ? '获取中...' : '未在录制')}</span>
                                 </div>
                             </div>
 
@@ -810,7 +1158,29 @@ class LiveList extends React.Component<Props, IState> {
                                 {detail.rate_limit_info ? (
                                     <div>
                                         <div style={configRowStyle}>
-                                            <span style={configLabelStyle}>最小访问间隔</span>
+                                            <Tooltip
+                                                title={
+                                                    <div>
+                                                        <p style={{ margin: '4px 0' }}>
+                                                            <strong>直播平台级最小访问间隔</strong>
+                                                        </p>
+                                                        <p style={{ margin: '4px 0' }}>
+                                                            为避免触发直播平台的风控机制，对同一平台的所有直播间请求会保持一定的时间间隔。
+                                                        </p>
+                                                        <p style={{ margin: '4px 0' }}>
+                                                            即使同时监控多个{detail.platform}直播间，两次请求之间也会至少间隔该时长。
+                                                        </p>
+                                                        <p style={{ margin: '4px 0', color: '#faad14' }}>
+                                                            可在配置文件的 platform_configs 中自定义各平台的 min_access_interval_sec
+                                                        </p>
+                                                    </div>
+                                                }
+                                                placement="right"
+                                            >
+                                                <span style={{ ...configLabelStyle, cursor: 'help', textDecoration: 'underline dotted' }}>
+                                                    平台最小访问间隔
+                                                </span>
+                                            </Tooltip>
                                             <Tag>{detail.rate_limit_info.min_interval_sec || detail.platform_rate_limit} 秒</Tag>
                                         </div>
                                         <div style={configRowStyle}>
@@ -819,17 +1189,22 @@ class LiveList extends React.Component<Props, IState> {
                                         </div>
                                         <div style={configRowStyle}>
                                             <span style={configLabelStyle}>距离下次刷新</span>
-                                            <Tag color={countdown > 0 ? 'orange' : 'green'}>
-                                                {countdown > 0
-                                                    ? `${countdown} 秒`
-                                                    : '正在刷新'}
-                                            </Tag>
+                                            {(() => {
+                                                const statusDisplay = getRefreshStatusDisplay();
+                                                return (
+                                                    <Tag color={statusDisplay.color} icon={statusDisplay.icon}>
+                                                        {statusDisplay.text}
+                                                    </Tag>
+                                                );
+                                            })()}
                                         </div>
                                         <div style={{ marginTop: 12, borderBottom: 'none' }}>
                                             <Button
                                                 type="primary"
                                                 size="small"
                                                 onClick={handleForceRefresh}
+                                                loading={status === 'refreshing'}
+                                                icon={<ReloadOutlined />}
                                             >
                                                 强制刷新（突破频率限制）
                                             </Button>
@@ -983,7 +1358,22 @@ class LiveList extends React.Component<Props, IState> {
                                 <span style={{ fontSize: '20px', fontWeight: 600, color: 'rgba(0,0,0,0.85)', marginRight: 12 }}>直播间列表</span>
                                 <span style={{ fontSize: '14px', color: 'rgba(0,0,0,0.45)' }}>Room List</span>
                             </div>
-                            <div style={{ display: 'flex', gap: '8px' }}>
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                <Tooltip title={this.state.enableListSSE
+                                    ? "实时更新已启用：列表变化将自动同步"
+                                    : "实时更新已禁用：需手动刷新页面查看变化"}>
+                                    <Space size="small">
+                                        <CloudSyncOutlined style={{ color: this.state.enableListSSE ? '#1890ff' : '#999' }} />
+                                        <Switch
+                                            size="small"
+                                            checked={this.state.enableListSSE}
+                                            onChange={(checked) => {
+                                                setListSSEEnabled(checked);
+                                                // 状态更新会通过 handleLocalSettingsChange 事件处理
+                                            }}
+                                        />
+                                    </Space>
+                                </Tooltip>
                                 <Button key="2" type="default" onClick={this.onSettingSave}>保存设置</Button>
                                 <Button key="1" type="primary" onClick={this.onAddRoomClick}>
                                     添加房间

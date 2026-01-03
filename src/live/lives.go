@@ -18,6 +18,17 @@ import (
 	"github.com/bluele/gcache"
 )
 
+// SchedulerRefreshCallback 调度器刷新完成的回调函数类型
+type SchedulerRefreshCallback func(live Live, status SchedulerStatus)
+
+// 全局调度器刷新回调（由外部包设置，避免循环依赖）
+var schedulerRefreshCallback SchedulerRefreshCallback
+
+// SetSchedulerRefreshCallback 设置调度器刷新完成的回调函数
+func SetSchedulerRefreshCallback(callback SchedulerRefreshCallback) {
+	schedulerRefreshCallback = callback
+}
+
 var (
 	m                               = make(map[string]Builder)
 	InitializingLiveBuilderInstance InitializingLiveBuilder
@@ -164,18 +175,44 @@ type waiter struct {
 	ctx context.Context
 }
 
+// SchedulerStatus 调度器状态信息
+type SchedulerStatus struct {
+	// HasWaiters 是否有等待的调用方（是否有定期刷新计划）
+	HasWaiters bool `json:"has_waiters"`
+	// WaiterCount 等待的调用方数量
+	WaiterCount int `json:"waiter_count"`
+	// LastRequestAt 上次发送请求的时间
+	LastRequestAt time.Time `json:"last_request_at"`
+	// NextRequestAt 预计下次发送请求的时间
+	NextRequestAt time.Time `json:"next_request_at"`
+	// IntervalSeconds 配置的访问间隔（秒）
+	IntervalSeconds int `json:"interval_seconds"`
+	// SecondsUntilNextRequest 距离下次请求的秒数（如果有计划的话）
+	SecondsUntilNextRequest float64 `json:"seconds_until_next_request"`
+	// SecondsSinceLastRequest 距离上次请求的秒数
+	SecondsSinceLastRequest float64 `json:"seconds_since_last_request"`
+	// SchedulerRunning 调度器是否在运行
+	SchedulerRunning bool `json:"scheduler_running"`
+}
+
+// SchedulerStatusProvider 提供调度器状态的接口
+type SchedulerStatusProvider interface {
+	GetSchedulerStatus() SchedulerStatus
+}
+
 type WrappedLive struct {
 	Live
 	cache gcache.Cache
 
 	// 请求调度相关字段
-	mu              sync.Mutex
-	waiters         []waiter      // 等待下一次请求结果的调用方
-	lastRequestAt   time.Time     // 上次发送请求的时间
-	schedulerOnce   sync.Once     // 确保调度器只启动一次
-	schedulerStop   chan struct{} // 停止调度器的信号
-	schedulerCtx    context.Context
-	schedulerCancel context.CancelFunc
+	mu               sync.Mutex
+	waiters          []waiter      // 等待下一次请求结果的调用方
+	lastRequestAt    time.Time     // 上次发送请求的时间
+	schedulerOnce    sync.Once     // 确保调度器只启动一次
+	schedulerStarted bool          // 调度器是否已启动
+	schedulerStop    chan struct{} // 停止调度器的信号
+	schedulerCtx     context.Context
+	schedulerCancel  context.CancelFunc
 }
 
 // NewWrappedLive 创建一个带有缓存功能的 Live 包装器
@@ -231,7 +268,17 @@ func (w *WrappedLive) GetInfo() (*Info, error) {
 	w.lastRequestAt = time.Now()
 	w.mu.Unlock()
 
+	// 发送调度器刷新完成事件，通知前端更新倒计时
+	w.dispatchSchedulerRefreshEvent()
+
 	return i, nil
+}
+
+// dispatchSchedulerRefreshEvent 发送调度器刷新完成事件
+func (w *WrappedLive) dispatchSchedulerRefreshEvent() {
+	if schedulerRefreshCallback != nil {
+		schedulerRefreshCallback(w, w.GetSchedulerStatus())
+	}
 }
 
 // notifyWaiters 通知所有等待的调用方
@@ -294,8 +341,51 @@ func (w *WrappedLive) removeWaiter(ch chan infoResult) {
 // startScheduler 启动请求调度器
 func (w *WrappedLive) startScheduler() {
 	w.schedulerOnce.Do(func() {
+		w.mu.Lock()
+		w.schedulerStarted = true
+		w.mu.Unlock()
 		go w.runScheduler()
 	})
+}
+
+// GetSchedulerStatus 获取调度器状态信息
+func (w *WrappedLive) GetSchedulerStatus() SchedulerStatus {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	now := time.Now()
+	interval := w.getConfiguredInterval()
+	intervalDuration := time.Duration(interval) * time.Second
+
+	status := SchedulerStatus{
+		HasWaiters:       len(w.waiters) > 0,
+		WaiterCount:      len(w.waiters),
+		LastRequestAt:    w.lastRequestAt,
+		IntervalSeconds:  interval,
+		SchedulerRunning: w.schedulerStarted,
+	}
+
+	// 计算距离上次请求的秒数
+	if !w.lastRequestAt.IsZero() {
+		status.SecondsSinceLastRequest = now.Sub(w.lastRequestAt).Seconds()
+	}
+
+	// 只有在有等待者且调度器运行时才计算下次请求时间
+	if status.HasWaiters && status.SchedulerRunning {
+		nextRequestAt := w.lastRequestAt.Add(intervalDuration)
+		status.NextRequestAt = nextRequestAt
+		if nextRequestAt.After(now) {
+			status.SecondsUntilNextRequest = nextRequestAt.Sub(now).Seconds()
+		} else {
+			// 已经过了预计时间，正在等待平台限制或准备发送请求
+			status.SecondsUntilNextRequest = 0
+		}
+	} else {
+		// 没有计划的刷新
+		status.SecondsUntilNextRequest = -1 // -1 表示没有计划
+	}
+
+	return status
 }
 
 // runScheduler 运行请求调度循环

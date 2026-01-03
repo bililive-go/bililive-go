@@ -27,6 +27,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
 	"github.com/bililive-go/bililive-go/src/recorders"
 	"github.com/bililive-go/bililive-go/src/servers"
+	"github.com/bililive-go/bililive-go/src/task"
 	"github.com/bililive-go/bililive-go/src/tools"
 	"github.com/bililive-go/bililive-go/src/types"
 )
@@ -132,6 +133,23 @@ func main() {
 
 	events.NewDispatcher(ctx)
 
+	// 初始化任务队列管理器
+	dbPath := filepath.Join(config.AppDataPath, "db", "tasks.db")
+	taskStore, err := task.NewSQLiteStore(dbPath)
+	if err != nil {
+		logger.WithError(err).Fatal("failed to initialize task queue database")
+	}
+	taskQueueConfig := &task.QueueConfig{
+		MaxConcurrent: config.TaskQueue.MaxConcurrent,
+	}
+	ed := inst.EventDispatcher.(events.Dispatcher)
+	taskQueueManager := task.NewQueueManager(ctx, taskStore, taskQueueConfig, ed)
+	// 注册执行器
+	taskQueueManager.RegisterExecutor(task.TaskTypeFixFlv, task.NewFixFLVExecutor())
+	taskQueueManager.RegisterExecutor(task.TaskTypeConvertMp4, task.NewConvertMP4Executor(config.OnRecordFinished.DeleteFlvAfterConvert))
+	inst.TaskQueueManager = taskQueueManager
+	inst.TaskEnqueuer = taskQueueManager
+
 	// 先初始化 manager（不启动），因为 server 依赖它们
 	lm := listeners.NewManager(ctx)
 	rm := recorders.NewManager(ctx)
@@ -159,6 +177,11 @@ func main() {
 		logger.Fatalf("failed to init recorder manager, error: %s", err)
 	}
 
+	// 启动任务队列管理器
+	if err = taskQueueManager.Start(ctx); err != nil {
+		logger.Fatalf("failed to init task queue manager, error: %s", err)
+	}
+
 	if err = metrics.NewCollector(ctx).Start(ctx); err != nil {
 		logger.Fatalf("failed to init metrics collector, error: %s", err)
 	}
@@ -183,7 +206,6 @@ func main() {
 
 	// 创建初始化完成的回调函数
 	// 当 InitializingLive.GetInfo() 成功获取真实信息时，会自动调用此回调
-	ed := inst.EventDispatcher.(events.Dispatcher)
 	onInitFinished := func(initializingLive live.Live, originalLive live.Live, info *live.Info) {
 		// 触发 RoomInitializingFinished 事件，让 manager 处理后续逻辑
 		ed.DispatchEvent(events.NewEvent(listeners.RoomInitializingFinished, live.InitializingFinishedParam{
@@ -301,6 +323,9 @@ func main() {
 		// 关闭管理器
 		inst.ListenerManager.Close(ctx)
 		inst.RecorderManager.Close(ctx)
+		if inst.TaskQueueManager != nil {
+			inst.TaskQueueManager.Close(ctx)
+		}
 		logger.Info("Shutdown complete")
 	}()
 

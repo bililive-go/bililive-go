@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/bililive-go/bililive-go/src/instance"
+	"github.com/bililive-go/bililive-go/src/live"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
 	"github.com/bililive-go/bililive-go/src/types"
 )
@@ -24,6 +25,10 @@ const (
 	SSEEventConnStats SSEEventType = "conn_stats"
 	// SSEEventRecorderStatus 录制器状态更新（包含下载速度等）
 	SSEEventRecorderStatus SSEEventType = "recorder_status"
+	// SSEEventListChange 直播间列表变更（增删、监控开关等）
+	SSEEventListChange SSEEventType = "list_change"
+	// SSEEventRateLimitUpdate 频率限制信息更新
+	SSEEventRateLimitUpdate SSEEventType = "rate_limit_update"
 )
 
 // SSEMessage SSE 消息结构
@@ -120,6 +125,27 @@ func (h *SSEHub) BroadcastRecorderStatus(roomID types.LiveID, status interface{}
 		Type:   SSEEventRecorderStatus,
 		RoomID: string(roomID),
 		Data:   status,
+	})
+}
+
+// BroadcastListChange 广播直播间列表变更
+func (h *SSEHub) BroadcastListChange(roomID types.LiveID, changeType string, data interface{}) {
+	h.Broadcast(SSEMessage{
+		Type:   SSEEventListChange,
+		RoomID: string(roomID),
+		Data: map[string]interface{}{
+			"change_type": changeType,
+			"data":        data,
+		},
+	})
+}
+
+// BroadcastRateLimitUpdate 广播频率限制信息更新
+func (h *SSEHub) BroadcastRateLimitUpdate(roomID types.LiveID, data interface{}) {
+	h.Broadcast(SSEMessage{
+		Type:   SSEEventRateLimitUpdate,
+		RoomID: string(roomID),
+		Data:   data,
 	})
 }
 
@@ -280,4 +306,14 @@ func RegisterSSEEventListeners(inst *instance.Instance) {
 	for _, eventType := range eventTypes {
 		dispatcher.AddEventListener(eventType, handler)
 	}
+
+	// 注册调度器刷新完成的回调（使用回调方式避免循环依赖）
+	live.SetSchedulerRefreshCallback(func(liveObj live.Live, status live.SchedulerStatus) {
+		hub := GetSSEHub()
+		hub.BroadcastRateLimitUpdate(liveObj.GetLiveId(), map[string]interface{}{
+			"event_type":       string(live.SchedulerRefreshCompleted),
+			"scheduler_status": status,
+			"timestamp":        time.Now().Unix(),
+		})
+	})
 }

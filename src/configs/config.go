@@ -96,6 +96,15 @@ type Email struct {
 	RecipientEmail string `yaml:"recipientEmail" json:"recipientEmail"`
 }
 
+// TaskQueue 任务队列配置
+type TaskQueue struct {
+	MaxConcurrent int `yaml:"max_concurrent" json:"max_concurrent"` // 最大并发任务数
+}
+
+var defaultTaskQueue = TaskQueue{
+	MaxConcurrent: 3,
+}
+
 // OverridableConfig 包含可以在不同层级被覆盖的设置
 type OverridableConfig struct {
 	Interval             *int                  `yaml:"interval,omitempty" json:"interval,omitempty"`                             // 检测间隔(秒)
@@ -141,6 +150,9 @@ type Config struct {
 	// 可写工具目录：若指定，则外部工具将下载到该目录。
 	// 场景：当 OutPutPath/AppDataPath 位于 exfat/ntfs/cifs 等不支持可执行权限的卷上时，可以将此目录单独挂载到 ext4/xfs 卷。
 	ToolRootFolder string `yaml:"tool_root_folder" json:"tool_root_folder"`
+
+	// 任务队列配置
+	TaskQueue TaskQueue `yaml:"task_queue" json:"task_queue"`
 
 	// 新的层级配置字段
 	PlatformConfigs map[string]PlatformConfig `yaml:"platform_configs,omitempty" json:"platform_configs,omitempty"` // 平台特定配置
@@ -470,6 +482,7 @@ var defaultConfig = Config{
 	AppDataPath:        "",
 	ReadOnlyToolFolder: "",
 	ToolRootFolder:     "",
+	TaskQueue:          defaultTaskQueue,
 	PlatformConfigs:    map[string]PlatformConfig{},
 }
 

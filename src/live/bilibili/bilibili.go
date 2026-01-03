@@ -115,14 +115,14 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, live.ErrInternalError
+		return nil, fmt.Errorf("status code %d from user api", resp.StatusCode)
 	}
 	body, err = resp.Bytes()
 	if err != nil {
 		return nil, err
 	}
 	if gjson.GetBytes(body, "code").Int() != 0 {
-		return nil, live.ErrInternalError
+		return nil, fmt.Errorf("error code %d from user api", gjson.GetBytes(body, "code").Int())
 	}
 
 	info.HostName = gjson.GetBytes(body, "data.info.uname").String()

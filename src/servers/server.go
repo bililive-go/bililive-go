@@ -18,6 +18,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/instance"
 	applog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/recorders"
+	"github.com/bililive-go/bililive-go/src/task"
 	"github.com/bililive-go/bililive-go/src/tools"
 	"github.com/bililive-go/bililive-go/src/types"
 	"github.com/bililive-go/bililive-go/src/webapp"
@@ -91,6 +92,12 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/cookies", putLiveHostCookie).Methods("PUT")
 	apiRoute.HandleFunc("/sse", sseHandler).Methods("GET") // SSE 实时推送端点
 	apiRoute.Handle("/metrics", promhttp.Handler())
+
+	// 任务队列路由
+	inst := instance.GetInstance(ctx)
+	if qm := task.GetQueueManager(inst); qm != nil {
+		task.RegisterHandlers(apiRoute, qm)
+	}
 
 	m.PathPrefix("/files/").Handler(
 		CORSMiddleware(
@@ -186,10 +193,10 @@ func NewServer(ctx context.Context) *Server {
 	}
 	server := &Server{server: httpServer}
 	inst.Server = server
-	
+
 	// 设置录制器状态广播回调
 	setupRecorderStatusBroadcast()
-	
+
 	return server
 }
 

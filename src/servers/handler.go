@@ -81,7 +81,7 @@ func getAllLives(writer http.ResponseWriter, r *http.Request) {
 func getLive(writer http.ResponseWriter, r *http.Request) {
 	inst := instance.GetInstance(r.Context())
 	vars := mux.Vars(r)
-	live, ok := inst.Lives[types.LiveID(vars["id"])]
+	liveObj, ok := inst.Lives[types.LiveID(vars["id"])]
 	if !ok {
 		writeJsonWithStatusCode(writer, http.StatusNotFound, commonResp{
 			ErrNo:  http.StatusNotFound,
@@ -91,7 +91,7 @@ func getLive(writer http.ResponseWriter, r *http.Request) {
 	}
 
 	// 获取基本信息
-	info := parseInfo(r.Context(), live)
+	info := parseInfo(r.Context(), liveObj)
 
 	// 获取全局配置
 	cfg := configs.GetCurrentConfig()
@@ -101,21 +101,21 @@ func getLive(writer http.ResponseWriter, r *http.Request) {
 	}
 
 	// 获取房间配置
-	room, err := cfg.GetLiveRoomByUrl(live.GetRawUrl())
+	room, err := cfg.GetLiveRoomByUrl(liveObj.GetRawUrl())
 	if err != nil {
 		writeJSON(writer, info) // 如果找不到房间配置，返回基本信息
 		return
 	}
 
 	// 获取平台key
-	platformKey := configs.GetPlatformKeyFromUrl(live.GetRawUrl())
+	platformKey := configs.GetPlatformKeyFromUrl(liveObj.GetRawUrl())
 
 	// 解析最终生效的配置
 	resolvedConfig := cfg.ResolveConfigForRoom(room, platformKey)
 
 	// 获取平台相关的连接统计
 	// 从 URL 中提取主机名用于匹配连接统计
-	rawURL := live.GetRawUrl()
+	rawURL := liveObj.GetRawUrl()
 	parsedURL, _ := url.Parse(rawURL)
 	var connStats []utils.ConnStats
 	if parsedURL != nil {
@@ -136,6 +136,13 @@ func getLive(writer http.ResponseWriter, r *http.Request) {
 	// 获取平台等待状态信息
 	waitInfo := ratelimit.GetGlobalRateLimiter().GetPlatformWaitInfo(platformKey)
 
+	// 获取调度器状态信息
+	var schedulerStatus *live.SchedulerStatus
+	if provider, ok := liveObj.(live.SchedulerStatusProvider); ok {
+		status := provider.GetSchedulerStatus()
+		schedulerStatus = &status
+	}
+
 	// 获取录制状态和下载速度
 	var recorderStatus map[string]string
 	if info.Recording {
@@ -150,6 +157,24 @@ func getLive(writer http.ResponseWriter, r *http.Request) {
 				recorderStatus = status
 			}
 		}
+	}
+
+	// 获取录制开始时间
+	var recordStartTime string
+	if info.Recording {
+		if recorderMgr, ok := inst.RecorderManager.(recorders.Manager); ok {
+			recorder, err := recorderMgr.GetRecorder(r.Context(), info.Live.GetLiveId())
+			if err == nil {
+				recordStartTime = recorder.StartTime().Format("2006-01-02 15:04:05")
+			}
+		}
+	}
+
+	// 获取开播时间
+	var liveStartTime string
+	lastStartTime := liveObj.GetLastStartTime()
+	if !lastStartTime.IsZero() {
+		liveStartTime = lastStartTime.Format("2006-01-02 15:04:05")
 	}
 
 	// 构造详细响应
@@ -195,9 +220,12 @@ func getLive(writer http.ResponseWriter, r *http.Request) {
 		// 录制器状态（包括下载速度等）
 		"recorder_status": recorderStatus,
 
-		// 时间信息（目前为模拟数据，需要后续实现真实的时间跟踪）
-		"live_start_time":  "未知",
-		"last_record_time": "无",
+		// 调度器状态（用于显示"距离下次刷新"）
+		"scheduler_status": schedulerStatus,
+
+		// 时间信息
+		"live_start_time":  liveStartTime,   // 本次开播时间
+		"last_record_time": recordStartTime, // 本次录制开始时间
 
 		// 原始配置信息
 		"room_config": room,
@@ -322,19 +350,29 @@ func parseLiveAction(writer http.ResponseWriter, r *http.Request) {
 			resp.ErrNo = http.StatusBadRequest
 			resp.ErrMsg = err.Error()
 			writeJsonWithStatusCode(writer, http.StatusBadRequest, resp)
+			return
 		}
 		if _, err := configs.SetLiveRoomListening(live.GetRawUrl(), true); err != nil {
 			live.GetLogger().Error("failed to set live room listening: " + err.Error())
 		}
+		// 广播监控开启事件
+		GetSSEHub().BroadcastListChange(live.GetLiveId(), "listen_start", map[string]interface{}{
+			"live_id": string(live.GetLiveId()),
+		})
 	case "stop":
 		if err := stopListening(r.Context(), live.GetLiveId()); err != nil {
 			resp.ErrNo = http.StatusBadRequest
 			resp.ErrMsg = err.Error()
 			writeJsonWithStatusCode(writer, http.StatusBadRequest, resp)
+			return
 		}
 		if _, err := configs.SetLiveRoomListening(live.GetRawUrl(), false); err != nil {
 			live.GetLogger().Error("failed to set live room listening: " + err.Error())
 		}
+		// 广播监控停止事件
+		GetSSEHub().BroadcastListChange(live.GetLiveId(), "listen_stop", map[string]interface{}{
+			"live_id": string(live.GetLiveId()),
+		})
 	case "forceRefresh":
 		// 强制刷新：忽略平台访问频率限制，立即获取最新信息
 		platformKey := configs.GetPlatformKeyFromUrl(live.GetRawUrl())
@@ -348,6 +386,14 @@ func parseLiveAction(writer http.ResponseWriter, r *http.Request) {
 			writeJsonWithStatusCode(writer, http.StatusInternalServerError, resp)
 			return
 		}
+
+		// 广播频率限制更新事件，通知前端更新倒计时
+		waitInfo := ratelimit.GetGlobalRateLimiter().GetPlatformWaitInfo(platformKey)
+		GetSSEHub().BroadcastRateLimitUpdate(live.GetLiveId(), map[string]interface{}{
+			"waited_seconds":      waitInfo.WaitedSeconds,
+			"next_request_in_sec": waitInfo.NextRequestInSec,
+			"min_interval_sec":    waitInfo.MinIntervalSec,
+		})
 
 		// 返回刷新后的信息
 		writeJSON(writer, map[string]interface{}{
@@ -461,6 +507,12 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool) (info *live.
 				return nil, err
 			}
 		}
+		// 广播直播间列表变更事件
+		GetSSEHub().BroadcastListChange(newLive.GetLiveId(), "room_added", map[string]interface{}{
+			"live_id":   string(newLive.GetLiveId()),
+			"url":       urlStr,
+			"listening": isListen,
+		})
 	}
 	return info, nil
 }
@@ -490,16 +542,21 @@ func removeLive(writer http.ResponseWriter, r *http.Request) {
 
 func removeLiveImpl(ctx context.Context, live live.Live) error {
 	inst := instance.GetInstance(ctx)
+	liveId := live.GetLiveId()
 	lm := inst.ListenerManager.(listeners.Manager)
-	if lm.HasListener(ctx, live.GetLiveId()) {
-		if err := lm.RemoveListener(ctx, live.GetLiveId()); err != nil {
+	if lm.HasListener(ctx, liveId) {
+		if err := lm.RemoveListener(ctx, liveId); err != nil {
 			return err
 		}
 	}
-	delete(inst.Lives, live.GetLiveId())
+	delete(inst.Lives, liveId)
 	if _, err := configs.RemoveLiveRoomByUrl(live.GetRawUrl()); err != nil {
 		return err
 	}
+	// 广播直播间列表变更事件
+	GetSSEHub().BroadcastListChange(liveId, "room_removed", map[string]interface{}{
+		"live_id": string(liveId),
+	})
 	return nil
 }
 
