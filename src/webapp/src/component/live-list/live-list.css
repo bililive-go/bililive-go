@@ -7,6 +7,24 @@
         white-space: nowrap;
         text-overflow: ellipsis;
     }
+    /* 优化移动端按钮布局 */
+    .ant-page-header-heading-extra {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    .ant-page-header-heading-extra > button {
+        margin: 0 !important;
+    }
+    /* 移动端操作按钮样式 */
+    .mobile-actions {
+        display: flex;
+        gap: 4px;
+        flex-wrap: nowrap;
+    }
+    .mobile-actions .ant-btn {
+        padding: 0 4px;
+    }
 }
 @media(max-device-width: 1920px) {
     .item-pad {

@@ -6,9 +6,27 @@
     padding: 24px;
 }
 
+.mobile-menu-icon {
+    display: none;
+    font-size: 20px;
+    color: white;
+    cursor: pointer;
+    line-height: 64px;
+    margin-right: 16px;
+}
+
+.mobile-drawer .ant-drawer-body {
+    padding: 0;
+}
+
 @media(max-device-width: 768px) {
     .small-header{
-        padding: 0 30px !important;
+        padding: 0 16px !important;
+        display: flex;
+        align-items: center;
+    }
+    .mobile-menu-icon {
+        display: block;
     }
     .side-bar {
         display: none;
