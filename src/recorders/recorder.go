@@ -161,7 +161,11 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	r.setAndCloseParser(p)
 	r.startTime = time.Now()
 	r.getLogger().Debugln("Start ParseLiveStream(" + url.String() + ", " + fileName + ")")
-	r.getLogger().Println(r.parser.ParseLiveStream(ctx, streamInfo, r.Live, fileName))
+	if err := r.parser.ParseLiveStream(ctx, streamInfo, r.Live, fileName); err != nil {
+		r.getLogger().WithError(err).Error("ParseLiveStream failed, will retry after 5s...")
+		time.Sleep(5 * time.Second)
+		return
+	}
 	r.getLogger().Debugln("End ParseLiveStream(" + url.String() + ", " + fileName + ")")
 	removeEmptyFile(fileName)
 	ffmpegPath, err := utils.GetFFmpegPath(ctx)
