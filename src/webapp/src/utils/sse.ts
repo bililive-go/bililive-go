@@ -4,7 +4,7 @@
  */
 
 // SSE 事件类型
-export type SSEEventType = 'live_update' | 'log' | 'conn_stats' | 'connected';
+export type SSEEventType = 'live_update' | 'log' | 'conn_stats' | 'recorder_status' | 'connected';
 
 // SSE 消息结构
 export interface SSEMessage {
@@ -89,6 +89,11 @@ class SSEManager {
       // 监听 conn_stats 事件
       this.eventSource.addEventListener('conn_stats', (event: MessageEvent) => {
         this.handleMessage('conn_stats', event.data);
+      });
+
+      // 监听 recorder_status 事件
+      this.eventSource.addEventListener('recorder_status', (event: MessageEvent) => {
+        this.handleMessage('recorder_status', event.data);
       });
 
     } catch (error) {

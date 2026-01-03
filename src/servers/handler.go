@@ -136,6 +136,19 @@ func getLive(writer http.ResponseWriter, r *http.Request) {
 	// 获取平台等待状态信息
 	waitInfo := ratelimit.GetGlobalRateLimiter().GetPlatformWaitInfo(platformKey)
 
+	// 获取录制状态和下载速度
+	var recorderStatus map[string]string
+	if info.Recording {
+		// 如果正在录制，尝试获取recorder状态
+		recorder, err := inst.RecorderManager.(recorders.Manager).GetRecorder(r.Context(), info.Live.GetLiveId())
+		if err == nil && recorder != nil {
+			status, statusErr := recorder.GetStatus()
+			if statusErr == nil && status != nil {
+				recorderStatus = status
+			}
+		}
+	}
+
 	// 构造详细响应
 	detailedInfo := map[string]interface{}{
 		// 基本信息
@@ -175,6 +188,9 @@ func getLive(writer http.ResponseWriter, r *http.Request) {
 
 		// 运行时信息 - 连接统计
 		"conn_stats": connStats,
+
+		// 录制器状态（包括下载速度等）
+		"recorder_status": recorderStatus,
 
 		// 时间信息（目前为模拟数据，需要后续实现真实的时间跟踪）
 		"live_start_time":  "未知",

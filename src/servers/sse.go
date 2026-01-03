@@ -22,6 +22,8 @@ const (
 	SSEEventLog SSEEventType = "log"
 	// SSEEventConnStats 连接统计更新
 	SSEEventConnStats SSEEventType = "conn_stats"
+	// SSEEventRecorderStatus 录制器状态更新（包含下载速度等）
+	SSEEventRecorderStatus SSEEventType = "recorder_status"
 )
 
 // SSEMessage SSE 消息结构
@@ -109,6 +111,15 @@ func (h *SSEHub) BroadcastConnStats(roomID types.LiveID, stats interface{}) {
 		Type:   SSEEventConnStats,
 		RoomID: string(roomID),
 		Data:   stats,
+	})
+}
+
+// BroadcastRecorderStatus 广播录制器状态更新
+func (h *SSEHub) BroadcastRecorderStatus(roomID types.LiveID, status interface{}) {
+	h.Broadcast(SSEMessage{
+		Type:   SSEEventRecorderStatus,
+		RoomID: string(roomID),
+		Data:   status,
 	})
 }
 

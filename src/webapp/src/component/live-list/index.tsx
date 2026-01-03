@@ -530,6 +530,26 @@ class LiveList extends React.Component<Props, IState> {
                     return null;
                 });
                 break;
+
+            case 'recorder_status':
+                // 更新录制器状态（包含下载速度）
+                this.setState(prevState => {
+                    const currentDetail = prevState.expandedDetails[roomId];
+                    if (currentDetail) {
+                        return {
+                            ...prevState,
+                            expandedDetails: {
+                                ...prevState.expandedDetails,
+                                [roomId]: {
+                                    ...currentDetail,
+                                    recorder_status: message.data
+                                }
+                            }
+                        };
+                    }
+                    return null;
+                });
+                break;
         }
     }
 
@@ -647,6 +667,12 @@ class LiveList extends React.Component<Props, IState> {
                                         {detail.recording ? '录制中' : '未录制'}
                                     </Tag>
                                 </div>
+                                {detail.recording && detail.recorder_status && detail.recorder_status.speed && (
+                                    <div style={configRowStyle}>
+                                        <span style={configLabelStyle}>下载速度</span>
+                                        <Tag color="blue">{detail.recorder_status.speed}</Tag>
+                                    </div>
+                                )}
                                 <div style={configRowStyle}>
                                     <span style={configLabelStyle}>开播时间</span>
                                     <span>{detail.live_start_time || '未知'}</span>
