@@ -22,11 +22,14 @@ import (
 type RPC struct {
 	Enable bool   `yaml:"enable" json:"enable"`
 	Bind   string `yaml:"bind" json:"bind"`
+	// SSE 配置
+	SSEListThreshold int `yaml:"sse_list_threshold" json:"sse_list_threshold"` // 监控列表超过此阈值时仅为详情页启用SSE
 }
 
 var defaultRPC = RPC{
-	Enable: true,
-	Bind:   ":8080",
+	Enable:           true,
+	Bind:             ":8080",
+	SSEListThreshold: 50, // 默认50个直播间
 }
 
 func (r *RPC) verify() error {

@@ -32,6 +32,9 @@ interface IState {
     expandedLogs: { [key: string]: string[] }, // 直播间日志缓存
     sseSubscriptions: { [key: string]: string }, // roomId -> subscriptionId 映射
     globalConfig: any, // 全局配置缓存
+    countdownTimers: { [key: string]: number }, // 倒计时值缓存（秒）
+    lastUpdateTimes: { [key: string]: number }, // 上次更新时间戳（毫秒）
+    listSSESubscription: string | null, // 列表级别的SSE订阅ID
 }
 
 interface ItemData {
@@ -63,6 +66,9 @@ class LiveList extends React.Component<Props, IState> {
 
     //定时器
     timer!: NodeJS.Timeout;
+
+    //倒计时定时器
+    countdownTimer!: NodeJS.Timeout;
 
     runStatus: ColumnsType<ItemData>[number] = {
         title: '运行状态',
@@ -253,6 +259,9 @@ class LiveList extends React.Component<Props, IState> {
             expandedLogs: {},
             sseSubscriptions: {},
             globalConfig: null,
+            countdownTimers: {},
+            lastUpdateTimes: {},
+            listSSESubscription: null,
         }
     }
 
@@ -267,10 +276,18 @@ class LiveList extends React.Component<Props, IState> {
         }
 
         this.requestData("livelist"); // Call with a specific targetKey
-        this.fetchGlobalConfig();
+        this.fetchGlobalConfig().then(() => {
+            // 根据配置决定是否启用列表级别SSE
+            this.setupListSSE();
+        });
         this.timer = setInterval(() => {
             this.requestData("livelist"); // Call with a specific targetKey
         }, REFRESH_TIME);
+        
+        // 启动倒计时定时器，每秒更新一次
+        this.countdownTimer = setInterval(() => {
+            this.updateCountdowns();
+        }, 1000);
     }
 
     fetchGlobalConfig = async () => {
@@ -282,10 +299,51 @@ class LiveList extends React.Component<Props, IState> {
         }
     }
 
+    // 设置列表级别的SSE订阅
+    setupListSSE = () => {
+        const { list, globalConfig } = this.state;
+        const threshold = globalConfig?.rpc?.sse_list_threshold || 50;
+        
+        // 如果列表数量小于阈值，订阅所有房间的更新
+        if (list.length < threshold) {
+            // 订阅通配符，接收所有房间的live_update事件
+            const subId = subscribeSSE('*', 'live_update', (message: SSEMessage) => {
+                // 刷新列表数据
+                this.requestListData();
+            });
+            this.setState({ listSSESubscription: subId });
+        }
+    }
+
+    // 根据列表大小更新SSE订阅策略
+    updateListSSESubscription = () => {
+        const { list, listSSESubscription, globalConfig } = this.state;
+        const threshold = globalConfig?.rpc?.sse_list_threshold || 50;
+        
+        if (list.length < threshold && !listSSESubscription) {
+            // 列表小于阈值但未订阅，创建订阅
+            const subId = subscribeSSE('*', 'live_update', (message: SSEMessage) => {
+                this.requestListData();
+            });
+            this.setState({ listSSESubscription: subId });
+        } else if (list.length >= threshold && listSSESubscription) {
+            // 列表超过阈值但已订阅，取消订阅
+            unsubscribeSSE(listSSESubscription);
+            this.setState({ listSSESubscription: null });
+        }
+    }
+
     componentWillUnmount() {
         //clear refresh timer
         clearInterval(this.timer);
-        // 取消所有 SSE 订阅
+        clearInterval(this.countdownTimer);
+        
+        // 取消列表级别的SSE订阅
+        if (this.state.listSSESubscription) {
+            unsubscribeSSE(this.state.listSSESubscription);
+        }
+        
+        // 取消所有详情页的 SSE 订阅
         const { sseSubscriptions } = this.state;
         Object.values(sseSubscriptions).forEach(subId => {
             unsubscribeSSE(subId);
@@ -379,9 +437,15 @@ class LiveList extends React.Component<Props, IState> {
                 });
             })
             .then((data: ItemData[]) => {
+                const oldListLength = this.state.list.length;
                 this.setState({
                     list: data
                 }, () => {
+                    // 如果列表大小发生变化，重新评估SSE订阅策略
+                    if (oldListLength !== data.length) {
+                        this.updateListSSESubscription();
+                    }
+                    
                     // 处理深度链接自动展开
                     if (this.pendingRoomId) {
                         const targetRoom = data.find(item => item.roomId === this.pendingRoomId);
@@ -434,17 +498,23 @@ class LiveList extends React.Component<Props, IState> {
         const isCurrentlyExpanded = this.state.expandedRowKeys.includes(roomId);
 
         if (isCurrentlyExpanded) {
-            // 收起 - 取消 SSE 订阅
+            // 收起 - 取消 SSE 订阅并清理倒计时状态
             const subscriptionId = this.state.sseSubscriptions[roomId];
             if (subscriptionId) {
                 unsubscribeSSE(subscriptionId);
             }
             this.setState(prevState => {
                 const newSubscriptions = { ...prevState.sseSubscriptions };
+                const newCountdowns = { ...prevState.countdownTimers };
+                const newLastUpdateTimes = { ...prevState.lastUpdateTimes };
                 delete newSubscriptions[roomId];
+                delete newCountdowns[roomId];
+                delete newLastUpdateTimes[roomId];
                 return {
                     expandedRowKeys: prevState.expandedRowKeys.filter(key => key !== roomId),
-                    sseSubscriptions: newSubscriptions
+                    sseSubscriptions: newSubscriptions,
+                    countdownTimers: newCountdowns,
+                    lastUpdateTimes: newLastUpdateTimes
                 };
             });
         } else {
@@ -504,18 +574,39 @@ class LiveList extends React.Component<Props, IState> {
                 // 更新连接统计
                 this.setState(prevState => {
                     const currentDetail = prevState.expandedDetails[roomId];
-                    if (currentDetail) {
-                        return {
-                            expandedDetails: {
-                                ...prevState.expandedDetails,
-                                [roomId]: {
-                                    ...currentDetail,
-                                    conn_stats: message.data
-                                }
-                            }
-                        };
+                    if (!currentDetail) {
+                        return prevState;
                     }
-                    return prevState;
+                    return {
+                        ...prevState,
+                        expandedDetails: {
+                            ...prevState.expandedDetails,
+                            [roomId]: {
+                                ...currentDetail,
+                                conn_stats: message.data
+                            }
+                        }
+                    };
+                });
+                break;
+
+            case 'recorder_status':
+                // 更新录制器状态（包含下载速度）
+                this.setState(prevState => {
+                    const currentDetail = prevState.expandedDetails[roomId];
+                    if (!currentDetail) {
+                        return prevState;
+                    }
+                    return {
+                        ...prevState,
+                        expandedDetails: {
+                            ...prevState.expandedDetails,
+                            [roomId]: {
+                                ...currentDetail,
+                                recorder_status: message.data
+                            }
+                        }
+                    };
                 });
                 break;
         }
@@ -524,16 +615,71 @@ class LiveList extends React.Component<Props, IState> {
     loadRoomDetail = (roomId: string) => {
         api.getLiveDetail(roomId)
             .then((detail: any) => {
-                this.setState(prevState => ({
-                    expandedDetails: {
-                        ...prevState.expandedDetails,
-                        [roomId]: detail
-                    }
-                }));
+                this.setState(prevState => {
+                    // 初始化倒计时值，使用 Math.ceil 避免过早显示"立即可用"
+                    const nextRequestInSec = Math.ceil(detail.rate_limit_info?.next_request_in_sec || 0);
+                    const minIntervalSec = detail.rate_limit_info?.min_interval_sec || detail.platform_rate_limit || 20;
+                    const waitedSec = Math.round(detail.rate_limit_info?.waited_seconds || 0);
+                    
+                    // 如果 nextRequestInSec <= 0，说明可以立即请求，使用 minIntervalSec 作为初始值
+                    const initialCountdown = nextRequestInSec > 0 ? nextRequestInSec : minIntervalSec - waitedSec;
+                    
+                    return {
+                        expandedDetails: {
+                            ...prevState.expandedDetails,
+                            [roomId]: detail
+                        },
+                        countdownTimers: {
+                            ...prevState.countdownTimers,
+                            [roomId]: Math.max(0, initialCountdown)
+                        },
+                        lastUpdateTimes: {
+                            ...prevState.lastUpdateTimes,
+                            [roomId]: Date.now()
+                        }
+                    };
+                });
             })
             .catch(err => {
                 message.error(`获取直播间详情失败: ${err}`);
             });
+    }
+
+    // 更新所有展开房间的倒计时
+    updateCountdowns = () => {
+        this.setState(prevState => {
+            const newCountdowns = { ...prevState.countdownTimers };
+            const newLastUpdateTimes = { ...prevState.lastUpdateTimes };
+            let hasChanges = false;
+            const now = Date.now();
+
+            // 只更新展开的房间
+            prevState.expandedRowKeys.forEach(roomId => {
+                if (newCountdowns[roomId] !== undefined) {
+                    const detail = prevState.expandedDetails[roomId];
+                    const minIntervalSec = detail?.rate_limit_info?.min_interval_sec || detail?.platform_rate_limit || 20;
+                    
+                    // 递减倒计时
+                    if (newCountdowns[roomId] > 0) {
+                        newCountdowns[roomId] = Math.max(0, newCountdowns[roomId] - 1);
+                        hasChanges = true;
+                    } else {
+                        // 倒计时为0时，计算已经过去的时间并自动增加
+                        const lastUpdateTime = newLastUpdateTimes[roomId] || now;
+                        const elapsedSec = Math.floor((now - lastUpdateTime) / 1000);
+                        
+                        if (elapsedSec >= minIntervalSec) {
+                            // 已经过了一个周期，重置倒计时
+                            newCountdowns[roomId] = minIntervalSec;
+                            newLastUpdateTimes[roomId] = now;
+                            hasChanges = true;
+                        }
+                    }
+                }
+            });
+
+            return hasChanges ? { ...prevState, countdownTimers: newCountdowns, lastUpdateTimes: newLastUpdateTimes } : prevState;
+        });
     }
 
     loadRoomLogs = (roomId: string) => {
@@ -551,10 +697,45 @@ class LiveList extends React.Component<Props, IState> {
             });
     }
 
+    // 格式化下载速度：将 ffmpeg 的 speed 值转换为 MB/s 或 KB/s
+    formatDownloadSpeed = (recorderStatus: any): string => {
+        if (!recorderStatus || !recorderStatus.bitrate) {
+            return '';
+        }
+        
+        // ffmpeg bitrate 格式如 "2345.6kbits/s"
+        const bitrateStr = recorderStatus.bitrate;
+        const match = bitrateStr.match(/([\d.]+)(k?bits\/s)/i);
+        
+        if (!match) {
+            return recorderStatus.speed || ''; // 回退到原始 speed 值
+        }
+        
+        let bitsPerSec = parseFloat(match[1]);
+        const unit = match[2].toLowerCase();
+        
+        // 转换为 bits/s
+        if (unit.startsWith('k')) {
+            bitsPerSec *= 1000;
+        }
+        
+        // 转换为 MB/s 或 KB/s
+        const bytesPerSec = bitsPerSec / 8;
+        const mbPerSec = bytesPerSec / (1024 * 1024);
+        const kbPerSec = bytesPerSec / 1024;
+        
+        if (mbPerSec >= 1) {
+            return `${mbPerSec.toFixed(2)} MB/s`;
+        } else {
+            return `${kbPerSec.toFixed(2)} KB/s`;
+        }
+    }
+
     renderExpandedRow = (record: ItemData): JSX.Element => {
-        const { expandedDetails, expandedLogs } = this.state;
+        const { expandedDetails, expandedLogs, countdownTimers } = this.state;
         const detail = expandedDetails[record.roomId];
         const logs = expandedLogs[record.roomId] || [];
+        const countdown = countdownTimers[record.roomId] ?? 0;
         const liveId = record.roomId;
         // 保存 this 引用供嵌套函数使用
         const component = this;
@@ -608,6 +789,12 @@ class LiveList extends React.Component<Props, IState> {
                                         {detail.recording ? '录制中' : '未录制'}
                                     </Tag>
                                 </div>
+                                {detail.recording && detail.recorder_status?.bitrate && (
+                                    <div style={configRowStyle}>
+                                        <span style={configLabelStyle}>下载速度</span>
+                                        <Tag color="blue">{this.formatDownloadSpeed(detail.recorder_status)}</Tag>
+                                    </div>
+                                )}
                                 <div style={configRowStyle}>
                                     <span style={configLabelStyle}>开播时间</span>
                                     <span>{detail.live_start_time || '未知'}</span>
@@ -631,11 +818,11 @@ class LiveList extends React.Component<Props, IState> {
                                             <span>{Math.round(detail.rate_limit_info.waited_seconds || 0)} 秒</span>
                                         </div>
                                         <div style={configRowStyle}>
-                                            <span style={configLabelStyle}>预计下次请求</span>
-                                            <Tag color={(detail.rate_limit_info.next_request_in_sec || 0) > 0 ? 'orange' : 'green'}>
-                                                {(detail.rate_limit_info.next_request_in_sec || 0) > 0
-                                                    ? `${Math.round(detail.rate_limit_info.next_request_in_sec)} 秒后`
-                                                    : '立即可用'}
+                                            <span style={configLabelStyle}>距离下次刷新</span>
+                                            <Tag color={countdown > 0 ? 'orange' : 'green'}>
+                                                {countdown > 0
+                                                    ? `${countdown} 秒`
+                                                    : '正在刷新'}
                                             </Tag>
                                         </div>
                                         <div style={{ marginTop: 12, borderBottom: 'none' }}>

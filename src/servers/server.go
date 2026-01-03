@@ -17,7 +17,9 @@ import (
 	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/instance"
 	applog "github.com/bililive-go/bililive-go/src/log"
+	"github.com/bililive-go/bililive-go/src/recorders"
 	"github.com/bililive-go/bililive-go/src/tools"
+	"github.com/bililive-go/bililive-go/src/types"
 	"github.com/bililive-go/bililive-go/src/webapp"
 )
 
@@ -184,6 +186,10 @@ func NewServer(ctx context.Context) *Server {
 	}
 	server := &Server{server: httpServer}
 	inst.Server = server
+	
+	// 设置录制器状态广播回调
+	setupRecorderStatusBroadcast()
+	
 	return server
 }
 
@@ -217,4 +223,12 @@ func (s *Server) Close(ctx context.Context) {
 	}
 	defer cancel()
 	applog.GetLogger().Infof("Server close")
+}
+
+// setupRecorderStatusBroadcast 设置录制器状态广播回调
+func setupRecorderStatusBroadcast() {
+	// 设置回调函数，让 recorders 包能够调用 SSE 广播
+	recorders.SetBroadcastRecorderStatusFunc(func(liveId types.LiveID, status map[string]string) {
+		GetSSEHub().BroadcastRecorderStatus(liveId, status)
+	})
 }
