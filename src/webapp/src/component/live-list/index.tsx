@@ -515,19 +515,19 @@ class LiveList extends React.Component<Props, IState> {
                 // 更新连接统计
                 this.setState(prevState => {
                     const currentDetail = prevState.expandedDetails[roomId];
-                    if (currentDetail) {
-                        return {
-                            ...prevState,
-                            expandedDetails: {
-                                ...prevState.expandedDetails,
-                                [roomId]: {
-                                    ...currentDetail,
-                                    conn_stats: message.data
-                                }
-                            }
-                        };
+                    if (!currentDetail) {
+                        return prevState;
                     }
-                    return null;
+                    return {
+                        ...prevState,
+                        expandedDetails: {
+                            ...prevState.expandedDetails,
+                            [roomId]: {
+                                ...currentDetail,
+                                conn_stats: message.data
+                            }
+                        }
+                    };
                 });
                 break;
 
@@ -535,19 +535,19 @@ class LiveList extends React.Component<Props, IState> {
                 // 更新录制器状态（包含下载速度）
                 this.setState(prevState => {
                     const currentDetail = prevState.expandedDetails[roomId];
-                    if (currentDetail) {
-                        return {
-                            ...prevState,
-                            expandedDetails: {
-                                ...prevState.expandedDetails,
-                                [roomId]: {
-                                    ...currentDetail,
-                                    recorder_status: message.data
-                                }
-                            }
-                        };
+                    if (!currentDetail) {
+                        return prevState;
                     }
-                    return null;
+                    return {
+                        ...prevState,
+                        expandedDetails: {
+                            ...prevState.expandedDetails,
+                            [roomId]: {
+                                ...currentDetail,
+                                recorder_status: message.data
+                            }
+                        }
+                    };
                 });
                 break;
         }
@@ -590,7 +590,7 @@ class LiveList extends React.Component<Props, IState> {
                 }
             });
 
-            return hasChanges ? { ...prevState, countdownTimers: newCountdowns } : null;
+            return hasChanges ? { ...prevState, countdownTimers: newCountdowns } : prevState;
         });
     }
 
