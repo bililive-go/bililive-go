@@ -206,8 +206,8 @@ func (m *manager) HasRecorder(ctx context.Context, liveId types.LiveID) bool {
 
 // startStatusBroadcaster 启动定期广播录制器状态的 goroutine
 func (m *manager) startStatusBroadcaster(ctx context.Context) {
-	// 每3秒广播一次录制器状态
-	m.statusTicker = time.NewTicker(3 * time.Second)
+	// 每5秒广播一次录制器状态
+	m.statusTicker = time.NewTicker(5 * time.Second)
 	
 	m.statusWg.Add(1)
 	go func() {

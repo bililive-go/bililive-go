@@ -33,6 +33,7 @@ interface IState {
     sseSubscriptions: { [key: string]: string }, // roomId -> subscriptionId 映射
     globalConfig: any, // 全局配置缓存
     countdownTimers: { [key: string]: number }, // 倒计时值缓存（秒）
+    lastUpdateTimes: { [key: string]: number }, // 上次更新时间戳（毫秒）
 }
 
 interface ItemData {
@@ -258,6 +259,7 @@ class LiveList extends React.Component<Props, IState> {
             sseSubscriptions: {},
             globalConfig: null,
             countdownTimers: {},
+            lastUpdateTimes: {},
         }
     }
 
@@ -453,12 +455,15 @@ class LiveList extends React.Component<Props, IState> {
             this.setState(prevState => {
                 const newSubscriptions = { ...prevState.sseSubscriptions };
                 const newCountdowns = { ...prevState.countdownTimers };
+                const newLastUpdateTimes = { ...prevState.lastUpdateTimes };
                 delete newSubscriptions[roomId];
                 delete newCountdowns[roomId];
+                delete newLastUpdateTimes[roomId];
                 return {
                     expandedRowKeys: prevState.expandedRowKeys.filter(key => key !== roomId),
                     sseSubscriptions: newSubscriptions,
-                    countdownTimers: newCountdowns
+                    countdownTimers: newCountdowns,
+                    lastUpdateTimes: newLastUpdateTimes
                 };
             });
         } else {
@@ -562,6 +567,12 @@ class LiveList extends React.Component<Props, IState> {
                 this.setState(prevState => {
                     // 初始化倒计时值，使用 Math.ceil 避免过早显示"立即可用"
                     const nextRequestInSec = Math.ceil(detail.rate_limit_info?.next_request_in_sec || 0);
+                    const minIntervalSec = detail.rate_limit_info?.min_interval_sec || detail.platform_rate_limit || 20;
+                    const waitedSec = Math.round(detail.rate_limit_info?.waited_seconds || 0);
+                    
+                    // 如果 nextRequestInSec <= 0，说明可以立即请求，使用 minIntervalSec 作为初始值
+                    const initialCountdown = nextRequestInSec > 0 ? nextRequestInSec : minIntervalSec - waitedSec;
+                    
                     return {
                         expandedDetails: {
                             ...prevState.expandedDetails,
@@ -569,7 +580,11 @@ class LiveList extends React.Component<Props, IState> {
                         },
                         countdownTimers: {
                             ...prevState.countdownTimers,
-                            [roomId]: nextRequestInSec
+                            [roomId]: Math.max(0, initialCountdown)
+                        },
+                        lastUpdateTimes: {
+                            ...prevState.lastUpdateTimes,
+                            [roomId]: Date.now()
                         }
                     };
                 });
@@ -583,17 +598,36 @@ class LiveList extends React.Component<Props, IState> {
     updateCountdowns = () => {
         this.setState(prevState => {
             const newCountdowns = { ...prevState.countdownTimers };
+            const newLastUpdateTimes = { ...prevState.lastUpdateTimes };
             let hasChanges = false;
+            const now = Date.now();
 
             // 只更新展开的房间
             prevState.expandedRowKeys.forEach(roomId => {
-                if (newCountdowns[roomId] !== undefined && newCountdowns[roomId] > 0) {
-                    newCountdowns[roomId] = Math.max(0, newCountdowns[roomId] - 1);
-                    hasChanges = true;
+                if (newCountdowns[roomId] !== undefined) {
+                    const detail = prevState.expandedDetails[roomId];
+                    const minIntervalSec = detail?.rate_limit_info?.min_interval_sec || detail?.platform_rate_limit || 20;
+                    
+                    // 递减倒计时
+                    if (newCountdowns[roomId] > 0) {
+                        newCountdowns[roomId] = Math.max(0, newCountdowns[roomId] - 1);
+                        hasChanges = true;
+                    } else {
+                        // 倒计时为0时，计算已经过去的时间并自动增加
+                        const lastUpdateTime = newLastUpdateTimes[roomId] || now;
+                        const elapsedSec = Math.floor((now - lastUpdateTime) / 1000);
+                        
+                        if (elapsedSec >= minIntervalSec) {
+                            // 已经过了一个周期，重置倒计时
+                            newCountdowns[roomId] = minIntervalSec;
+                            newLastUpdateTimes[roomId] = now;
+                            hasChanges = true;
+                        }
+                    }
                 }
             });
 
-            return hasChanges ? { ...prevState, countdownTimers: newCountdowns } : prevState;
+            return hasChanges ? { ...prevState, countdownTimers: newCountdowns, lastUpdateTimes: newLastUpdateTimes } : prevState;
         });
     }
 
@@ -610,6 +644,40 @@ class LiveList extends React.Component<Props, IState> {
             .catch(err => {
                 message.warning(`获取直播间日志失败: ${err}`);
             });
+    }
+
+    // 格式化下载速度：将 ffmpeg 的 speed 值转换为 MB/s 或 KB/s
+    formatDownloadSpeed = (recorderStatus: any): string => {
+        if (!recorderStatus || !recorderStatus.bitrate) {
+            return '';
+        }
+        
+        // ffmpeg bitrate 格式如 "2345.6kbits/s"
+        const bitrateStr = recorderStatus.bitrate;
+        const match = bitrateStr.match(/([\d.]+)(k?bits\/s)/i);
+        
+        if (!match) {
+            return recorderStatus.speed || ''; // 回退到原始 speed 值
+        }
+        
+        let bitsPerSec = parseFloat(match[1]);
+        const unit = match[2].toLowerCase();
+        
+        // 转换为 bits/s
+        if (unit.startsWith('k')) {
+            bitsPerSec *= 1000;
+        }
+        
+        // 转换为 MB/s 或 KB/s
+        const bytesPerSec = bitsPerSec / 8;
+        const mbPerSec = bytesPerSec / (1024 * 1024);
+        const kbPerSec = bytesPerSec / 1024;
+        
+        if (mbPerSec >= 1) {
+            return `${mbPerSec.toFixed(2)} MB/s`;
+        } else {
+            return `${kbPerSec.toFixed(2)} KB/s`;
+        }
     }
 
     renderExpandedRow = (record: ItemData): JSX.Element => {
@@ -670,10 +738,10 @@ class LiveList extends React.Component<Props, IState> {
                                         {detail.recording ? '录制中' : '未录制'}
                                     </Tag>
                                 </div>
-                                {detail.recording && detail.recorder_status?.speed && (
+                                {detail.recording && detail.recorder_status?.bitrate && (
                                     <div style={configRowStyle}>
                                         <span style={configLabelStyle}>下载速度</span>
-                                        <Tag color="blue">{detail.recorder_status.speed}</Tag>
+                                        <Tag color="blue">{this.formatDownloadSpeed(detail.recorder_status)}</Tag>
                                     </div>
                                 )}
                                 <div style={configRowStyle}>
@@ -699,11 +767,11 @@ class LiveList extends React.Component<Props, IState> {
                                             <span>{Math.round(detail.rate_limit_info.waited_seconds || 0)} 秒</span>
                                         </div>
                                         <div style={configRowStyle}>
-                                            <span style={configLabelStyle}>距下次GetInfo请求</span>
+                                            <span style={configLabelStyle}>距离下次刷新</span>
                                             <Tag color={countdown > 0 ? 'orange' : 'green'}>
                                                 {countdown > 0
                                                     ? `${countdown} 秒`
-                                                    : '立即可用'}
+                                                    : '正在刷新'}
                                             </Tag>
                                         </div>
                                         <div style={{ marginTop: 12, borderBottom: 'none' }}>
