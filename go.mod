@@ -11,7 +11,7 @@ require (
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/gorilla/mux v1.7.4
 	github.com/hr3lxphr6j/requests v0.0.1
-	github.com/kira1928/remotetools v0.3.3
+	github.com/kira1928/remotetools v0.3.4
 	github.com/prometheus/client_golang v1.11.0
 	github.com/robertkrimen/otto v0.0.0-20191219234010-c382bd3c16ff
 	github.com/satori/go.uuid v1.2.1-0.20181028125025-b2ce2384e17b
@@ -24,6 +24,8 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.42.2
 )
+
+replace github.com/kira1928/remotetools v0.3.4 => ../remotetools
 
 require github.com/blang/semver/v4 v4.0.0 // indirect
 

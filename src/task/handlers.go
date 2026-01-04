@@ -9,27 +9,31 @@ import (
 )
 
 // RegisterHandlers 注册任务队列相关的 HTTP 处理器
+// 注意：r 已经是 /api 前缀的子路由器，所以这里不需要再加 /api 前缀
 func RegisterHandlers(r *mux.Router, qm *QueueManager) {
 	// 获取任务列表
-	r.HandleFunc("/api/tasks", makeListTasksHandler(qm)).Methods("GET")
+	r.HandleFunc("/tasks", makeListTasksHandler(qm)).Methods("GET")
 
 	// 获取队列统计
-	r.HandleFunc("/api/tasks/stats", makeGetStatsHandler(qm)).Methods("GET")
+	r.HandleFunc("/tasks/stats", makeGetStatsHandler(qm)).Methods("GET")
+
+	// 清除已完成的任务
+	r.HandleFunc("/tasks/clear-completed", makeClearCompletedHandler(qm)).Methods("POST")
 
 	// 获取单个任务
-	r.HandleFunc("/api/tasks/{id}", makeGetTaskHandler(qm)).Methods("GET")
+	r.HandleFunc("/tasks/{id}", makeGetTaskHandler(qm)).Methods("GET")
 
 	// 取消任务
-	r.HandleFunc("/api/tasks/{id}/cancel", makeCancelTaskHandler(qm)).Methods("POST")
+	r.HandleFunc("/tasks/{id}/cancel", makeCancelTaskHandler(qm)).Methods("POST")
 
 	// 重新排队
-	r.HandleFunc("/api/tasks/{id}/requeue", makeRequeueTaskHandler(qm)).Methods("POST")
+	r.HandleFunc("/tasks/{id}/requeue", makeRequeueTaskHandler(qm)).Methods("POST")
 
 	// 更新优先级
-	r.HandleFunc("/api/tasks/{id}/priority", makeUpdatePriorityHandler(qm)).Methods("PUT")
+	r.HandleFunc("/tasks/{id}/priority", makeUpdatePriorityHandler(qm)).Methods("PUT")
 
 	// 删除任务
-	r.HandleFunc("/api/tasks/{id}", makeDeleteTaskHandler(qm)).Methods("DELETE")
+	r.HandleFunc("/tasks/{id}", makeDeleteTaskHandler(qm)).Methods("DELETE")
 }
 
 // makeListTasksHandler 列出任务
@@ -87,6 +91,23 @@ func makeGetStatsHandler(qm *QueueManager) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(stats)
+	}
+}
+
+// makeClearCompletedHandler 清除已完成的任务
+func makeClearCompletedHandler(qm *QueueManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		count, err := qm.ClearCompletedTasks()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":  "success",
+			"deleted": count,
+		})
 	}
 }
 

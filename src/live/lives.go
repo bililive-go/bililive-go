@@ -61,10 +61,27 @@ type InitializingLiveSetter interface {
 	IsFinished() bool
 }
 
+// CachedInfoSetter 可设置缓存信息的接口（用于从数据库加载缓存的主播名和房间名）
+type CachedInfoSetter interface {
+	SetCachedInfo(hostName, roomName string)
+	GetCachedInfo() (hostName, roomName string)
+}
+
 type InitializingFinishedParam struct {
 	InitializingLive Live
 	Live             Live
 	Info             *Info
+}
+
+// GetLiveId 实现 liveIDProvider 接口，使 SSE 事件处理器能够正确广播此事件
+func (p InitializingFinishedParam) GetLiveId() types.LiveID {
+	if p.InitializingLive != nil {
+		return p.InitializingLive.GetLiveId()
+	}
+	if p.Live != nil {
+		return p.Live.GetLiveId()
+	}
+	return ""
 }
 
 type Options struct {

@@ -1,19 +1,21 @@
 import React, { Component } from 'react';
-import { Table, Button, Tag, Space, Progress, Tooltip, Card, Statistic, Row, Col, Modal, message, Badge } from 'antd';
+import { Table, Button, Tag, Space, Progress, Tooltip, Card, Statistic, Row, Col, Modal, message, Badge, Collapse, Typography, Select } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
   ReloadOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
   DeleteOutlined,
-  ArrowUpOutlined,
-  ArrowDownOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
   ClockCircleOutlined,
-  LoadingOutlined
+  LoadingOutlined,
+  ClearOutlined
 } from '@ant-design/icons';
 import './index.css';
+
+const { Text, Paragraph } = Typography;
+const { Panel } = Collapse;
 
 // 任务类型
 type TaskType = 'fix_flv' | 'convert_mp4';
@@ -39,6 +41,8 @@ interface Task {
   error_message: string;
   progress: number;
   can_requeue: boolean;
+  commands: string[];
+  logs: string;
 }
 
 // 队列统计
@@ -55,7 +59,9 @@ interface TaskListState {
   tasks: Task[];
   stats: QueueStats | null;
   loading: boolean;
-  filter: TaskStatus | 'all';
+  statusFilter: TaskStatus | 'all';
+  typeFilter: TaskType | 'all';
+  expandedRowKeys: number[];
 }
 
 class TaskList extends Component<object, TaskListState> {
@@ -67,7 +73,9 @@ class TaskList extends Component<object, TaskListState> {
       tasks: [],
       stats: null,
       loading: false,
-      filter: 'all',
+      statusFilter: 'all',
+      typeFilter: 'all',
+      expandedRowKeys: [],
     };
   }
 
@@ -148,23 +156,25 @@ class TaskList extends Component<object, TaskListState> {
     });
   };
 
-  handlePriorityChange = async (taskId: number, delta: number) => {
-    const task = this.state.tasks.find(t => t.id === taskId);
-    if (!task) return;
-
-    const newPriority = task.priority + delta;
-    try {
-      const res = await fetch(`/api/tasks/${taskId}/priority`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ priority: newPriority }),
-      });
-      if (res.ok) {
-        this.loadData();
-      }
-    } catch (error) {
-      message.error('优先级更新失败');
-    }
+  handleClearCompleted = async () => {
+    Modal.confirm({
+      title: '确认清除',
+      content: '确定要清除所有已完成的任务记录吗？',
+      onOk: async () => {
+        try {
+          const res = await fetch('/api/tasks/clear-completed', { method: 'POST' });
+          if (res.ok) {
+            const data = await res.json();
+            message.success(`已清除 ${data.deleted} 条已完成任务`);
+            this.loadData();
+          } else {
+            message.error('清除失败');
+          }
+        } catch (error) {
+          message.error('清除失败');
+        }
+      },
+    });
   };
 
   getTypeLabel = (type: TaskType): string => {
@@ -203,29 +213,141 @@ class TaskList extends Component<object, TaskListState> {
     return parts[parts.length - 1];
   };
 
+  formatDuration = (startTime: string | null, endTime: string | null): string => {
+    if (!startTime) return '-';
+    const start = new Date(startTime).getTime();
+    const end = endTime ? new Date(endTime).getTime() : Date.now();
+    const durationMs = end - start;
+
+    if (durationMs < 0) return '-';
+
+    const hours = Math.floor(durationMs / (1000 * 60 * 60));
+    const minutes = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((durationMs % (1000 * 60)) / 1000);
+
+    if (hours > 0) {
+      return `${hours}小时${minutes}分钟`;
+    } else if (minutes > 0) {
+      return `${minutes}分钟${seconds}秒`;
+    } else {
+      return `${seconds}秒`;
+    }
+  };
+
   getFilteredTasks = (): Task[] => {
-    const { tasks, filter } = this.state;
-    if (filter === 'all') return tasks;
-    return tasks.filter(t => t.status === filter);
+    const { tasks, statusFilter, typeFilter } = this.state;
+    return tasks.filter(t => {
+      if (statusFilter !== 'all' && t.status !== statusFilter) return false;
+      if (typeFilter !== 'all' && t.type !== typeFilter) return false;
+      return true;
+    });
+  };
+
+  // 渲染任务详情（展开行）
+  renderTaskDetail = (task: Task) => {
+    return (
+      <div style={{ padding: '16px 20px', background: '#fafafa' }}>
+        <Row gutter={[16, 16]}>
+          <Col span={12}>
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <div>
+                <Text strong>输入文件：</Text>
+                <Tooltip title={task.input_file}>
+                  <Text copyable={{ text: task.input_file }}>{this.formatFileName(task.input_file)}</Text>
+                </Tooltip>
+              </div>
+              {task.output_file && (
+                <div>
+                  <Text strong>输出文件：</Text>
+                  <Tooltip title={task.output_file}>
+                    <Text copyable={{ text: task.output_file }}>{this.formatFileName(task.output_file)}</Text>
+                  </Tooltip>
+                </div>
+              )}
+              {task.room_name && (
+                <div>
+                  <Text strong>直播间：</Text>
+                  <Text>{task.room_name} ({task.host_name} - {task.platform})</Text>
+                </div>
+              )}
+              <div>
+                <Text strong>创建时间：</Text>
+                <Text>{this.formatTime(task.created_at)}</Text>
+              </div>
+            </Space>
+          </Col>
+          <Col span={12}>
+            <Space direction="vertical" style={{ width: '100%' }}>
+              {task.error_message && (
+                <div>
+                  <Text strong type="danger">错误信息：</Text>
+                  <br />
+                  <Text type="danger">{task.error_message}</Text>
+                </div>
+              )}
+              {task.logs && (
+                <div>
+                  <Text strong>执行日志：</Text>
+                  <br />
+                  <Paragraph style={{ whiteSpace: 'pre-wrap', background: '#f5f5f5', padding: 8, borderRadius: 4, marginBottom: 0 }}>
+                    {task.logs}
+                  </Paragraph>
+                </div>
+              )}
+              {task.commands && task.commands.length > 0 && (
+                <Collapse size="small">
+                  <Panel header="执行命令" key="commands">
+                    {task.commands.map((cmd, idx) => (
+                      <Paragraph
+                        key={idx}
+                        code
+                        copyable
+                        style={{ fontSize: 12, marginBottom: idx < task.commands.length - 1 ? 8 : 0 }}
+                      >
+                        {cmd}
+                      </Paragraph>
+                    ))}
+                  </Panel>
+                </Collapse>
+              )}
+            </Space>
+          </Col>
+        </Row>
+        {/* 操作按钮 */}
+        <div style={{ marginTop: 16, borderTop: '1px solid #e8e8e8', paddingTop: 12 }}>
+          <Space>
+            {task.status === 'running' && (
+              <Button danger icon={<PauseCircleOutlined />} onClick={() => this.handleCancel(task.id)}>
+                取消任务
+              </Button>
+            )}
+            {(task.status === 'failed' || task.status === 'cancelled') && task.can_requeue && (
+              <Button icon={<PlayCircleOutlined />} onClick={() => this.handleRequeue(task.id)}>
+                重新排队
+              </Button>
+            )}
+            {task.status !== 'running' && (
+              <Button danger icon={<DeleteOutlined />} onClick={() => this.handleDelete(task.id)}>
+                删除任务
+              </Button>
+            )}
+          </Space>
+        </div>
+      </div>
+    );
   };
 
   render() {
-    const { stats, loading, filter } = this.state;
+    const { stats, loading, statusFilter, typeFilter, expandedRowKeys } = this.state;
     const filteredTasks = this.getFilteredTasks();
 
     const columns: ColumnsType<Task> = [
       {
-        title: 'ID',
-        dataIndex: 'id',
-        key: 'id',
-        width: 60,
-      },
-      {
-        title: '类型',
-        dataIndex: 'type',
-        key: 'type',
-        width: 100,
-        render: (type: TaskType) => this.getTypeLabel(type),
+        title: '开始时间',
+        dataIndex: 'started_at',
+        key: 'started_at',
+        width: 160,
+        render: (time: string) => this.formatTime(time),
       },
       {
         title: '状态',
@@ -233,6 +355,13 @@ class TaskList extends Component<object, TaskListState> {
         key: 'status',
         width: 100,
         render: (status: TaskStatus) => this.getStatusTag(status),
+      },
+      {
+        title: '类型',
+        dataIndex: 'type',
+        key: 'type',
+        width: 100,
+        render: (type: TaskType) => this.getTypeLabel(type),
       },
       {
         title: '进度',
@@ -243,115 +372,26 @@ class TaskList extends Component<object, TaskListState> {
           record.status === 'running' ? (
             <Progress percent={progress} size="small" />
           ) : record.status === 'completed' ? (
-            <Progress percent={100} size="small" />
+            <Progress percent={100} size="small" status="success" />
+          ) : record.status === 'failed' ? (
+            <Progress percent={progress || 0} size="small" status="exception" />
           ) : null
         ),
       },
       {
-        title: '输入文件',
-        dataIndex: 'input_file',
-        key: 'input_file',
-        ellipsis: true,
-        render: (path: string) => (
-          <Tooltip title={path}>
-            <span>{this.formatFileName(path)}</span>
-          </Tooltip>
-        ),
-      },
-      {
-        title: '直播间',
-        key: 'room',
-        width: 150,
-        render: (_: unknown, record: Task) => (
-          record.room_name ? (
-            <Tooltip title={`${record.host_name} - ${record.platform}`}>
-              <span>{record.room_name}</span>
-            </Tooltip>
-          ) : '-'
-        ),
-      },
-      {
-        title: '优先级',
-        dataIndex: 'priority',
-        key: 'priority',
+        title: '耗时',
+        key: 'duration',
         width: 100,
-        render: (priority: number, record: Task) => (
-          <Space size={4}>
-            <span>{priority}</span>
-            {record.status === 'pending' && (
-              <>
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<ArrowUpOutlined />}
-                  onClick={() => this.handlePriorityChange(record.id, 1)}
-                />
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<ArrowDownOutlined />}
-                  onClick={() => this.handlePriorityChange(record.id, -1)}
-                />
-              </>
-            )}
-          </Space>
+        render: (_: unknown, record: Task) => (
+          record.started_at ? this.formatDuration(record.started_at, record.completed_at) : '-'
         ),
       },
       {
-        title: '创建时间',
-        dataIndex: 'created_at',
-        key: 'created_at',
+        title: '完成时间',
+        dataIndex: 'completed_at',
+        key: 'completed_at',
         width: 160,
         render: (time: string) => this.formatTime(time),
-      },
-      {
-        title: '错误信息',
-        dataIndex: 'error_message',
-        key: 'error_message',
-        ellipsis: true,
-        render: (error: string) => error ? (
-          <Tooltip title={error}>
-            <span style={{ color: 'red' }}>{error}</span>
-          </Tooltip>
-        ) : null,
-      },
-      {
-        title: '操作',
-        key: 'actions',
-        width: 150,
-        render: (_: unknown, record: Task) => (
-          <Space size={4}>
-            {record.status === 'running' && (
-              <Tooltip title="取消">
-                <Button
-                  type="text"
-                  danger
-                  icon={<PauseCircleOutlined />}
-                  onClick={() => this.handleCancel(record.id)}
-                />
-              </Tooltip>
-            )}
-            {(record.status === 'failed' || record.status === 'cancelled') && record.can_requeue && (
-              <Tooltip title="重新排队">
-                <Button
-                  type="text"
-                  icon={<PlayCircleOutlined />}
-                  onClick={() => this.handleRequeue(record.id)}
-                />
-              </Tooltip>
-            )}
-            {record.status !== 'running' && (
-              <Tooltip title="删除">
-                <Button
-                  type="text"
-                  danger
-                  icon={<DeleteOutlined />}
-                  onClick={() => this.handleDelete(record.id)}
-                />
-              </Tooltip>
-            )}
-          </Space>
-        ),
       },
     ];
 
@@ -369,7 +409,7 @@ class TaskList extends Component<object, TaskListState> {
               </Card>
             </Col>
             <Col span={4}>
-              <Card size="small" onClick={() => this.setState({ filter: 'running' })} style={{ cursor: 'pointer' }}>
+              <Card size="small" onClick={() => this.setState({ statusFilter: 'running' })} style={{ cursor: 'pointer' }}>
                 <Statistic
                   title={<Badge status="processing" text="运行中" />}
                   value={stats.running_count}
@@ -378,7 +418,7 @@ class TaskList extends Component<object, TaskListState> {
               </Card>
             </Col>
             <Col span={4}>
-              <Card size="small" onClick={() => this.setState({ filter: 'pending' })} style={{ cursor: 'pointer' }}>
+              <Card size="small" onClick={() => this.setState({ statusFilter: 'pending' })} style={{ cursor: 'pointer' }}>
                 <Statistic
                   title={<Badge status="default" text="等待中" />}
                   value={stats.pending_count}
@@ -386,7 +426,7 @@ class TaskList extends Component<object, TaskListState> {
               </Card>
             </Col>
             <Col span={4}>
-              <Card size="small" onClick={() => this.setState({ filter: 'completed' })} style={{ cursor: 'pointer' }}>
+              <Card size="small" onClick={() => this.setState({ statusFilter: 'completed' })} style={{ cursor: 'pointer' }}>
                 <Statistic
                   title={<Badge status="success" text="已完成" />}
                   value={stats.completed_count}
@@ -395,7 +435,7 @@ class TaskList extends Component<object, TaskListState> {
               </Card>
             </Col>
             <Col span={4}>
-              <Card size="small" onClick={() => this.setState({ filter: 'failed' })} style={{ cursor: 'pointer' }}>
+              <Card size="small" onClick={() => this.setState({ statusFilter: 'failed' })} style={{ cursor: 'pointer' }}>
                 <Statistic
                   title={<Badge status="error" text="失败" />}
                   value={stats.failed_count}
@@ -404,7 +444,7 @@ class TaskList extends Component<object, TaskListState> {
               </Card>
             </Col>
             <Col span={4}>
-              <Card size="small" onClick={() => this.setState({ filter: 'all' })} style={{ cursor: 'pointer' }}>
+              <Card size="small" onClick={() => this.setState({ statusFilter: 'all', typeFilter: 'all' })} style={{ cursor: 'pointer' }}>
                 <Statistic
                   title="全部"
                   value={stats.running_count + stats.pending_count + stats.completed_count + stats.failed_count + stats.cancelled_count}
@@ -417,43 +457,49 @@ class TaskList extends Component<object, TaskListState> {
         {/* 工具栏 */}
         <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Space>
-            <span>当前筛选: </span>
-            <Tag
-              color={filter === 'all' ? 'blue' : 'default'}
-              style={{ cursor: 'pointer' }}
-              onClick={() => this.setState({ filter: 'all' })}
-            >
-              全部
-            </Tag>
-            <Tag
-              color={filter === 'running' ? 'blue' : 'default'}
-              style={{ cursor: 'pointer' }}
-              onClick={() => this.setState({ filter: 'running' })}
-            >
-              运行中
-            </Tag>
-            <Tag
-              color={filter === 'pending' ? 'blue' : 'default'}
-              style={{ cursor: 'pointer' }}
-              onClick={() => this.setState({ filter: 'pending' })}
-            >
-              等待中
-            </Tag>
-            <Tag
-              color={filter === 'failed' ? 'blue' : 'default'}
-              style={{ cursor: 'pointer' }}
-              onClick={() => this.setState({ filter: 'failed' })}
-            >
-              失败
-            </Tag>
+            <span>状态筛选:</span>
+            <Select
+              value={statusFilter}
+              onChange={(v) => this.setState({ statusFilter: v })}
+              style={{ width: 100 }}
+              options={[
+                { value: 'all', label: '全部' },
+                { value: 'running', label: '运行中' },
+                { value: 'pending', label: '等待中' },
+                { value: 'completed', label: '已完成' },
+                { value: 'failed', label: '失败' },
+                { value: 'cancelled', label: '已取消' },
+              ]}
+            />
+            <span>类型筛选:</span>
+            <Select
+              value={typeFilter}
+              onChange={(v) => this.setState({ typeFilter: v })}
+              style={{ width: 120 }}
+              options={[
+                { value: 'all', label: '全部' },
+                { value: 'fix_flv', label: '修复FLV' },
+                { value: 'convert_mp4', label: '转换MP4' },
+              ]}
+            />
           </Space>
-          <Button
-            icon={<ReloadOutlined />}
-            onClick={this.loadData}
-            loading={loading}
-          >
-            刷新
-          </Button>
+          <Space>
+            {stats && stats.completed_count > 0 && (
+              <Button
+                icon={<ClearOutlined />}
+                onClick={this.handleClearCompleted}
+              >
+                清除已完成 ({stats.completed_count})
+              </Button>
+            )}
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={this.loadData}
+              loading={loading}
+            >
+              刷新
+            </Button>
+          </Space>
         </div>
 
         {/* 任务列表 */}
@@ -462,6 +508,17 @@ class TaskList extends Component<object, TaskListState> {
           dataSource={filteredTasks}
           rowKey="id"
           size="small"
+          expandable={{
+            expandedRowRender: this.renderTaskDetail,
+            expandedRowKeys: expandedRowKeys,
+            onExpand: (expanded, record) => {
+              this.setState({
+                expandedRowKeys: expanded
+                  ? [...expandedRowKeys, record.id]
+                  : expandedRowKeys.filter(k => k !== record.id)
+              });
+            },
+          }}
           pagination={{
             pageSize: 20,
             showSizeChanger: true,
@@ -469,7 +526,6 @@ class TaskList extends Component<object, TaskListState> {
             showTotal: (total) => `共 ${total} 条`,
           }}
           loading={loading}
-          scroll={{ x: 1200 }}
         />
       </div>
     );

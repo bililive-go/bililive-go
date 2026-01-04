@@ -4,6 +4,7 @@ import { EditOutlined, SyncOutlined, CloudSyncOutlined, ReloadOutlined } from '@
 import PopDialog from '../pop-dialog/index';
 import AddRoomDialog from '../add-room-dialog/index';
 import LogPanel from '../log-panel/index';
+import HistoryPanel from '../history-panel/index';
 import API from '../../utils/api';
 import { subscribeSSE, unsubscribeSSE, SSEMessage } from '../../utils/sse';
 import { isListSSEEnabled, setListSSEEnabled, getPollIntervalMs } from '../../utils/settings';
@@ -1320,6 +1321,9 @@ class LiveList extends React.Component<Props, IState> {
                     </Tabs.TabPane>
                     <Tabs.TabPane tab="最近日志" key="logs">
                         {renderLogsPanel()}
+                    </Tabs.TabPane>
+                    <Tabs.TabPane tab="直播历史" key="history">
+                        <HistoryPanel roomId={record.roomId} roomName={record.name} />
                     </Tabs.TabPane>
                 </Tabs>
             </div>

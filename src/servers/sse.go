@@ -293,7 +293,7 @@ func RegisterSSEEventListeners(inst *instance.Instance) {
 	dispatcher := inst.EventDispatcher.(events.Dispatcher)
 
 	// 导入事件类型常量
-	// 这些事件在 listeners/event.go 中定义
+	// 这些事件在 listeners/event.go 和 recorders/event.go 中定义
 	eventTypes := []events.EventType{
 		"ListenStart",
 		"ListenStop",
@@ -301,6 +301,8 @@ func RegisterSSEEventListeners(inst *instance.Instance) {
 		"LiveEnd",
 		"RoomNameChanged",
 		"RoomInitializingFinished",
+		"RecorderStart", // 录制开始
+		"RecorderStop",  // 录制结束
 	}
 
 	for _, eventType := range eventTypes {

@@ -19,6 +19,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/listeners"
 	"github.com/bililive-go/bililive-go/src/live"
+	"github.com/bililive-go/bililive-go/src/livestate"
 	"github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/metrics"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
@@ -150,6 +151,18 @@ func main() {
 	inst.TaskQueueManager = taskQueueManager
 	inst.TaskEnqueuer = taskQueueManager
 
+	// 初始化直播间状态管理器
+	liveStateDbPath := filepath.Join(config.AppDataPath, "db", "lives.db")
+	liveStateManager, err := livestate.NewManager(liveStateDbPath)
+	if err != nil {
+		logger.WithError(err).Warn("初始化直播间状态管理器失败，状态持久化功能将不可用")
+	} else {
+		inst.LiveStateManager = liveStateManager
+		if err := liveStateManager.Start(); err != nil {
+			logger.WithError(err).Warn("启动直播间状态管理器失败")
+		}
+	}
+
 	// 先初始化 manager（不启动），因为 server 依赖它们
 	lm := listeners.NewManager(ctx)
 	rm := recorders.NewManager(ctx)
@@ -162,6 +175,10 @@ func main() {
 		}
 		// 注册 SSE 事件监听器
 		servers.RegisterSSEEventListeners(inst)
+		// 注册直播间状态持久化事件监听器
+		if liveStateManager != nil {
+			livestate.RegisterEventListeners(ed, liveStateManager, inst.Cache)
+		}
 		// 设置日志回调，将日志推送到 SSE
 		livelogger.SetLogCallback(func(roomID string, logLine string) {
 			servers.GetSSEHub().BroadcastLog(types.LiveID(roomID), logLine)
@@ -231,6 +248,35 @@ func main() {
 		}
 		inst.Lives[l.GetLiveId()] = l
 		configs.SetLiveRoomId(room.Url, l.GetLiveId())
+
+		// 从数据库加载缓存的直播间信息，用于在初始化完成前显示
+		if liveStateManager != nil {
+			if cachedRoom := liveStateManager.GetCachedInfo(string(l.GetLiveId())); cachedRoom != nil {
+				// 1. 设置 InitializingLive 的缓存信息（用于 GetInfo 返回）
+				if wrappedLive, ok := l.(*live.WrappedLive); ok {
+					if setter, ok := wrappedLive.Live.(live.CachedInfoSetter); ok {
+						setter.SetCachedInfo(cachedRoom.HostName, cachedRoom.RoomName)
+					}
+				}
+
+				// 2. 将缓存信息存入 inst.Cache（用于 API 返回）
+				cachedInfo := &live.Info{
+					Live:         l,
+					HostName:     cachedRoom.HostName,
+					RoomName:     cachedRoom.RoomName,
+					Status:       false,
+					Initializing: true,
+				}
+				if cachedRoom.HostName != "" || cachedRoom.RoomName != "" {
+					inst.Cache.Set(l, cachedInfo)
+					logger.WithFields(map[string]any{
+						"live_id":   l.GetLiveId(),
+						"host_name": cachedRoom.HostName,
+						"room_name": cachedRoom.RoomName,
+					}).Debug("已加载缓存的直播间信息")
+				}
+			}
+		}
 
 		// 分类直播间
 		if room.IsListening {
@@ -325,6 +371,10 @@ func main() {
 		inst.RecorderManager.Close(ctx)
 		if inst.TaskQueueManager != nil {
 			inst.TaskQueueManager.Close(ctx)
+		}
+		// 关闭直播间状态管理器
+		if liveStateManager != nil {
+			liveStateManager.Close()
 		}
 		logger.Info("Shutdown complete")
 	}()

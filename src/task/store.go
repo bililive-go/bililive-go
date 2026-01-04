@@ -12,12 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/golang-migrate/migrate/v4"
-	"github.com/golang-migrate/migrate/v4/database/sqlite"
-	"github.com/golang-migrate/migrate/v4/source/iofs"
 	_ "modernc.org/sqlite"
 
 	"github.com/bililive-go/bililive-go/src/consts"
+	"github.com/bililive-go/bililive-go/src/pkg/migration"
 	"github.com/sirupsen/logrus"
 )
 
@@ -47,6 +45,8 @@ type Store interface {
 	ResetRunningTasks(ctx context.Context) error
 	// UpdateTaskPriority 更新任务优先级
 	UpdateTaskPriority(ctx context.Context, id int64, priority int) error
+	// DeleteTasksByStatus 删除指定状态的所有任务
+	DeleteTasksByStatus(ctx context.Context, status TaskStatus) (int, error)
 	// Close 关闭存储
 	Close() error
 }
@@ -101,53 +101,48 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 
 // runMigrations 运行数据库迁移
 func (s *SQLiteStore) runMigrations() error {
-	// 获取迁移文件系统
-	migrationsFS, err := GetMigrationsFS()
-	if err != nil {
-		return fmt.Errorf("failed to get migrations fs: %w", err)
+	// 使用新的迁移系统
+	config := &migration.MigrationConfig{
+		DBPath: s.dbPath,
+		Schema: TaskDatabaseSchema,
+		DB:     s.db,
 	}
 
-	// 创建 iofs source
-	sourceDriver, err := iofs.New(migrationsFS, ".")
+	migrator, err := migration.NewMigrator(config)
 	if err != nil {
-		return fmt.Errorf("failed to create iofs source: %w", err)
+		return fmt.Errorf("failed to create migrator: %w", err)
 	}
 
-	// 创建 sqlite database driver
-	dbDriver, err := sqlite.WithInstance(s.db, &sqlite.Config{})
+	// 先检查是否需要从上次失败的迁移中恢复
+	recovered, err := migrator.CheckAndRecover()
 	if err != nil {
-		return fmt.Errorf("failed to create sqlite driver: %w", err)
+		logrus.WithError(err).Warn("migration recovery check failed")
+	}
+	if recovered {
+		logrus.Info("recovered from incomplete migration")
+		// 恢复后需要重新打开数据库连接
+		s.db.Close()
+		db, err := sql.Open("sqlite", s.dbPath)
+		if err != nil {
+			return fmt.Errorf("failed to reopen database after recovery: %w", err)
+		}
+		s.db = db
+		// 更新配置中的DB连接
+		config.DB = s.db
+		migrator, err = migration.NewMigrator(config)
+		if err != nil {
+			return fmt.Errorf("failed to recreate migrator after recovery: %w", err)
+		}
 	}
 
-	// 创建 migrate 实例
-	m, err := migrate.NewWithInstance("iofs", sourceDriver, "sqlite", dbDriver)
+	// 执行迁移
+	result, err := migrator.Run()
 	if err != nil {
-		return fmt.Errorf("failed to create migrate instance: %w", err)
-	}
-
-	// 获取当前版本（用于日志）
-	currentVersion, dirty, _ := m.Version()
-
-	// 运行迁移
-	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return fmt.Errorf("migration failed: %w", err)
 	}
 
-	// 获取迁移后版本
-	newVersion, _, _ := m.Version()
-
-	if currentVersion != newVersion {
-		logrus.WithFields(logrus.Fields{
-			"from_version": currentVersion,
-			"to_version":   newVersion,
-			"was_dirty":    dirty,
-			"embedded":     IsMigrationsEmbedded(),
-		}).Info("database migration completed")
-	} else {
-		logrus.WithFields(logrus.Fields{
-			"version":  newVersion,
-			"embedded": IsMigrationsEmbedded(),
-		}).Debug("database schema is up to date")
+	if result.BackupPath != "" {
+		logrus.WithField("backup_path", result.BackupPath).Debug("database backup created")
 	}
 
 	return nil
@@ -309,6 +304,7 @@ func (s *SQLiteStore) UpdateTask(ctx context.Context, task *Task) error {
 
 	tempFilesJSON, _ := json.Marshal(task.TempFiles)
 	metadataJSON, _ := json.Marshal(task.Metadata)
+	commandsJSON, _ := json.Marshal(task.Commands)
 	canRequeue := 0
 	if task.CanRequeue {
 		canRequeue = 1
@@ -317,10 +313,12 @@ func (s *SQLiteStore) UpdateTask(ctx context.Context, task *Task) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE tasks SET 
 			status = ?, priority = ?, output_file = ?, temp_files = ?, metadata = ?,
-			started_at = ?, completed_at = ?, error_message = ?, progress = ?, can_requeue = ?
+			started_at = ?, completed_at = ?, error_message = ?, progress = ?, can_requeue = ?,
+			commands = ?, logs = ?
 		WHERE id = ?
 	`, task.Status, task.Priority, task.OutputFile, string(tempFilesJSON), string(metadataJSON),
-		task.StartedAt, task.CompletedAt, task.ErrorMessage, task.Progress, canRequeue, task.ID)
+		task.StartedAt, task.CompletedAt, task.ErrorMessage, task.Progress, canRequeue,
+		string(commandsJSON), task.Logs, task.ID)
 	return err
 }
 
@@ -333,12 +331,26 @@ func (s *SQLiteStore) DeleteTask(ctx context.Context, id int64) error {
 	return err
 }
 
+// DeleteTasksByStatus 删除指定状态的所有任务
+func (s *SQLiteStore) DeleteTasksByStatus(ctx context.Context, status TaskStatus) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result, err := s.db.ExecContext(ctx, "DELETE FROM tasks WHERE status = ?", status)
+	if err != nil {
+		return 0, err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	return int(rowsAffected), nil
+}
+
 // ListTasks 列出任务
 func (s *SQLiteStore) ListTasks(ctx context.Context, filter TaskFilter) ([]*Task, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	query := "SELECT id, type, status, priority, input_file, output_file, temp_files, live_id, room_name, host_name, platform, pre_task_id, post_task_id, metadata, created_at, started_at, completed_at, error_message, progress, can_requeue FROM tasks WHERE 1=1"
+	query := "SELECT id, type, status, priority, input_file, output_file, temp_files, live_id, room_name, host_name, platform, pre_task_id, post_task_id, metadata, created_at, started_at, completed_at, error_message, progress, can_requeue, commands, logs FROM tasks WHERE 1=1"
 	args := []interface{}{}
 
 	if filter.Status != nil {
@@ -415,7 +427,7 @@ func (s *SQLiteStore) scanTasks(rows *sql.Rows) ([]*Task, error) {
 	var tasks []*Task
 	for rows.Next() {
 		task := &Task{}
-		var tempFilesJSON, outputFile, metadataJSON sql.NullString
+		var tempFilesJSON, outputFile, metadataJSON, errorMessage, commandsJSON, logs sql.NullString
 		var preTaskID, postTaskID sql.NullInt64
 		var startedAt, completedAt sql.NullTime
 		var canRequeue sql.NullInt64
@@ -423,7 +435,8 @@ func (s *SQLiteStore) scanTasks(rows *sql.Rows) ([]*Task, error) {
 		err := rows.Scan(
 			&task.ID, &task.Type, &task.Status, &task.Priority, &task.InputFile, &outputFile, &tempFilesJSON,
 			&task.LiveID, &task.RoomName, &task.HostName, &task.Platform,
-			&preTaskID, &postTaskID, &metadataJSON, &task.CreatedAt, &startedAt, &completedAt, &task.ErrorMessage, &task.Progress, &canRequeue,
+			&preTaskID, &postTaskID, &metadataJSON, &task.CreatedAt, &startedAt, &completedAt, &errorMessage, &task.Progress, &canRequeue,
+			&commandsJSON, &logs,
 		)
 		if err != nil {
 			return nil, err
@@ -452,6 +465,15 @@ func (s *SQLiteStore) scanTasks(rows *sql.Rows) ([]*Task, error) {
 		}
 		if canRequeue.Valid {
 			task.CanRequeue = canRequeue.Int64 == 1
+		}
+		if errorMessage.Valid {
+			task.ErrorMessage = errorMessage.String
+		}
+		if commandsJSON.Valid {
+			json.Unmarshal([]byte(commandsJSON.String), &task.Commands)
+		}
+		if logs.Valid {
+			task.Logs = logs.String
 		}
 
 		tasks = append(tasks, task)

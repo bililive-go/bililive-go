@@ -593,6 +593,12 @@ func NewConfigWithBytes(b []byte) (*Config, error) {
 func NewConfigWithFile(file string) (*Config, error) {
 	b, err := os.ReadFile(file)
 	if err != nil {
+		// 进行权限诊断，提供更详细的错误信息
+		diag := DiagnoseFilePermission(file)
+		diagInfo := diag.FormatError()
+		if diagInfo != "" {
+			return nil, fmt.Errorf("can`t open file: %s%s", file, diagInfo)
+		}
 		return nil, fmt.Errorf("can`t open file: %s", file)
 	}
 	config, err := NewConfigWithBytes(b)

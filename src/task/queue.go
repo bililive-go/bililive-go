@@ -402,6 +402,11 @@ func (qm *QueueManager) DeleteTask(taskID int64) error {
 	return qm.store.DeleteTask(qm.ctx, taskID)
 }
 
+// ClearCompletedTasks 清除所有已完成的任务
+func (qm *QueueManager) ClearCompletedTasks() (int, error) {
+	return qm.store.DeleteTasksByStatus(qm.ctx, TaskStatusCompleted)
+}
+
 // GetStats 获取队列统计信息
 func (qm *QueueManager) GetStats() (*QueueStats, error) {
 	stats := &QueueStats{

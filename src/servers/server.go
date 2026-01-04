@@ -86,7 +86,10 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/lives/{id}", getLive).Methods("GET")
 	apiRoute.HandleFunc("/lives/{id}", removeLive).Methods("DELETE")
 	apiRoute.HandleFunc("/lives/{id}/logs", getLiveLogs).Methods("GET")
-	apiRoute.HandleFunc("/lives/{id}/{action}", parseLiveAction).Methods("GET")
+	apiRoute.HandleFunc("/lives/{id}/sessions", getLiveSessionHistory).Methods("GET")  // 获取直播会话历史
+	apiRoute.HandleFunc("/lives/{id}/name-history", getLiveNameHistory).Methods("GET") // 获取名称变更历史
+	apiRoute.HandleFunc("/lives/{id}/history", getLiveHistory).Methods("GET")          // 获取统一历史事件（支持分页筛选）
+	apiRoute.HandleFunc("/lives/{id}/{action}", parseLiveAction).Methods("GET")        // 通配符路由必须放在最后
 	apiRoute.HandleFunc("/file/{path:.*}", getFileInfo).Methods("GET")
 	apiRoute.HandleFunc("/cookies", getLiveHostCookie).Methods("GET")
 	apiRoute.HandleFunc("/cookies", putLiveHostCookie).Methods("PUT")

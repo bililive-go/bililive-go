@@ -60,6 +60,8 @@ type Task struct {
 	ErrorMessage string                 `json:"error_message"` // 错误信息
 	Progress     int                    `json:"progress"`      // 进度（0-100）
 	CanRequeue   bool                   `json:"can_requeue"`   // 是否可以重新排队（输入文件是否还存在）
+	Commands     []string               `json:"commands"`      // 执行的命令列表
+	Logs         string                 `json:"logs"`          // 执行日志/备注信息
 }
 
 // Executor 任务执行器接口

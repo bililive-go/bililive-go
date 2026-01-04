@@ -115,7 +115,7 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("status code %d from user api", resp.StatusCode)
+		return nil, fmt.Errorf("response code %d from user api", resp.StatusCode)
 	}
 	body, err = resp.Bytes()
 	if err != nil {

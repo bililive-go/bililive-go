@@ -219,6 +219,31 @@ class API {
     forceRefreshLive(liveId: string) {
         return utils.requestGet(`${BASE_URL}/lives/${liveId}/forceRefresh`);
     }
+
+    /**
+     * 获取直播间历史事件（统一接口，支持分页和筛选）
+     * @param liveId 直播间ID
+     * @param options 查询选项
+     */
+    getLiveHistory(liveId: string, options?: {
+        page?: number;
+        pageSize?: number;
+        startTime?: number; // Unix timestamp
+        endTime?: number;   // Unix timestamp
+        types?: string[];   // 事件类型: 'session', 'name_change'
+    }) {
+        const params = new URLSearchParams();
+        if (options?.page) params.append('page', String(options.page));
+        if (options?.pageSize) params.append('page_size', String(options.pageSize));
+        if (options?.startTime) params.append('start_time', String(options.startTime));
+        if (options?.endTime) params.append('end_time', String(options.endTime));
+        if (options?.types) {
+            options.types.forEach(t => params.append('type', t));
+        }
+        const queryString = params.toString();
+        const url = `${BASE_URL}/lives/${liveId}/history${queryString ? '?' + queryString : ''}`;
+        return utils.requestGet(url);
+    }
 }
 
 export default API;

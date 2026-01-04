@@ -3,6 +3,8 @@
 HOME=/srv/bililive
 
 chown -R ${PUID}:${PGID} ${HOME}
+chown -R ${PUID}:${PGID} /etc/bililive-go
+chown -R ${PUID}:${PGID} /opt/bililive
 
 umask ${UMASK}
 

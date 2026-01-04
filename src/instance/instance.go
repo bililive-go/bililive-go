@@ -19,4 +19,5 @@ type Instance struct {
 	RecorderManager  interfaces.Module
 	TaskQueueManager interfaces.Module
 	TaskEnqueuer     interfaces.TaskEnqueuer
+	LiveStateManager interface{} // 直播间状态持久化管理器 (*livestate.Manager)
 }

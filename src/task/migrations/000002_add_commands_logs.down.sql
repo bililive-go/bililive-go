@@ -1,0 +1,2 @@
+-- SQLite 不支持 DROP COLUMN，需要重建表来回滚
+-- 这里只做标记
