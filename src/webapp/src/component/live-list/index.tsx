@@ -48,6 +48,7 @@ interface IState {
     refreshStatus: { [key: string]: RefreshStatus }, // 刷新状态
     listSSESubscription: string | null, // 列表级别的SSE订阅ID
     enableListSSE: boolean, // 是否启用列表级别SSE（从localStorage读取）
+    sortedInfo: { columnKey: string | null; order: 'ascend' | 'descend' | null }, // 表格排序状态
 }
 
 interface ItemData {
@@ -262,6 +263,16 @@ class LiveList extends React.Component<Props, IState> {
 
     constructor(props: Props) {
         super(props);
+        // 从 localStorage 加载排序状态
+        let savedSortedInfo = { columnKey: null as string | null, order: null as 'ascend' | 'descend' | null };
+        try {
+            const saved = localStorage.getItem('liveListSortedInfo');
+            if (saved) {
+                savedSortedInfo = JSON.parse(saved);
+            }
+        } catch (e) {
+            console.error('加载排序状态失败:', e);
+        }
         this.state = {
             list: [],
             cookieList: [],
@@ -277,6 +288,7 @@ class LiveList extends React.Component<Props, IState> {
             refreshStatus: {},
             listSSESubscription: null,
             enableListSSE: isListSSEEnabled(),
+            sortedInfo: savedSortedInfo,
         }
     }
 
@@ -676,6 +688,37 @@ class LiveList extends React.Component<Props, IState> {
                 break
         }
     }
+
+    // 处理表格排序变化
+    handleTableChange = (pagination: any, filters: any, sorter: any) => {
+        const sortedInfo = {
+            columnKey: sorter.columnKey || null,
+            order: sorter.order || null,
+        };
+        this.setState({ sortedInfo });
+        // 保存到 localStorage
+        try {
+            localStorage.setItem('liveListSortedInfo', JSON.stringify(sortedInfo));
+        } catch (e) {
+            console.error('保存排序状态失败:', e);
+        }
+    };
+
+    // 获取带有动态排序状态的列配置
+    getColumnsWithSort = (columns: ColumnsType<ItemData>): ColumnsType<ItemData> => {
+        const { sortedInfo } = this.state;
+        return columns.map(col => {
+            // 如果列有 key 且匹配当前排序列，则设置 sortOrder
+            if (col.key && col.key === sortedInfo.columnKey) {
+                return { ...col, sortOrder: sortedInfo.order };
+            }
+            // 其他列清除排序状态（如果有 defaultSortOrder，也需要覆盖）
+            if ('sortOrder' in col || 'defaultSortOrder' in col) {
+                return { ...col, sortOrder: col.key === sortedInfo.columnKey ? sortedInfo.order : undefined };
+            }
+            return col;
+        });
+    };
 
     toggleExpandRow = (roomId: string) => {
         const isCurrentlyExpanded = this.state.expandedRowKeys.includes(roomId);
@@ -1387,7 +1430,7 @@ class LiveList extends React.Component<Props, IState> {
                         </div>
                         <Table
                             className="item-pad"
-                            columns={(this.state.window.screen.width > 768) ? this.columns : this.smallColumns}
+                            columns={this.getColumnsWithSort((this.state.window.screen.width > 768) ? this.columns : this.smallColumns)}
                             dataSource={this.state.list}
                             size={(this.state.window.screen.width > 768) ? "large" : "middle"}
                             pagination={false}
@@ -1407,6 +1450,7 @@ class LiveList extends React.Component<Props, IState> {
                                     }
                                 }
                             })}
+                            onChange={this.handleTableChange}
                         />
                     </Tabs.TabPane>
                     <Tabs.TabPane tab="Cookie管理" key="cookielist">

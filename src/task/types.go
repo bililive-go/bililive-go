@@ -36,6 +36,8 @@ const (
 	TaskStatusFailed TaskStatus = "failed"
 	// TaskStatusCancelled 已取消
 	TaskStatusCancelled TaskStatus = "cancelled"
+	// TaskStatusSkipped 已跳过（如输入文件格式不匹配）
+	TaskStatusSkipped TaskStatus = "skipped"
 )
 
 // Task 任务信息

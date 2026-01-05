@@ -21,7 +21,7 @@ const { Panel } = Collapse;
 type TaskType = 'fix_flv' | 'convert_mp4';
 
 // 任务状态
-type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'skipped';
 
 // 任务接口
 interface Task {
@@ -197,6 +197,8 @@ class TaskList extends Component<object, TaskListState> {
         return <Tag icon={<CloseCircleOutlined />} color="error">失败</Tag>;
       case 'cancelled':
         return <Tag color="warning">已取消</Tag>;
+      case 'skipped':
+        return <Tag color="cyan">已跳过</Tag>;
       default:
         return <Tag>{status}</Tag>;
     }
@@ -295,14 +297,14 @@ class TaskList extends Component<object, TaskListState> {
                 </div>
               )}
               {task.commands && task.commands.length > 0 && (
-                <Collapse size="small">
+                <Collapse size="small" defaultActiveKey={['commands']}>
                   <Panel header="执行命令" key="commands">
                     {task.commands.map((cmd, idx) => (
                       <Paragraph
                         key={idx}
                         code
                         copyable
-                        style={{ fontSize: 12, marginBottom: idx < task.commands.length - 1 ? 8 : 0 }}
+                        style={{ fontSize: 13, marginBottom: idx < task.commands.length - 1 ? 8 : 0, wordBreak: 'break-all' }}
                       >
                         {cmd}
                       </Paragraph>
@@ -467,6 +469,7 @@ class TaskList extends Component<object, TaskListState> {
                 { value: 'running', label: '运行中' },
                 { value: 'pending', label: '等待中' },
                 { value: 'completed', label: '已完成' },
+                { value: 'skipped', label: '已跳过' },
                 { value: 'failed', label: '失败' },
                 { value: 'cancelled', label: '已取消' },
               ]}
@@ -511,6 +514,8 @@ class TaskList extends Component<object, TaskListState> {
           expandable={{
             expandedRowRender: this.renderTaskDetail,
             expandedRowKeys: expandedRowKeys,
+            expandRowByClick: true,
+            expandIcon: () => null, // 隐藏展开图标
             onExpand: (expanded, record) => {
               this.setState({
                 expandedRowKeys: expanded
@@ -519,6 +524,17 @@ class TaskList extends Component<object, TaskListState> {
               });
             },
           }}
+          onRow={(record) => ({
+            onClick: () => {
+              const isExpanded = expandedRowKeys.includes(record.id);
+              this.setState({
+                expandedRowKeys: isExpanded
+                  ? expandedRowKeys.filter(k => k !== record.id)
+                  : [...expandedRowKeys, record.id]
+              });
+            },
+            style: { cursor: 'pointer' }
+          })}
           pagination={{
             pageSize: 20,
             showSizeChanger: true,

@@ -226,9 +226,18 @@ func (qm *QueueManager) executeTask(ctx context.Context, task *Task, executor Ex
 			logrus.WithError(err).WithField("task_id", task.ID).Error("task failed")
 		}
 	} else {
-		task.Status = TaskStatusCompleted
-		task.Progress = 100
-		logrus.WithField("task_id", task.ID).Info("task completed successfully")
+		// 如果执行器没有设置特殊状态（如 skipped），则设置为已完成
+		if task.Status == TaskStatusRunning {
+			task.Status = TaskStatusCompleted
+			task.Progress = 100
+			logrus.WithField("task_id", task.ID).Info("task completed successfully")
+		} else {
+			// 执行器已设置状态（如 skipped）
+			logrus.WithFields(logrus.Fields{
+				"task_id": task.ID,
+				"status":  task.Status,
+			}).Info("task finished with executor-set status")
+		}
 	}
 
 	// 更新任务状态

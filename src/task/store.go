@@ -366,7 +366,7 @@ func (s *SQLiteStore) ListTasks(ctx context.Context, filter TaskFilter) ([]*Task
 		args = append(args, *filter.LiveID)
 	}
 
-	query += " ORDER BY priority DESC, created_at ASC"
+	query += " ORDER BY id DESC"
 
 	if filter.Limit > 0 {
 		query += " LIMIT ?"

@@ -76,21 +76,28 @@ func (e *ConvertMP4Executor) Execute(ctx context.Context, task *Task, progressCa
 	// 构建 ffmpeg 命令
 	// -c copy 直接复制流，不重新编码（最快）
 	// 如果遇到问题，可以使用 -c:v libx264 -c:a aac 重新编码
-	cmd := exec.CommandContext(ctx, ffmpegPath,
+	args := []string{
 		"-i", task.InputFile,
 		"-c", "copy",
 		"-movflags", "+faststart", // 将 moov atom 移到文件开头，支持边下载边播放
 		"-y",
 		"-progress", "pipe:1", // 输出进度信息到 stdout
 		tempFile,
-	)
+	}
+
+	// 记录命令
+	task.Commands = append(task.Commands, fmt.Sprintf("%s %s", ffmpegPath, strings.Join(args, " ")))
+
+	cmd := exec.CommandContext(ctx, ffmpegPath, args...)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		task.Logs = fmt.Sprintf("创建输出管道失败: %s", err.Error())
 		return fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
+		task.Logs = fmt.Sprintf("启动 ffmpeg 失败: %s", err.Error())
 		return fmt.Errorf("failed to start ffmpeg: %w", err)
 	}
 
@@ -101,6 +108,7 @@ func (e *ConvertMP4Executor) Execute(ctx context.Context, task *Task, progressCa
 	// 等待命令完成
 	if err := cmd.Wait(); err != nil {
 		os.Remove(tempFile)
+		task.Logs = fmt.Sprintf("ffmpeg 转换失败: %s", err.Error())
 		return fmt.Errorf("ffmpeg conversion failed: %w", err)
 	}
 
@@ -138,6 +146,13 @@ func (e *ConvertMP4Executor) Execute(ctx context.Context, task *Task, progressCa
 	}
 
 	progressCallback(100)
+
+	// 记录成功日志
+	if shouldDelete && task.InputFile != outputFile {
+		task.Logs = fmt.Sprintf("转换完成，已删除原始文件。")
+	} else {
+		task.Logs = "转换完成。"
+	}
 
 	logrus.WithFields(logrus.Fields{
 		"task_id": task.ID,
