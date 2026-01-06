@@ -413,11 +413,14 @@ class FileList extends React.Component<Props, IState> {
             key: "action",
             render: (text: string, record: CurrentFolderFile) => (
                 <span>
-                    <Icon
-                        type="edit"
-                        style={{ color: '#1890ff', cursor: 'pointer', marginRight: '16px' }}
+                    <Button
+                        size="small"
+                        icon="edit"
                         onClick={(e) => this.onSingleRenameClick(record, e)}
-                    />
+                        style={{ marginRight: '8px' }}
+                    >
+                        重命名
+                    </Button>
                     <Popconfirm
                         title={`确定要删除${record.is_folder ? '文件夹' : '文件'} "${record.name}" 吗？`}
                         onConfirm={(e) => this.onDelete(record, e as any)}
@@ -425,11 +428,14 @@ class FileList extends React.Component<Props, IState> {
                         okText="确定"
                         cancelText="取消"
                     >
-                        <Icon
-                            type="delete"
-                            style={{ color: '#ff4d4f', cursor: 'pointer' }}
+                        <Button
+                            size="small"
+                            type="danger"
+                            icon="delete"
                             onClick={(e) => e.stopPropagation()}
-                        />
+                        >
+                            删除
+                        </Button>
                     </Popconfirm>
                 </span>
             ),
