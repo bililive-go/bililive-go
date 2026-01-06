@@ -57,10 +57,22 @@ class FileList extends React.Component<Props, IState> {
             batchReplace: '',
             singleExtension: '',
         };
+        this.handleKeyDown = this.handleKeyDown.bind(this);
     }
 
     componentDidMount(): void {
         this.requestFileList(this.props.match.params.path);
+        window.addEventListener('keydown', this.handleKeyDown);
+    }
+
+    componentWillUnmount(): void {
+        window.removeEventListener('keydown', this.handleKeyDown);
+    }
+
+    handleKeyDown(e: KeyboardEvent) {
+        if (e.key === 'Escape' && this.state.isPlayerVisible) {
+            this.hidePlayer();
+        }
     }
 
     componentWillReceiveProps(nextProps: Props) {
@@ -503,7 +515,28 @@ class FileList extends React.Component<Props, IState> {
     }
 
     renderArtPlayer() {
-        return <div id="art-container"></div>;
+        return (
+            <div
+                style={{
+                    height: 'calc(100% - 40px)',
+                    background: '#f0f2f5',
+                    padding: '20px',
+                    borderRadius: '8px',
+                    position: 'relative'
+                }}
+                onClick={this.hidePlayer}
+            >
+                <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Button icon="left" onClick={(e) => { e.stopPropagation(); this.hidePlayer(); }}>返回文件列表</Button>
+                    <span style={{ color: '#8c8c8c' }}>提示：点击背景或按 ESC 键也可返回</span>
+                </div>
+                <div
+                    id="art-container"
+                    style={{ width: '100%', height: 'calc(100% - 60px)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                    onClick={(e) => e.stopPropagation()}
+                ></div>
+            </div>
+        );
     }
 
     render(): JSX.Element {
