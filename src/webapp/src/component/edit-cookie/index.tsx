@@ -65,7 +65,7 @@ class EditCookieDialog extends React.Component<Props> {
     };
 
     handleSoopLogin = () => {
-        const { soopUsername, soopPassword, Host } = this.state;
+        const { soopUsername, soopPassword } = this.state;
         if (!soopUsername || !soopPassword) {
             notification.error({ message: '请输入用户名和密码' });
             return;
