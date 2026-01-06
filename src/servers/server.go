@@ -84,6 +84,7 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/bilibili/qrcode", getBilibiliQrcode).Methods("GET")
 	apiRoute.HandleFunc("/bilibili/poll", pollBilibiliLogin).Methods("GET")
 	apiRoute.HandleFunc("/bilibili/check", checkBilibiliCookie).Methods("GET")
+	apiRoute.HandleFunc("/sooplive/login", soopliveLogin).Methods("POST")
 	apiRoute.Handle("/metrics", promhttp.Handler())
 
 	m.PathPrefix("/files/").Handler(

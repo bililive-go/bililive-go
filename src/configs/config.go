@@ -61,6 +61,11 @@ type OnRecordFinished struct {
 	FixFlvAtFirst         bool   `yaml:"fix_flv_at_first"`
 }
 
+type Account struct {
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+}
+
 type Log struct {
 	OutPutFolder string `yaml:"out_put_folder"`
 	SaveLastLog  bool   `yaml:"save_last_log"`
@@ -107,6 +112,7 @@ type Config struct {
 	OutputTmpl           string               `yaml:"out_put_tmpl"`
 	VideoSplitStrategies VideoSplitStrategies `yaml:"video_split_strategies"`
 	Cookies              map[string]string    `yaml:"cookies"`
+	Accounts             map[string]Account   `yaml:"accounts"`
 	OnRecordFinished     OnRecordFinished     `yaml:"on_record_finished"`
 	TimeoutInUs          int                  `yaml:"timeout_in_us"`
 	Notify               Notify               `yaml:"notify"` // 通知服务配置
@@ -299,6 +305,20 @@ func SetCookie(host, cookie string) (*Config, error) {
 			c.Cookies = make(map[string]string)
 		}
 		c.Cookies[host] = cookie
+		return nil
+	}, 3, 10*time.Millisecond)
+}
+
+// SetAccount 设置某个 host 的账号信息。
+func SetAccount(host, username, password string) (*Config, error) {
+	return UpdateWithRetry(func(c *Config) error {
+		if c.Accounts == nil {
+			c.Accounts = make(map[string]Account)
+		}
+		c.Accounts[host] = Account{
+			Username: username,
+			Password: password,
+		}
 		return nil
 	}, 3, 10*time.Millisecond)
 }
@@ -603,6 +623,13 @@ func CloneConfigShallow(src *Config) *Config {
 		cp.Cookies = make(map[string]string, len(src.Cookies))
 		for k, v := range src.Cookies {
 			cp.Cookies[k] = v
+		}
+	}
+	// Accounts 拷贝
+	if src.Accounts != nil {
+		cp.Accounts = make(map[string]Account, len(src.Accounts))
+		for k, v := range src.Accounts {
+			cp.Accounts[k] = v
 		}
 	}
 	// liveRoomIndexCache 拷贝，避免刷新索引时影响旧快照
