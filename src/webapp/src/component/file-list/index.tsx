@@ -1,6 +1,6 @@
 import React from "react";
 import API from "../../utils/api";
-import { Breadcrumb, Divider, Icon, Table, Popconfirm, message } from "antd";
+import { Breadcrumb, Divider, Icon, Table, Popconfirm, message, Modal, Input, Button } from "antd";
 import { Link, RouteComponentProps } from "react-router-dom";
 import Utils from "../../utils/common";
 import './file-list.css';
@@ -30,6 +30,14 @@ interface IState {
     currentFolderFiles: CurrentFolderFile[];
     sortedInfo: Partial<SorterResult<CurrentFolderFile>>;
     isPlayerVisible: boolean;
+    selectedRowKeys: string[];
+    renameModalVisible: boolean;
+    renameType: 'single' | 'batch';
+    singleRenameRecord: CurrentFolderFile | null;
+    singleNewName: string;
+    batchSearch: string;
+    batchReplace: string;
+    singleExtension: string;
 }
 
 class FileList extends React.Component<Props, IState> {
@@ -40,6 +48,14 @@ class FileList extends React.Component<Props, IState> {
             currentFolderFiles: [],
             sortedInfo: {},
             isPlayerVisible: false,
+            selectedRowKeys: [],
+            renameModalVisible: false,
+            renameType: 'single',
+            singleRenameRecord: null,
+            singleNewName: '',
+            batchSearch: '',
+            batchReplace: '',
+            singleExtension: '',
         };
     }
 
@@ -49,6 +65,7 @@ class FileList extends React.Component<Props, IState> {
 
     componentWillReceiveProps(nextProps: Props) {
         this.requestFileList(nextProps.match.params.path);
+        this.setState({ selectedRowKeys: [] });
     }
 
     setPath(path: string) {
@@ -103,6 +120,7 @@ class FileList extends React.Component<Props, IState> {
                 if (rsp.data === "OK") {
                     message.success("删除成功");
                     this.requestFileList(this.props.match.params.path);
+                    this.setState({ selectedRowKeys: [] });
                 } else {
                     message.error(rsp.err_msg || "删除失败");
                 }
@@ -111,6 +129,104 @@ class FileList extends React.Component<Props, IState> {
                 message.error("删除请求失败");
             });
     };
+
+    onSingleRenameClick = (record: CurrentFolderFile, e: React.MouseEvent) => {
+        e.stopPropagation();
+        let nameToEdit = record.name;
+        let extension = '';
+        if (!record.is_folder) {
+            const lastDotIndex = record.name.lastIndexOf('.');
+            if (lastDotIndex > 0) {
+                nameToEdit = record.name.substring(0, lastDotIndex);
+                extension = record.name.substring(lastDotIndex);
+            }
+        }
+        this.setState({
+            renameType: 'single',
+            singleRenameRecord: record,
+            singleNewName: nameToEdit,
+            singleExtension: extension,
+            renameModalVisible: true,
+        });
+    }
+
+    onBatchRenameClick = () => {
+        this.setState({
+            renameType: 'batch',
+            batchSearch: '',
+            batchReplace: '',
+            renameModalVisible: true,
+        });
+    }
+
+    handleRenameSubmit = () => {
+        const { renameType, singleRenameRecord, singleNewName, singleExtension, batchSearch, batchReplace, selectedRowKeys } = this.state;
+        let actions: any[] = [];
+
+        if (renameType === 'single' && singleRenameRecord) {
+            const finalName = singleNewName + singleExtension;
+            if (!singleNewName || finalName === singleRenameRecord.name) {
+                this.setState({ renameModalVisible: false });
+                return;
+            }
+            let oldPath = singleRenameRecord.name;
+            if (this.props.match.params.path) {
+                oldPath = this.props.match.params.path + "/" + oldPath;
+            }
+            actions.push({ old_path: oldPath, new_name: finalName });
+        } else if (renameType === 'batch') {
+            if (!batchSearch) {
+                message.warning("请输入查找字符串");
+                return;
+            }
+
+            selectedRowKeys.forEach(name => {
+                const record = this.state.currentFolderFiles.find(f => f.name === name);
+                let baseName = name;
+                let extension = "";
+
+                // 分离文件名和后缀，保护后缀不被批量替换修改
+                if (record && !record.is_folder) {
+                    const lastDotIndex = name.lastIndexOf('.');
+                    if (lastDotIndex > 0) {
+                        baseName = name.substring(0, lastDotIndex);
+                        extension = name.substring(lastDotIndex);
+                    }
+                }
+
+                if (baseName.includes(batchSearch)) {
+                    let oldPath = name;
+                    if (this.props.match.params.path) {
+                        oldPath = this.props.match.params.path + "/" + oldPath;
+                    }
+                    const newBaseName = baseName.split(batchSearch).join(batchReplace);
+                    const newName = newBaseName + extension;
+                    if (newName !== name) {
+                        actions.push({ old_path: oldPath, new_name: newName });
+                    }
+                }
+            });
+        }
+
+        if (actions.length === 0) {
+            this.setState({ renameModalVisible: false });
+            return;
+        }
+
+        api.renameFiles(actions)
+            .then((rsp: any) => {
+                if (rsp.data === "OK") {
+                    message.success("重命名成功");
+                    this.requestFileList(this.props.match.params.path);
+                    this.setState({ renameModalVisible: false, selectedRowKeys: [] });
+                } else {
+                    message.error(rsp.err_msg || "重命名失败");
+                }
+            })
+            .catch(err => {
+                message.error("重命名请求失败");
+            });
+    }
 
     onRowClick = (record: CurrentFolderFile) => {
         let path = encodeURIComponent(record.name);
@@ -159,7 +275,7 @@ class FileList extends React.Component<Props, IState> {
                         ts: function (video, url) {
                             if (mpegtsjs.isSupported()) {
                                 const tsPlayer = mpegtsjs.createPlayer({
-                                    type: "mpegts", // could also be mpegts, m2ts, flv,mse
+                                    type: "mpegts",
                                     url: url,
                                     hasVideo: true,
                                     hasAudio: true,
@@ -191,14 +307,23 @@ class FileList extends React.Component<Props, IState> {
                 <Link to={`${currentPath}`} onClick={this.hidePlayer}>{v}</Link>
             </Breadcrumb.Item>
         });
-        return <Breadcrumb>
-            {rootBreadcrumbItem}
-            {items}
-        </Breadcrumb>;
+        return (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <Breadcrumb>
+                    {rootBreadcrumbItem}
+                    {items}
+                </Breadcrumb>
+                {this.state.selectedRowKeys.length > 0 && (
+                    <Button type="primary" size="small" icon="edit" onClick={this.onBatchRenameClick}>
+                        批量重命名 ({this.state.selectedRowKeys.length})
+                    </Button>
+                )}
+            </div>
+        );
     }
 
     renderCurrentFolderFileList(): JSX.Element {
-        let { sortedInfo } = this.state;
+        let { sortedInfo, selectedRowKeys } = this.state;
         sortedInfo = sortedInfo || {};
         const columns = [{
             title: "文件名",
@@ -243,30 +368,88 @@ class FileList extends React.Component<Props, IState> {
             title: "操作",
             key: "action",
             render: (text: string, record: CurrentFolderFile) => (
-                <Popconfirm
-                    title={`确定要删除${record.is_folder ? '文件夹' : '文件'} "${record.name}" 吗？`}
-                    onConfirm={(e) => this.onDelete(record, e as any)}
-                    onCancel={(e) => e?.stopPropagation()}
-                    okText="确定"
-                    cancelText="取消"
-                >
+                <span>
                     <Icon
-                        type="delete"
-                        style={{ color: '#ff4d4f', cursor: 'pointer' }}
-                        onClick={(e) => e.stopPropagation()}
+                        type="edit"
+                        style={{ color: '#1890ff', cursor: 'pointer', marginRight: '16px' }}
+                        onClick={(e) => this.onSingleRenameClick(record, e)}
                     />
-                </Popconfirm>
+                    <Popconfirm
+                        title={`确定要删除${record.is_folder ? '文件夹' : '文件'} "${record.name}" 吗？`}
+                        onConfirm={(e) => this.onDelete(record, e as any)}
+                        onCancel={(e) => e?.stopPropagation()}
+                        okText="确定"
+                        cancelText="取消"
+                    >
+                        <Icon
+                            type="delete"
+                            style={{ color: '#ff4d4f', cursor: 'pointer' }}
+                            onClick={(e) => e.stopPropagation()}
+                        />
+                    </Popconfirm>
+                </span>
             ),
         }];
 
+        const rowSelection = {
+            selectedRowKeys,
+            onChange: (selectedRowKeys: any) => this.setState({ selectedRowKeys }),
+        };
+
         return (<Table
+            rowSelection={rowSelection}
             columns={columns}
             dataSource={this.state.currentFolderFiles}
+            rowKey="name"
             onChange={this.handleChange}
             pagination={{ pageSize: 50 }}
             onRowClick={this.onRowClick}
             scroll={{ x: 'max-content' }}
         />);
+    }
+
+    renderRenameModal() {
+        const { renameModalVisible, renameType, singleNewName, singleExtension, batchSearch, batchReplace } = this.state;
+        return (
+            <Modal
+                title={renameType === 'single' ? "重命名" : "批量重命名 (查找替换)"}
+                visible={renameModalVisible}
+                onOk={this.handleRenameSubmit}
+                onCancel={() => this.setState({ renameModalVisible: false })}
+                okText="确定"
+                cancelText="取消"
+            >
+                {renameType === 'single' ? (
+                    <div>
+                        <div style={{ marginBottom: '8px' }}>请输入新名称：</div>
+                        <Input
+                            value={singleNewName}
+                            addonAfter={singleExtension || null}
+                            onChange={e => this.setState({ singleNewName: e.target.value })}
+                            onPressEnter={this.handleRenameSubmit}
+                            autoFocus
+                        />
+                    </div>
+                ) : (
+                    <div>
+                        <div style={{ marginBottom: '16px' }}>将在选中的 {this.state.selectedRowKeys.length} 个项中执行查找替换：</div>
+                        <div style={{ marginBottom: '8px' }}>查找：</div>
+                        <Input
+                            placeholder="请输入要查找的字符串"
+                            value={batchSearch}
+                            onChange={e => this.setState({ batchSearch: e.target.value })}
+                            style={{ marginBottom: '16px' }}
+                        />
+                        <div style={{ marginBottom: '8px' }}>替换为：</div>
+                        <Input
+                            placeholder="请输入替换后的字符串"
+                            value={batchReplace}
+                            onChange={e => this.setState({ batchReplace: e.target.value })}
+                        />
+                    </div>
+                )}
+            </Modal>
+        );
     }
 
     renderArtPlayer() {
@@ -277,6 +460,7 @@ class FileList extends React.Component<Props, IState> {
         return (<div style={{ height: "100%" }}>
             {this.renderParentFolderBar()}
             {this.state.isPlayerVisible ? this.renderArtPlayer() : this.renderCurrentFolderFileList()}
+            {this.renderRenameModal()}
         </div>);
     }
 }

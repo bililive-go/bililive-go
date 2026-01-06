@@ -502,6 +502,69 @@ func deleteFile(writer http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type renameAction struct {
+	OldPath string `json:"old_path"` // 相对路径，例如 "room1/record.flv"
+	NewName string `json:"new_name"` // 新文件名，例如 "new_record.flv"
+}
+
+func renameFiles(writer http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Actions []renameAction `json:"actions"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(writer, commonResp{ErrNo: 1, ErrMsg: "无效的请求格式"})
+		return
+	}
+
+	cfg := configs.GetCurrentConfig()
+	base, err := filepath.Abs(cfg.OutPutPath)
+	if err != nil {
+		writeJSON(writer, commonResp{ErrNo: 1, ErrMsg: "无效输出目录"})
+		return
+	}
+
+	results := make([]string, 0)
+	for _, action := range req.Actions {
+		// 校验旧路径
+		oldAbs, err := filepath.Abs(filepath.Join(base, action.OldPath))
+		if err != nil || !strings.HasPrefix(oldAbs, base) || oldAbs == base {
+			results = append(results, fmt.Sprintf("%s: 路径无效", action.OldPath))
+			continue
+		}
+
+		// 构造新路径 (保持在同一目录下)
+		dir := filepath.Dir(oldAbs)
+		newAbs := filepath.Join(dir, action.NewName)
+
+		// 再次校验新路径安全性 (防止通过新文件名跳出目录)
+		newAbsClean, _ := filepath.Abs(newAbs)
+		if !strings.HasPrefix(newAbsClean, base) {
+			results = append(results, fmt.Sprintf("%s: 新文件名含有非法字符", action.OldPath))
+			continue
+		}
+
+		// 执行重命名
+		if err := os.Rename(oldAbs, newAbs); err != nil {
+			errMsg := err.Error()
+			if strings.Contains(errMsg, "Access is denied") {
+				errMsg = "权限不足"
+			} else if strings.Contains(errMsg, "being used by another process") {
+				errMsg = "文件被占用"
+			}
+			results = append(results, fmt.Sprintf("%s -> %s 失败: %s", action.OldPath, action.NewName, errMsg))
+		}
+	}
+
+	if len(results) > 0 {
+		writeJSON(writer, commonResp{
+			ErrNo:  1,
+			ErrMsg: strings.Join(results, "; "),
+		})
+	} else {
+		writeJSON(writer, commonResp{Data: "OK"})
+	}
+}
+
 func getLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 	inst := instance.GetInstance(r.Context())
 	hostCookieMap := make(map[string]*live.InfoCookie)

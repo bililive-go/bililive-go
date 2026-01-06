@@ -119,6 +119,14 @@ class API {
     }
 
     /**
+     * 批量重命名文件或文件夹
+     * @param actions \{old_path: string, new_name: string\}[]
+     */
+    renameFiles(actions: any[]) {
+        return utils.requestPost(`${BASE_URL}/rename`, { actions });
+    }
+
+    /**
      * 获取Cookie列表
      */
     getCookieList() {
