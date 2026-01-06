@@ -252,6 +252,25 @@ class EditCookieDialog extends React.Component<Props> {
                             <Button style={{ marginLeft: 8 }} onClick={this.checkCookie} disabled={!textView}>
                                 验证 Cookie
                             </Button>
+                            <div style={{ marginTop: 12 }}>
+                                <Alert
+                                    message="获取方式建议"
+                                    description={
+                                        <div style={{ fontSize: '12px' }}>
+                                            <p style={{ marginBottom: 4 }}>通常推荐 <b>扫码登录</b>，快速且稳定。</p>
+                                            <p style={{ marginBottom: 4 }}>但在以下情况建议 <b>手动从浏览器 F12 获取</b>：</p>
+                                            <ul style={{ paddingLeft: 16, marginBottom: 4 }}>
+                                                <li><b>画质受限</b>：如无法开启 4K/高帧率（需缺失的 buvid 字段）</li>
+                                                <li><b>触发风控</b>：报错 412 或频繁验证（需同步浏览器环境）</li>
+                                                <li><b>解析失败</b>：弹幕获取失败或 WBI 签名校验不通过</li>
+                                            </ul>
+                                            <p style={{ marginBottom: 0, color: '#888' }}>方法：浏览器 B 站 → F12 → 网络 → 刷新 → 复制请求头中的 Cookie。</p>
+                                        </div>
+                                    }
+                                    type="info"
+                                    showIcon
+                                />
+                            </div>
                             {qrCodeVisible && (
                                 <div style={{ marginTop: 16, textAlign: 'center', border: '1px solid #eee', padding: 16, borderRadius: 8 }}>
                                     {qrStatus === 'loading' ? (
