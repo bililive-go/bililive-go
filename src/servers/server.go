@@ -81,6 +81,9 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/delete-batch", deleteFilesBatch).Methods("POST")
 	apiRoute.HandleFunc("/cookies", getLiveHostCookie).Methods("GET")
 	apiRoute.HandleFunc("/cookies", putLiveHostCookie).Methods("PUT")
+	apiRoute.HandleFunc("/bilibili/qrcode", getBilibiliQrcode).Methods("GET")
+	apiRoute.HandleFunc("/bilibili/poll", pollBilibiliLogin).Methods("GET")
+	apiRoute.HandleFunc("/bilibili/check", checkBilibiliCookie).Methods("GET")
 	apiRoute.Handle("/metrics", promhttp.Handler())
 
 	m.PathPrefix("/files/").Handler(

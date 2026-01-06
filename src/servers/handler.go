@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hr3lxphr6j/requests"
+
 	"github.com/gorilla/mux"
 	"github.com/tidwall/gjson"
 	"gopkg.in/yaml.v3"
@@ -643,10 +645,16 @@ func getLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 	keys := make([]string, 0)
 	for _, v := range inst.Lives {
 		urltmp, _ := url.Parse(v.GetRawUrl())
+		if urltmp == nil || urltmp.Host == "" {
+			continue
+		}
 		if _, ok := hostCookieMap[urltmp.Host]; ok {
 			continue
 		}
-		v1, _ := v.GetInfo()
+		v1, err := v.GetInfo()
+		if err != nil || v1 == nil {
+			continue
+		}
 		host := urltmp.Host
 		if cookie, ok := configs.GetCurrentConfig().Cookies[host]; ok {
 			tmp := &live.InfoCookie{Platform_cn_name: v1.Live.GetPlatformCNName(), Host: host, Cookie: cookie}
@@ -722,4 +730,142 @@ func putLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 	writeJSON(writer, commonResp{
 		Data: "OK",
 	})
+}
+
+func getBilibiliQrcode(writer http.ResponseWriter, r *http.Request) {
+	resp, err := requests.Get("https://passport.bilibili.com/x/passport-login/web/qrcode/generate")
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
+	body, err := resp.Bytes()
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
+	writeJSON(writer, json.RawMessage(body))
+}
+
+func pollBilibiliLogin(writer http.ResponseWriter, r *http.Request) {
+	qrcodeKey := r.URL.Query().Get("qrcode_key")
+	if qrcodeKey == "" {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "qrcode_key is required",
+		})
+		return
+	}
+
+	resp, err := requests.Get("https://passport.bilibili.com/x/passport-login/web/qrcode/poll", requests.Query("qrcode_key", qrcodeKey))
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := resp.Bytes()
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
+
+	res := gjson.ParseBytes(body)
+	if res.Get("data.code").Int() == 0 {
+		// 登录成功，从 Header 获取 Cookie
+		cookies := resp.Header["Set-Cookie"]
+		var cookieList []string
+		for _, c := range cookies {
+			// 精准提取 key=value 部分，避开 Expires, Path, HttpOnly 等干扰
+			parts := strings.Split(c, ";")
+			if len(parts) > 0 {
+				kv := strings.TrimSpace(parts[0])
+				if kv != "" && strings.Contains(kv, "=") {
+					cookieList = append(cookieList, kv)
+				}
+			}
+		}
+		cookieStr := strings.Join(cookieList, "; ")
+
+		// 构造返回数据
+		writeJSON(writer, map[string]any{
+			"code":    0,
+			"message": "0",
+			"data": map[string]any{
+				"code":    0,
+				"message": "登录成功",
+				"cookie":  cookieStr,
+			},
+		})
+		return
+	}
+
+	writeJSON(writer, json.RawMessage(body))
+}
+
+func checkBilibiliCookie(writer http.ResponseWriter, r *http.Request) {
+	cookie := r.URL.Query().Get("cookie")
+	if cookie == "" {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "cookie is required",
+		})
+		return
+	}
+
+	cookieKVs := make(map[string]string)
+	parts := strings.Split(cookie, ";")
+	for _, p := range parts {
+		kv := strings.SplitN(strings.TrimSpace(p), "=", 2)
+		if len(kv) == 2 {
+			cookieKVs[kv[0]] = kv[1]
+		}
+	}
+
+	resp, err := requests.Get("https://api.bilibili.com/x/member/web/account", requests.Cookies(cookieKVs))
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
+	body, err := resp.Bytes()
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
+
+	res := gjson.ParseBytes(body)
+	code := res.Get("code").Int()
+	if code == 0 {
+		uname := res.Get("data.uname").String()
+		writeJSON(writer, map[string]any{
+			"code":    0,
+			"message": "Cookie 有效",
+			"data": map[string]any{
+				"uname": uname,
+			},
+		})
+	} else {
+		message := res.Get("message").String()
+		writeJSON(writer, map[string]any{
+			"code":    code,
+			"message": "Cookie 无效: " + message,
+		})
+	}
 }

@@ -148,6 +148,29 @@ class API {
     saveCookie(json: any) {
         return utils.requestPut(`${BASE_URL}/cookies`, json);
     }
+
+    /**
+     * 获取B站登录二维码
+     */
+    getBilibiliQrcode() {
+        return utils.requestGet(`${BASE_URL}/bilibili/qrcode`);
+    }
+
+    /**
+     * 轮询B站登录状态
+     * @param qrcodeKey 二维码密钥
+     */
+    pollBilibiliLogin(qrcodeKey: string) {
+        return utils.requestGet(`${BASE_URL}/bilibili/poll?qrcode_key=${qrcodeKey}`);
+    }
+
+    /**
+     * 验证B站Cookie是否有效
+     * @param cookie Cookie字符串
+     */
+    checkBilibiliCookie(cookie: string) {
+        return utils.requestGet(`${BASE_URL}/bilibili/check?cookie=${encodeURIComponent(cookie)}`);
+    }
 }
 
 export default API;
