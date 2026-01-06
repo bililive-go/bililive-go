@@ -78,6 +78,7 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/file/{path:.*}", getFileInfo).Methods("GET")
 	apiRoute.HandleFunc("/file/{path:.*}", deleteFile).Methods("DELETE")
 	apiRoute.HandleFunc("/rename", renameFiles).Methods("POST")
+	apiRoute.HandleFunc("/delete-batch", deleteFilesBatch).Methods("POST")
 	apiRoute.HandleFunc("/cookies", getLiveHostCookie).Methods("GET")
 	apiRoute.HandleFunc("/cookies", putLiveHostCookie).Methods("PUT")
 	apiRoute.Handle("/metrics", promhttp.Handler())

@@ -565,6 +565,58 @@ func renameFiles(writer http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func deleteFilesBatch(writer http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Paths []string `json:"paths"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(writer, commonResp{ErrNo: 1, ErrMsg: "无效的请求格式"})
+		return
+	}
+
+	cfg := configs.GetCurrentConfig()
+	base, err := filepath.Abs(cfg.OutPutPath)
+	if err != nil {
+		writeJSON(writer, commonResp{ErrNo: 1, ErrMsg: "无效输出目录"})
+		return
+	}
+
+	results := make([]string, 0)
+	for _, path := range req.Paths {
+		absPath, err := filepath.Abs(filepath.Join(base, path))
+		if err != nil {
+			results = append(results, fmt.Sprintf("%s: 无效路径", path))
+			continue
+		}
+
+		// 安全检查：防止越权删除或删除根目录
+		if !strings.HasPrefix(absPath, base) || absPath == base {
+			results = append(results, fmt.Sprintf("%s: 禁止删除该路径", path))
+			continue
+		}
+
+		err = os.RemoveAll(absPath)
+		if err != nil {
+			errMsg := err.Error()
+			if strings.Contains(errMsg, "Access is denied") {
+				errMsg = "权限不足"
+			} else if strings.Contains(errMsg, "being used by another process") {
+				errMsg = "文件正在被录制或占用中"
+			}
+			results = append(results, fmt.Sprintf("%s 失败: %s", path, errMsg))
+		}
+	}
+
+	if len(results) > 0 {
+		writeJSON(writer, commonResp{
+			ErrNo:  1,
+			ErrMsg: strings.Join(results, "; "),
+		})
+	} else {
+		writeJSON(writer, commonResp{Data: "OK"})
+	}
+}
+
 func getLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 	inst := instance.GetInstance(r.Context())
 	hostCookieMap := make(map[string]*live.InfoCookie)

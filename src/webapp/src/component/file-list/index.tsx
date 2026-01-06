@@ -130,6 +130,37 @@ class FileList extends React.Component<Props, IState> {
             });
     };
 
+    onBatchDelete = () => {
+        const { selectedRowKeys } = this.state;
+        const paths = selectedRowKeys.map(name => {
+            let p = name;
+            if (this.props.match.params.path) {
+                p = this.props.match.params.path + "/" + p;
+            }
+            return p;
+        });
+
+        api.deleteFilesBatch(paths)
+            .then((rsp: any) => {
+                if (rsp.data === "OK") {
+                    message.success("批量删除成功");
+                    this.requestFileList(this.props.match.params.path);
+                    this.setState({ selectedRowKeys: [] });
+                } else {
+                    // 批量删除可能部分失败（如文件占用）
+                    Modal.warning({
+                        title: '部分删除失败',
+                        content: rsp.err_msg || "未知错误",
+                    });
+                    this.requestFileList(this.props.match.params.path);
+                    this.setState({ selectedRowKeys: [] });
+                }
+            })
+            .catch(err => {
+                message.error("批量删除请求失败");
+            });
+    }
+
     onSingleRenameClick = (record: CurrentFolderFile, e: React.MouseEvent) => {
         e.stopPropagation();
         let nameToEdit = record.name;
@@ -314,9 +345,22 @@ class FileList extends React.Component<Props, IState> {
                     {items}
                 </Breadcrumb>
                 {this.state.selectedRowKeys.length > 0 && (
-                    <Button type="primary" size="small" icon="edit" onClick={this.onBatchRenameClick}>
-                        批量重命名 ({this.state.selectedRowKeys.length})
-                    </Button>
+                    <span>
+                        <Button type="primary" size="small" icon="edit" onClick={this.onBatchRenameClick} style={{ marginRight: '8px' }}>
+                            批量重命名 ({this.state.selectedRowKeys.length})
+                        </Button>
+                        <Popconfirm
+                            title={`确定要删除选中的 ${this.state.selectedRowKeys.length} 个项目吗？`}
+                            onConfirm={this.onBatchDelete}
+                            okText="确定"
+                            cancelText="取消"
+                            placement="bottomRight"
+                        >
+                            <Button type="danger" size="small" icon="delete">
+                                批量删除 ({this.state.selectedRowKeys.length})
+                            </Button>
+                        </Popconfirm>
+                    </span>
                 )}
             </div>
         );

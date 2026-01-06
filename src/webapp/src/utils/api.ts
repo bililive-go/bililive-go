@@ -127,6 +127,14 @@ class API {
     }
 
     /**
+     * 批量删除文件或文件夹
+     * @param paths string[]
+     */
+    deleteFilesBatch(paths: string[]) {
+        return utils.requestPost(`${BASE_URL}/delete-batch`, { paths });
+    }
+
+    /**
      * 获取Cookie列表
      */
     getCookieList() {
