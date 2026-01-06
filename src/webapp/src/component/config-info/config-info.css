@@ -1,4 +1,67 @@
-/* workaround for compatibility bug when using antd and react-simple-code-editor together*/
-pre+textarea::selection {
-  -webkit-text-fill-color: white
+/* Code Editor Styling */
+.config-editor {
+  font-family: '"Fira code", "Fira Mono", monospace';
+  font-size: 14px;
+  background-color: #fafafa;
+  border: 1px solid #e8e8e8;
+  border-radius: 4px;
+  min-height: 400px;
+  margin-bottom: 24px;
+}
+
+.config-editor:focus-within {
+  border-color: #40a9ff;
+  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+  outline: 0;
+}
+
+/* Help Content Styling */
+.help-content-container {
+  padding: 0 4px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.help-item {
+  margin-bottom: 16px;
+}
+
+.help-item-code {
+  font-weight: bold;
+  color: #c41d7f;
+}
+
+.help-item-details {
+  margin-top: 8px;
+  padding-left: 12px;
+  border-left: 2px solid #f0f0f0;
+}
+
+.help-item-details-single {
+  margin-top: 4px;
+}
+
+/* Page Layout */
+.config-info-container {
+  padding: 24px;
+}
+
+.config-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fff;
+  padding: 16px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  margin-bottom: 20px;
+}
+
+.config-title {
+  font-size: 20px;
+  font-weight: bold;
+  margin-right: 16px;
 }

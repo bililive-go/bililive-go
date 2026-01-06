@@ -121,8 +121,8 @@ class FileList extends React.Component<Props, IState> {
         });
     };
 
-    onDelete = (record: CurrentFolderFile, e: React.MouseEvent) => {
-        e.stopPropagation();
+    onDelete = (record: CurrentFolderFile, e?: React.MouseEvent) => {
+        e?.stopPropagation();
         let path = encodeURIComponent(record.name);
         if (this.props.match.params.path) {
             path = this.props.match.params.path + "/" + path;
@@ -173,21 +173,26 @@ class FileList extends React.Component<Props, IState> {
             });
     }
 
-    onSingleRenameClick = (record: CurrentFolderFile, e: React.MouseEvent) => {
-        e.stopPropagation();
-        let nameToEdit = record.name;
+    private _splitFilename(name: string, is_folder: boolean): { baseName: string, extension: string } {
+        let baseName = name;
         let extension = '';
-        if (!record.is_folder) {
-            const lastDotIndex = record.name.lastIndexOf('.');
+        if (!is_folder) {
+            const lastDotIndex = name.lastIndexOf('.');
             if (lastDotIndex > 0) {
-                nameToEdit = record.name.substring(0, lastDotIndex);
-                extension = record.name.substring(lastDotIndex);
+                baseName = name.substring(0, lastDotIndex);
+                extension = name.substring(lastDotIndex);
             }
         }
+        return { baseName, extension };
+    }
+
+    onSingleRenameClick = (record: CurrentFolderFile, e: React.MouseEvent) => {
+        e.stopPropagation();
+        const { baseName, extension } = this._splitFilename(record.name, record.is_folder);
         this.setState({
             renameType: 'single',
             singleRenameRecord: record,
-            singleNewName: nameToEdit,
+            singleNewName: baseName,
             singleExtension: extension,
             renameModalVisible: true,
         });
@@ -223,19 +228,11 @@ class FileList extends React.Component<Props, IState> {
                 return;
             }
 
-            selectedRowKeys.forEach(name => {
-                const record = this.state.currentFolderFiles.find(f => f.name === name);
-                let baseName = name;
-                let extension = "";
+            const filesMap = new Map(this.state.currentFolderFiles.map(f => [f.name, f]));
 
-                // 分离文件名和后缀，保护后缀不被批量替换修改
-                if (record && !record.is_folder) {
-                    const lastDotIndex = name.lastIndexOf('.');
-                    if (lastDotIndex > 0) {
-                        baseName = name.substring(0, lastDotIndex);
-                        extension = name.substring(lastDotIndex);
-                    }
-                }
+            selectedRowKeys.forEach(name => {
+                const record = filesMap.get(name);
+                const { baseName, extension } = this._splitFilename(name, record ? record.is_folder : false);
 
                 if (baseName.includes(batchSearch)) {
                     let oldPath = name;

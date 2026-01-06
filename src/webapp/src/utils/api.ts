@@ -122,13 +122,13 @@ class API {
      * 批量重命名文件或文件夹
      * @param actions \{old_path: string, new_name: string\}[]
      */
-    renameFiles(actions: any[]) {
+    renameFiles(actions: { old_path: string, new_name: string }[]) {
         return utils.requestPost(`${BASE_URL}/rename`, { actions });
     }
 
     /**
      * 批量删除文件或文件夹
-     * @param paths string[]
+     * @param {string[]} paths 待删除的路径列表
      */
     deleteFilesBatch(paths: string[]) {
         return utils.requestPost(`${BASE_URL}/delete-batch`, { paths });

@@ -452,7 +452,14 @@ func getFileInfo(writer http.ResponseWriter, r *http.Request) {
 
 func deleteFile(writer http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	path, _ := url.PathUnescape(vars["path"])
+	path, err := url.PathUnescape(vars["path"])
+	if err != nil {
+		writeJSON(writer, commonResp{
+			ErrNo:  1,
+			ErrMsg: "无效的路径格式: " + err.Error(),
+		})
+		return
+	}
 
 	cfg := configs.GetCurrentConfig()
 	base, err := filepath.Abs(cfg.OutPutPath)
@@ -482,13 +489,13 @@ func deleteFile(writer http.ResponseWriter, r *http.Request) {
 
 	err = os.RemoveAll(absPath)
 	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "Access is denied") {
+		var errMsg string
+		if errors.Is(err, os.ErrPermission) {
 			errMsg = "权限不足，无法删除该文件"
-		} else if strings.Contains(errMsg, "being used by another process") {
+		} else if strings.Contains(err.Error(), "being used by another process") {
 			errMsg = "文件正在被其他程序占用（可能正在录制中），无法删除"
 		} else {
-			errMsg = "删除失败: " + errMsg
+			errMsg = "删除失败: " + err.Error()
 		}
 		writeJSON(writer, commonResp{
 			ErrNo:  1,
@@ -525,6 +532,11 @@ func renameFiles(writer http.ResponseWriter, r *http.Request) {
 
 	results := make([]string, 0)
 	for _, action := range req.Actions {
+		if strings.ContainsAny(action.NewName, "/\\") {
+			results = append(results, fmt.Sprintf("%s: 新文件名不能包含路径分隔符", action.OldPath))
+			continue
+		}
+
 		// 校验旧路径
 		oldAbs, err := filepath.Abs(filepath.Join(base, action.OldPath))
 		if err != nil || !strings.HasPrefix(oldAbs, base) || oldAbs == base {
@@ -537,7 +549,11 @@ func renameFiles(writer http.ResponseWriter, r *http.Request) {
 		newAbs := filepath.Join(dir, action.NewName)
 
 		// 再次校验新路径安全性 (防止通过新文件名跳出目录)
-		newAbsClean, _ := filepath.Abs(newAbs)
+		newAbsClean, err := filepath.Abs(newAbs)
+		if err != nil {
+			results = append(results, fmt.Sprintf("%s: 新路径生成失败", action.OldPath))
+			continue
+		}
 		if !strings.HasPrefix(newAbsClean, base) {
 			results = append(results, fmt.Sprintf("%s: 新文件名含有非法字符", action.OldPath))
 			continue
@@ -545,11 +561,13 @@ func renameFiles(writer http.ResponseWriter, r *http.Request) {
 
 		// 执行重命名
 		if err := os.Rename(oldAbs, newAbs); err != nil {
-			errMsg := err.Error()
-			if strings.Contains(errMsg, "Access is denied") {
+			var errMsg string
+			if errors.Is(err, os.ErrPermission) {
 				errMsg = "权限不足"
-			} else if strings.Contains(errMsg, "being used by another process") {
+			} else if strings.Contains(err.Error(), "being used by another process") {
 				errMsg = "文件被占用"
+			} else {
+				errMsg = err.Error()
 			}
 			results = append(results, fmt.Sprintf("%s -> %s 失败: %s", action.OldPath, action.NewName, errMsg))
 		}
@@ -597,11 +615,13 @@ func deleteFilesBatch(writer http.ResponseWriter, r *http.Request) {
 
 		err = os.RemoveAll(absPath)
 		if err != nil {
-			errMsg := err.Error()
-			if strings.Contains(errMsg, "Access is denied") {
+			var errMsg string
+			if errors.Is(err, os.ErrPermission) {
 				errMsg = "权限不足"
-			} else if strings.Contains(errMsg, "being used by another process") {
+			} else if strings.Contains(err.Error(), "being used by another process") {
 				errMsg = "文件正在被录制或占用中"
+			} else {
+				errMsg = err.Error()
 			}
 			results = append(results, fmt.Sprintf("%s 失败: %s", path, errMsg))
 		}
