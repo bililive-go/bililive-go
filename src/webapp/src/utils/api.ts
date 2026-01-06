@@ -111,6 +111,14 @@ class API {
     }
 
     /**
+     * 删除文件或文件夹
+     * @param path 文件相对于输出目录的路径
+     */
+    deleteFile(path: string) {
+        return utils.requestDelete(`${BASE_URL}/file/${path}`);
+    }
+
+    /**
      * 获取Cookie列表
      */
     getCookieList() {
@@ -121,8 +129,8 @@ class API {
      * 保存Cookie
      * @param json {"Host":"","Cookie":""}
      */
-    saveCookie(json:any){
-        return utils.requestPut(`${BASE_URL}/cookies`,json);
+    saveCookie(json: any) {
+        return utils.requestPut(`${BASE_URL}/cookies`, json);
     }
 }
 

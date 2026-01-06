@@ -450,6 +450,58 @@ func getFileInfo(writer http.ResponseWriter, r *http.Request) {
 	writeJSON(writer, json)
 }
 
+func deleteFile(writer http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	path, _ := url.PathUnescape(vars["path"])
+
+	cfg := configs.GetCurrentConfig()
+	base, err := filepath.Abs(cfg.OutPutPath)
+	if err != nil {
+		writeJSON(writer, commonResp{
+			ErrNo:  1,
+			ErrMsg: "无效输出目录",
+		})
+		return
+	}
+
+	absPath, err := filepath.Abs(filepath.Join(base, path))
+	if err != nil {
+		writeJSON(writer, commonResp{
+			ErrNo:  1,
+			ErrMsg: "无效路径",
+		})
+		return
+	}
+	if !strings.HasPrefix(absPath, base) || absPath == base {
+		writeJSON(writer, commonResp{
+			ErrNo:  1,
+			ErrMsg: "异常路径或禁止删除根目录",
+		})
+		return
+	}
+
+	err = os.RemoveAll(absPath)
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "Access is denied") {
+			errMsg = "权限不足，无法删除该文件"
+		} else if strings.Contains(errMsg, "being used by another process") {
+			errMsg = "文件正在被其他程序占用（可能正在录制中），无法删除"
+		} else {
+			errMsg = "删除失败: " + errMsg
+		}
+		writeJSON(writer, commonResp{
+			ErrNo:  1,
+			ErrMsg: errMsg,
+		})
+		return
+	}
+
+	writeJSON(writer, commonResp{
+		Data: "OK",
+	})
+}
+
 func getLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 	inst := instance.GetInstance(r.Context())
 	hostCookieMap := make(map[string]*live.InfoCookie)

@@ -1,6 +1,6 @@
 import React from "react";
 import API from "../../utils/api";
-import { Breadcrumb, Divider, Icon, Table } from "antd";
+import { Breadcrumb, Divider, Icon, Table, Popconfirm, message } from "antd";
 import { Link, RouteComponentProps } from "react-router-dom";
 import Utils from "../../utils/common";
 import './file-list.css';
@@ -90,6 +90,26 @@ class FileList extends React.Component<Props, IState> {
         this.setState({
             sortedInfo: sorter,
         });
+    };
+
+    onDelete = (record: CurrentFolderFile, e: React.MouseEvent) => {
+        e.stopPropagation();
+        let path = encodeURIComponent(record.name);
+        if (this.props.match.params.path) {
+            path = this.props.match.params.path + "/" + path;
+        }
+        api.deleteFile(path)
+            .then((rsp: any) => {
+                if (rsp.data === "OK") {
+                    message.success("删除成功");
+                    this.requestFileList(this.props.match.params.path);
+                } else {
+                    message.error(rsp.err_msg || "删除失败");
+                }
+            })
+            .catch(err => {
+                message.error("删除请求失败");
+            });
     };
 
     onRowClick = (record: CurrentFolderFile) => {
@@ -194,8 +214,8 @@ class FileList extends React.Component<Props, IState> {
             sortOrder: sortedInfo.columnKey === "name" && sortedInfo.order,
             render: (text: string, record: CurrentFolderFile, index: number) => {
                 return [
-                    record.is_folder ? <Icon type="folder" theme="filled" /> : <Icon type="file" />,
-                    <Divider type="vertical" />,
+                    record.is_folder ? <Icon key="icon" type="folder" theme="filled" /> : <Icon key="icon" type="file" />,
+                    <Divider key="divider" type="vertical" />,
                     record.name,
                 ];
             }
@@ -219,6 +239,24 @@ class FileList extends React.Component<Props, IState> {
             sorter: (a: CurrentFolderFile, b: CurrentFolderFile) => a.last_modified - b.last_modified,
             sortOrder: sortedInfo.columnKey === "last_modified" && sortedInfo.order,
             render: (text: string, record: CurrentFolderFile, index: number) => Utils.timestampToHumanReadable(record.last_modified),
+        }, {
+            title: "操作",
+            key: "action",
+            render: (text: string, record: CurrentFolderFile) => (
+                <Popconfirm
+                    title={`确定要删除${record.is_folder ? '文件夹' : '文件'} "${record.name}" 吗？`}
+                    onConfirm={(e) => this.onDelete(record, e as any)}
+                    onCancel={(e) => e?.stopPropagation()}
+                    okText="确定"
+                    cancelText="取消"
+                >
+                    <Icon
+                        type="delete"
+                        style={{ color: '#ff4d4f', cursor: 'pointer' }}
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                </Popconfirm>
+            ),
         }];
 
         return (<Table
