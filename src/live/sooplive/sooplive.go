@@ -46,8 +46,7 @@ func (b *builder) Build(url *url.URL) (live.Live, error) {
 
 type Live struct {
 	internal.BaseLive
-	bjID    string
-	realBno string
+	bjID string
 }
 
 func (l *Live) UpdateLiveOptionsbyConfig(ctx context.Context, room *configs.LiveRoom) error {
