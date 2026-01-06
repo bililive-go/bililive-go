@@ -171,6 +171,14 @@ class API {
     checkBilibiliCookie(cookie: string) {
         return utils.requestGet(`${BASE_URL}/bilibili/check?cookie=${encodeURIComponent(cookie)}`);
     }
+
+    /**
+     * SoopLive 登录
+     * @param json {username: "", password: ""}
+     */
+    soopliveLogin(json: any) {
+        return utils.requestPost(`${BASE_URL}/sooplive/login`, json);
+    }
 }
 
 export default API;

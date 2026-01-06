@@ -648,21 +648,28 @@ func getLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 		if urltmp == nil || urltmp.Host == "" {
 			continue
 		}
-		if _, ok := hostCookieMap[urltmp.Host]; ok {
+		host := urltmp.Host
+		// 统一 SoopLive 域名，避免重复存储
+		if strings.Contains(host, "sooplive.co.kr") || strings.Contains(host, "afreecatv.com") {
+			host = "sooplive.co.kr"
+		}
+		if _, ok := hostCookieMap[host]; ok {
 			continue
 		}
 		v1, err := v.GetInfo()
 		if err != nil || v1 == nil {
 			continue
 		}
-		host := urltmp.Host
-		if cookie, ok := configs.GetCurrentConfig().Cookies[host]; ok {
-			tmp := &live.InfoCookie{Platform_cn_name: v1.Live.GetPlatformCNName(), Host: host, Cookie: cookie}
-			hostCookieMap[host] = tmp
-		} else {
-			tmp := &live.InfoCookie{Platform_cn_name: v1.Live.GetPlatformCNName(), Host: host}
-			hostCookieMap[host] = tmp
+		cfg := configs.GetCurrentConfig()
+		tmp := &live.InfoCookie{Platform_cn_name: v1.Live.GetPlatformCNName(), Host: host}
+		if cookie, ok := cfg.Cookies[host]; ok {
+			tmp.Cookie = cookie
 		}
+		if acc, ok := cfg.Accounts[host]; ok {
+			tmp.Username = acc.Username
+			tmp.Password = acc.Password
+		}
+		hostCookieMap[host] = tmp
 		keys = append(keys, host)
 	}
 	sort.Strings(keys)
@@ -687,6 +694,11 @@ func putLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 	data := gjson.ParseBytes(b)
 
 	host := data.Get("Host").Str
+	// 规范化 SoopLive 域名
+	if strings.Contains(host, "sooplive.co.kr") || strings.Contains(host, "afreecatv.com") {
+		host = "sooplive.co.kr"
+	}
+
 	cookie := data.Get("Cookie").Str
 	if cookie == "" {
 
@@ -709,9 +721,20 @@ func putLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
+	// 更新账号密码（如果有提供）
+	username := data.Get("Username").Str
+	password := data.Get("Password").Str
+	if username != "" || password != "" {
+		newCfg, _ = configs.SetAccount(host, username, password)
+	}
 	for _, v := range newCfg.LiveRooms {
 		tmpurl, _ := url.Parse(v.Url)
-		if tmpurl.Host != host {
+		targetHost := tmpurl.Host
+		if strings.Contains(targetHost, "sooplive.co.kr") || strings.Contains(targetHost, "afreecatv.com") {
+			targetHost = "sooplive.co.kr"
+		}
+		if targetHost != host {
 			continue
 		}
 		live := inst.Lives[v.LiveId]
@@ -866,6 +889,97 @@ func checkBilibiliCookie(writer http.ResponseWriter, r *http.Request) {
 		writeJSON(writer, map[string]any{
 			"code":    code,
 			"message": "Cookie 无效: " + message,
+		})
+	}
+}
+
+func soopliveLogin(writer http.ResponseWriter, r *http.Request) {
+	b, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
+
+	username := gjson.ParseBytes(b).Get("username").String()
+	password := gjson.ParseBytes(b).Get("password").String()
+
+	if username == "" || password == "" {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "用户名和密码不能为空",
+		})
+		return
+	}
+
+	resp, err := requests.Post("https://login.sooplive.co.kr/app/LoginAction.php",
+		requests.Form(map[string]string{
+			"szWork":        "login",
+			"szType":        "json",
+			"szUid":         username,
+			"szPassword":    password,
+			"isSaveId":      "true",
+			"isSavePw":      "false",
+			"isSaveJoin":    "false",
+			"isLoginRetain": "Y",
+		}),
+		requests.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+		requests.Header("Origin", "https://play.sooplive.co.kr"),
+		requests.Referer("https://play.sooplive.co.kr/"),
+	)
+
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "请求 SoopLive 登录失败: " + err.Error(),
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := resp.Bytes()
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "读取响应失败: " + err.Error(),
+		})
+		return
+	}
+
+	res := gjson.ParseBytes(body)
+	if res.Get("RESULT").Int() == 1 {
+		// 登录成功，从 Header 获取 Cookie
+		cookies := resp.Header["Set-Cookie"]
+		var cookieList []string
+		for _, c := range cookies {
+			parts := strings.Split(c, ";")
+			if len(parts) > 0 {
+				kv := strings.TrimSpace(parts[0])
+				if kv != "" && strings.Contains(kv, "=") {
+					cookieList = append(cookieList, kv)
+				}
+			}
+		}
+		cookieStr := strings.Join(cookieList, "; ")
+
+		// 自动更新到内存中以便立即生效
+		// 统一存储到 sooplive.co.kr，实现一份存储多处生效
+		configs.SetCookie("sooplive.co.kr", cookieStr)
+		configs.SetAccount("sooplive.co.kr", username, password)
+
+		writeJSON(writer, map[string]any{
+			"code":    0,
+			"message": "登录成功",
+			"data": map[string]any{
+				"cookie": cookieStr,
+			},
+		})
+	} else {
+		writeJSON(writer, map[string]any{
+			"code":    -1,
+			"message": "登录失败，请检查用户名和密码",
 		})
 	}
 }

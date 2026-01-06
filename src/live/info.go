@@ -20,6 +20,8 @@ type InfoCookie struct {
 	Platform_cn_name string
 	Host             string
 	Cookie           string
+	Username         string
+	Password         string
 }
 
 func (i *Info) MarshalJSON() ([]byte, error) {

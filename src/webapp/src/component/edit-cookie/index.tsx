@@ -27,7 +27,11 @@ class EditCookieDialog extends React.Component<Props> {
         qrcodeKey: '',
         qrStatus: '', // 'idle', 'loading', 'waiting', 'scanned', 'confirmed', 'expired', 'error'
         qrMessage: '',
-        polling: false
+        polling: false,
+        // SoopLive 登录相关
+        soopUsername: '',
+        soopPassword: '',
+        soopLoginLoading: false
     };
 
     pollTimer: any = null;
@@ -53,9 +57,36 @@ class EditCookieDialog extends React.Component<Props> {
             qrCodeVisible: false,
             qrStatus: 'idle',
             qrCodeUrl: '',
-            qrcodeKey: ''
+            qrcodeKey: '',
+            soopUsername: data.Username || '',
+            soopPassword: data.Password || '',
+            soopLoginLoading: false
         });
     };
+
+    handleSoopLogin = () => {
+        const { soopUsername, soopPassword } = this.state;
+        if (!soopUsername || !soopPassword) {
+            notification.error({ message: '请输入用户名和密码' });
+            return;
+        }
+
+        this.setState({ soopLoginLoading: true });
+        api.soopliveLogin({ username: soopUsername, password: soopPassword })
+            .then((res: any) => {
+                this.setState({ soopLoginLoading: false });
+                if (res.code === 0) {
+                    this.setState({ textView: res.data.cookie });
+                    notification.success({ message: 'SoopLive 登录及 Cookie 获取成功' });
+                } else {
+                    notification.error({ message: res.message || '登录失败' });
+                }
+            })
+            .catch(err => {
+                this.setState({ soopLoginLoading: false });
+                notification.error({ message: '登录请求失败: ' + err.message });
+            });
+    }
 
     handleOk = () => {
         this.stopPolling();
@@ -64,7 +95,12 @@ class EditCookieDialog extends React.Component<Props> {
             confirmLoading: true,
         });
 
-        api.saveCookie({ Host: this.state.Host, Cookie: this.state.textView })
+        api.saveCookie({
+            Host: this.state.Host,
+            Cookie: this.state.textView,
+            Username: this.state.soopUsername,
+            Password: this.state.soopPassword
+        })
             .then((rsp) => {
                 // 保存设置
                 api.saveSettingsInBackground();
@@ -232,6 +268,7 @@ class EditCookieDialog extends React.Component<Props> {
             Host, Platform_cn_name, qrCodeVisible, qrCodeUrl, qrMessage, qrStatus } = this.state;
 
         const isBilibili = Host === 'live.bilibili.com';
+        const isSoop = Host === 'sooplive.co.kr' || Host === 'play.sooplive.co.kr' || Host === 'www.sooplive.co.kr' || Host === 'play.afreecatv.com' || Host === 'www.afreecatv.com';
 
         return (
             <div>
@@ -241,7 +278,7 @@ class EditCookieDialog extends React.Component<Props> {
                     onOk={this.handleOk}
                     confirmLoading={confirmLoading}
                     onCancel={this.handleCancel}
-                    width={isBilibili ? 600 : 520}
+                    width={isBilibili || isSoop ? 600 : 520}
                 >
                     <p>{ModalText}</p>
                     {isBilibili && (
@@ -252,6 +289,25 @@ class EditCookieDialog extends React.Component<Props> {
                             <Button style={{ marginLeft: 8 }} onClick={this.checkCookie} disabled={!textView}>
                                 验证 Cookie
                             </Button>
+                            <div style={{ marginTop: 12 }}>
+                                <Alert
+                                    message="获取方式建议"
+                                    description={
+                                        <div style={{ fontSize: '12px' }}>
+                                            <p style={{ marginBottom: 4 }}>通常推荐 <b>扫码登录</b>，快速且稳定。</p>
+                                            <p style={{ marginBottom: 4 }}>但在以下情况建议 <b>手动从浏览器 F12 获取</b>：</p>
+                                            <ul style={{ paddingLeft: 16, marginBottom: 4 }}>
+                                                <li><b>画质受限</b>：如无法开启 4K/高帧率（需缺失的 buvid 字段）</li>
+                                                <li><b>触发风控</b>：报错 412 或频繁验证（需同步浏览器环境）</li>
+                                                <li><b>解析失败</b>：弹幕获取失败或 WBI 签名校验不通过</li>
+                                            </ul>
+                                            <p style={{ marginBottom: 0, color: '#888' }}>方法：浏览器 B 站 → F12 → 网络 → 刷新 → 复制请求头中的 Cookie。</p>
+                                        </div>
+                                    }
+                                    type="info"
+                                    showIcon
+                                />
+                            </div>
                             {qrCodeVisible && (
                                 <div style={{ marginTop: 16, textAlign: 'center', border: '1px solid #eee', padding: 16, borderRadius: 8 }}>
                                     {qrStatus === 'loading' ? (
@@ -275,6 +331,31 @@ class EditCookieDialog extends React.Component<Props> {
                                     )}
                                 </div>
                             )}
+                        </div>
+                    )}
+                    {isSoop && (
+                        <div style={{ marginBottom: 16, border: '1px solid #f0f0f0', padding: '12px', borderRadius: '4px', backgroundColor: '#fafafa' }}>
+                            <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                                <Input
+                                    placeholder="Soop 用户名"
+                                    value={this.state.soopUsername}
+                                    onChange={(e) => this.setState({ soopUsername: e.target.value })}
+                                />
+                                <Input.Password
+                                    placeholder="密码"
+                                    value={this.state.soopPassword}
+                                    onChange={(e) => this.setState({ soopPassword: e.target.value })}
+                                />
+                                <Button type="primary" onClick={this.handleSoopLogin} loading={this.state.soopLoginLoading}>
+                                    登录并获取 Cookie
+                                </Button>
+                            </div>
+                            <Alert
+                                type="info"
+                                showIcon
+                                message="自动获取说明"
+                                description="输入账号密码后点击登录获取 Cookie 。适用于 19+ 房间录制。"
+                            />
                         </div>
                     )}
                     <TextArea
