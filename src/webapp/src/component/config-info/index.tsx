@@ -6,7 +6,7 @@ import 'prismjs/components/prism-clike';
 import 'prismjs/components/prism-javascript';
 import 'prismjs/themes/prism.css';
 import API from '../../utils/api';
-import { Button, Drawer, Icon, Divider, Tag } from "antd";
+import { Button, Drawer, Divider, Tag } from "antd";
 import './config-info.css';
 
 const api = new API();
@@ -281,7 +281,7 @@ class ConfigInfo extends React.Component<Props, IState> {
         </div>
 
         <Drawer
-          title={<span style={{ fontWeight: 'bold' }}>📑 全部配置参数详细说明</span>}
+          title={<span style={{ fontWeight: 'bold' }}><span role="img" aria-label="doc">📑</span> 全部配置参数详细说明</span>}
           placement="right"
           closable={true}
           onClose={this.onClose}
