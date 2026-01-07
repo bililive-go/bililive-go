@@ -448,7 +448,7 @@ func NewConfig() *Config {
 
 func newConfigPostProcess(c *Config) {
 	// 若运行在容器内，且未显式指定只读工具目录，则设置为容器内预置目录
-	if isInContainer() && strings.TrimSpace(c.ReadOnlyToolFolder) == "" {
+	if IsInContainer() && strings.TrimSpace(c.ReadOnlyToolFolder) == "" {
 		c.ReadOnlyToolFolder = "/opt/bililive/tools"
 	}
 	if c.AppDataPath == "" {
