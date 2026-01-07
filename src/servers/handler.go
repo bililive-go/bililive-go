@@ -729,7 +729,11 @@ func putLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 		newCfg, _ = configs.SetAccount(host, username, password)
 	}
 	for _, v := range newCfg.LiveRooms {
-		tmpurl, _ := url.Parse(v.Url)
+		tmpurl, err := url.Parse(v.Url)
+		if err != nil {
+			applog.GetLogger().Errorf("failed to parse url %s: %v", v.Url, err)
+			continue
+		}
 		targetHost := tmpurl.Host
 		if strings.Contains(targetHost, "sooplive.co.kr") || strings.Contains(targetHost, "afreecatv.com") {
 			targetHost = "sooplive.co.kr"
