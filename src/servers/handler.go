@@ -146,8 +146,9 @@ func stopListening(ctx context.Context, liveId types.LiveID) error {
 func addLives(writer http.ResponseWriter, r *http.Request) {
 	b, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeJSON(writer, map[string]any{
-			"error": err.Error(),
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: err.Error(),
 		})
 		return
 	}
@@ -306,6 +307,13 @@ func putRawConfig(writer http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if err := newConfig.Verify(); err != nil {
+		writeJsonWithStatusCode(writer, http.StatusOK, commonResp{
+			ErrNo:  1,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
 	oldConfig := configs.GetCurrentConfig()
 	oldConfig.RefreshLiveRoomIndexCache()
 	// 继承原配置的文件路径
@@ -323,8 +331,9 @@ func putRawConfig(writer http.ResponseWriter, r *http.Request) {
 	// 先设置为当前全局配置，再驱动运行态差异变更
 	configs.SetCurrentConfig(newConfig)
 	if err := applyLiveRoomsByConfig(ctx, oldConfig, newConfig); err != nil {
-		writeJSON(writer, map[string]any{
-			"error": err.Error(),
+		writeJsonWithStatusCode(writer, http.StatusOK, commonResp{
+			ErrNo:  1,
+			ErrMsg: err.Error(),
 		})
 		return
 	}
@@ -346,24 +355,35 @@ func applyLiveRoomsByConfig(ctx context.Context, oldConfig *configs.Config, newC
 		if room, err := oldConfig.GetLiveRoomByUrl(newRoom.Url); err != nil {
 			// add live
 			if _, err := addLiveImpl(ctx, newRoom.Url, newRoom.IsListening); err != nil {
-				return err
+				applog.GetLogger().Errorf("failed to add live room %s: %v", newRoom.Url, err)
 			}
 		} else {
-			live, ok := inst.Lives[types.LiveID(room.LiveId)]
-			if !ok {
-				return fmt.Errorf("live id: %s can not find", room.LiveId)
+			if room.LiveId == "" {
+				// 如果旧配置里 LiveId 为空，尝试重新初始化
+				if _, err := addLiveImpl(ctx, newRoom.Url, newRoom.IsListening); err != nil {
+					applog.GetLogger().Errorf("failed to re-init live room %s: %v", newRoom.Url, err)
+				}
+				continue
 			}
-			live.UpdateLiveOptionsbyConfig(ctx, newRoom)
+			liveInstance, ok := inst.Lives[types.LiveID(room.LiveId)]
+			if !ok {
+				// 如果实例不存在，也尝试重新添加，而不是直接报错返回
+				if _, err := addLiveImpl(ctx, newRoom.Url, newRoom.IsListening); err != nil {
+					applog.GetLogger().Errorf("failed to restore live room %s: %v", newRoom.Url, err)
+				}
+				continue
+			}
+			liveInstance.UpdateLiveOptionsbyConfig(ctx, newRoom)
 			if room.IsListening != newRoom.IsListening {
 				if newRoom.IsListening {
 					// start listening
-					if err := startListening(ctx, live); err != nil {
-						return err
+					if err := startListening(ctx, liveInstance); err != nil {
+						applog.GetLogger().Errorf("failed to start listening for %s: %v", newRoom.Url, err)
 					}
 				} else {
 					// stop listening
-					if err := stopListening(ctx, live.GetLiveId()); err != nil {
-						return err
+					if err := stopListening(ctx, liveInstance.GetLiveId()); err != nil {
+						applog.GetLogger().Errorf("failed to stop listening for %s: %v", newRoom.Url, err)
 					}
 				}
 			}
@@ -373,11 +393,14 @@ func applyLiveRoomsByConfig(ctx context.Context, oldConfig *configs.Config, newC
 	for _, room := range loopRooms {
 		if _, ok := newUrlMap[room.Url]; !ok {
 			// remove live
-			live, ok := inst.Lives[types.LiveID(room.LiveId)]
-			if !ok {
-				return fmt.Errorf("live id: %s can not find", room.LiveId)
+			if room.LiveId == "" {
+				continue
 			}
-			removeLiveImpl(ctx, live)
+			liveInstance, ok := inst.Lives[types.LiveID(room.LiveId)]
+			if !ok {
+				continue
+			}
+			removeLiveImpl(ctx, liveInstance)
 		}
 	}
 	return nil
