@@ -104,7 +104,10 @@ func (l *Live) GetInfo() (*live.Info, error) {
 		}),
 	)
 	if err == nil {
-		body, _ := resp.Bytes()
+		body, err := resp.Bytes()
+		if err != nil {
+			return nil, err
+		}
 		res := gjson.ParseBytes(body)
 		if res.Get("CHANNEL.RESULT").Int() == 1 {
 			return &live.Info{
@@ -121,7 +124,10 @@ func (l *Live) GetInfo() (*live.Info, error) {
 	if err != nil {
 		return nil, err
 	}
-	body, _ := resp.Bytes()
+	body, err := resp.Bytes()
+	if err != nil {
+		return nil, err
+	}
 	res := gjson.ParseBytes(body)
 
 	if res.Get("RESULT").Int() != 1 {
@@ -147,7 +153,10 @@ func (l *Live) GetStreamInfos() (infos []*live.StreamUrlInfo, err error) {
 	if bnoFromUrl == "" {
 		resp, err := l.RequestSession.Get(l.GetRawUrl(), requests.UserAgent(commonAgent), requests.Cookies(cookieKVs))
 		if err == nil {
-			body, _ := resp.Text()
+			body, err := resp.Text()
+			if err != nil {
+				return nil, err
+			}
 			match := bnoRegex.FindStringSubmatch(body)
 			if len(match) > 1 {
 				bnoFromUrl = match[1]
@@ -174,7 +183,10 @@ func (l *Live) GetStreamInfos() (infos []*live.StreamUrlInfo, err error) {
 		return nil, err
 	}
 
-	body, _ := resp.Bytes()
+	body, err := resp.Bytes()
+	if err != nil {
+		return nil, err
+	}
 	res := gjson.ParseBytes(body)
 	channel := res.Get("CHANNEL")
 
@@ -217,7 +229,10 @@ func (l *Live) GetStreamInfos() (infos []*live.StreamUrlInfo, err error) {
 	if err != nil {
 		return nil, err
 	}
-	body, _ = resp.Bytes()
+	body, err = resp.Bytes()
+	if err != nil {
+		return nil, err
+	}
 	aid := gjson.GetBytes(body, "CHANNEL.AID").String()
 	if aid == "" {
 		return nil, fmt.Errorf("无法获取 AID 鉴权令牌")
@@ -241,7 +256,10 @@ func (l *Live) GetStreamInfos() (infos []*live.StreamUrlInfo, err error) {
 		return nil, err
 	}
 
-	body, _ = resp.Bytes()
+	body, err = resp.Bytes()
+	if err != nil {
+		return nil, err
+	}
 	viewUrl := gjson.GetBytes(body, "view_url").String()
 	if viewUrl == "" {
 		return nil, fmt.Errorf("流服务器分配失败: %s", gjson.GetBytes(body, "stream_status").String())
