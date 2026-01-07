@@ -141,10 +141,12 @@ func Init() (err error) {
 	// 始终使用持久化目录作为存储目录（即便其不可执行），运行时由 remotetools 复制到临时目录执行
 	_ = os.MkdirAll(preferredWritable, 0o755)
 	tools.SetRootFolder(preferredWritable)
-	// 为不可执行场景指定临时执行目录（容器内目录，具备执行权限）
-	execTmp := filepath.Join(string(os.PathSeparator), "opt", "bililive", "tmp_for_exec")
-	_ = os.MkdirAll(execTmp, 0o755)
-	tools.SetTmpRootFolderForExecPermission(execTmp)
+	// 为不可执行场景指定临时执行目录（仅容器内：容器内预置目录具备执行权限）
+	if configs.IsInContainer() {
+		execTmp := filepath.Join(string(os.PathSeparator), "opt", "bililive", "tmp_for_exec")
+		_ = os.MkdirAll(execTmp, 0o755)
+		tools.SetTmpRootFolderForExecPermission(execTmp)
+	}
 
 	err = api.StartWebUI(0)
 	if err != nil {
