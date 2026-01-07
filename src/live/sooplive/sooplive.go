@@ -202,13 +202,40 @@ func (l *Live) GetStreamInfos() (infos []*live.StreamUrlInfo, err error) {
 	rmd := channel.Get("RMD").String()
 	cdn := channel.Get("CDN").String()
 
-	// Quality mapping: Soop typically uses 'original', 'hd', 'sd'
-	// Quality in options: 0 is usually best.
-	qualityStr := "original"
-	if l.Options.Quality != 0 {
-		// Try to find matching label in VIEWPRESET if needed,
-		// but 'original' is safest for 'highest'
+	// 画质处理
+	presets := channel.Get("VIEWPRESET").Array()
+	availableQualities := make(map[string]bool)
+	var firstQuality string
+	for i, p := range presets {
+		name := p.Get("name").String()
+		availableQualities[name] = true
+		if i == 0 {
+			firstQuality = name
+		}
+	}
+
+	// 画质映射
+	var qualityStr string
+	switch l.Options.Quality {
+	case 1:
+		qualityStr = "hd8k"
+	case 2:
+		qualityStr = "hd4k"
+	case 3:
+		qualityStr = "hd"
+	case 4:
+		qualityStr = "sd"
+	default:
 		qualityStr = "original"
+	}
+
+	// 画质回退逻辑：如果请求的画质不可用，尝试回退到 original 或第一个可用画质
+	if !availableQualities[qualityStr] {
+		if availableQualities["original"] {
+			qualityStr = "original"
+		} else if firstQuality != "" {
+			qualityStr = firstQuality
+		}
 	}
 
 	// 2. Get AID (type=aid)
