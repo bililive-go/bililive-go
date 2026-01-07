@@ -215,7 +215,7 @@ func (l *Live) GetStreamInfos() (infos []*live.StreamUrlInfo, err error) {
 	}
 
 	// 画质映射
-	qualityStr := "original"
+	var qualityStr string
 	switch l.Options.Quality {
 	case 1:
 		qualityStr = "hd8k"
