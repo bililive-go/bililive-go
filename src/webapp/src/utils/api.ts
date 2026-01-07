@@ -111,6 +111,30 @@ class API {
     }
 
     /**
+     * 删除文件或文件夹
+     * @param path 文件相对于输出目录的路径
+     */
+    deleteFile(path: string) {
+        return utils.requestDelete(`${BASE_URL}/file/${path}`);
+    }
+
+    /**
+     * 批量重命名文件或文件夹
+     * @param actions \{old_path: string, new_name: string\}[]
+     */
+    renameFiles(actions: { old_path: string, new_name: string }[]) {
+        return utils.requestPost(`${BASE_URL}/rename`, { actions });
+    }
+
+    /**
+     * 批量删除文件或文件夹
+     * @param {string[]} paths 待删除的路径列表
+     */
+    deleteFilesBatch(paths: string[]) {
+        return utils.requestPost(`${BASE_URL}/delete-batch`, { paths });
+    }
+
+    /**
      * 获取Cookie列表
      */
     getCookieList() {
@@ -121,8 +145,39 @@ class API {
      * 保存Cookie
      * @param json {"Host":"","Cookie":""}
      */
-    saveCookie(json:any){
-        return utils.requestPut(`${BASE_URL}/cookies`,json);
+    saveCookie(json: any) {
+        return utils.requestPut(`${BASE_URL}/cookies`, json);
+    }
+
+    /**
+     * 获取B站登录二维码
+     */
+    getBilibiliQrcode() {
+        return utils.requestGet(`${BASE_URL}/bilibili/qrcode`);
+    }
+
+    /**
+     * 轮询B站登录状态
+     * @param qrcodeKey 二维码密钥
+     */
+    pollBilibiliLogin(qrcodeKey: string) {
+        return utils.requestGet(`${BASE_URL}/bilibili/poll?qrcode_key=${qrcodeKey}`);
+    }
+
+    /**
+     * 验证B站Cookie是否有效
+     * @param cookie Cookie字符串
+     */
+    checkBilibiliCookie(cookie: string) {
+        return utils.requestGet(`${BASE_URL}/bilibili/check?cookie=${encodeURIComponent(cookie)}`);
+    }
+
+    /**
+     * SoopLive 登录
+     * @param json {username: "", password: ""}
+     */
+    soopliveLogin(json: any) {
+        return utils.requestPost(`${BASE_URL}/sooplive/login`, json);
     }
 }
 

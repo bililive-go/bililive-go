@@ -37,7 +37,7 @@ class AddRoomDialog extends React.Component<Props> {
                 this.setState({
                     visible: false,
                     confirmLoading: false,
-                    textView:''
+                    textView: ''
                 });
                 this.props.refresh();
             })
@@ -46,7 +46,7 @@ class AddRoomDialog extends React.Component<Props> {
                 this.setState({
                     visible: false,
                     confirmLoading: false,
-                    textView:''
+                    textView: ''
                 });
             })
     };
@@ -54,7 +54,7 @@ class AddRoomDialog extends React.Component<Props> {
     handleCancel = () => {
         this.setState({
             visible: false,
-            textView:''
+            textView: ''
         });
     };
 
@@ -65,7 +65,7 @@ class AddRoomDialog extends React.Component<Props> {
     }
 
     render() {
-        const { visible, confirmLoading, ModalText,textView } = this.state;
+        const { visible, confirmLoading, ModalText, textView } = this.state;
         return (
             <div>
                 <Modal

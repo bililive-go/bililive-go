@@ -17,6 +17,7 @@ import (
 	_ "github.com/bililive-go/bililive-go/src/live/qq"
 	_ "github.com/bililive-go/bililive-go/src/live/system"
 	_ "github.com/bililive-go/bililive-go/src/live/twitch"
+	_ "github.com/bililive-go/bililive-go/src/live/sooplive"
 	_ "github.com/bililive-go/bililive-go/src/live/weibolive"
 	_ "github.com/bililive-go/bililive-go/src/live/xiaohongshu"
 	_ "github.com/bililive-go/bililive-go/src/live/yizhibo"

@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hr3lxphr6j/requests"
+
 	"github.com/gorilla/mux"
 	"github.com/tidwall/gjson"
 	"gopkg.in/yaml.v3"
@@ -144,8 +146,9 @@ func stopListening(ctx context.Context, liveId types.LiveID) error {
 func addLives(writer http.ResponseWriter, r *http.Request) {
 	b, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeJSON(writer, map[string]any{
-			"error": err.Error(),
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: err.Error(),
 		})
 		return
 	}
@@ -304,6 +307,13 @@ func putRawConfig(writer http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if err := newConfig.Verify(); err != nil {
+		writeJsonWithStatusCode(writer, http.StatusOK, commonResp{
+			ErrNo:  1,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
 	oldConfig := configs.GetCurrentConfig()
 	oldConfig.RefreshLiveRoomIndexCache()
 	// 继承原配置的文件路径
@@ -321,8 +331,9 @@ func putRawConfig(writer http.ResponseWriter, r *http.Request) {
 	// 先设置为当前全局配置，再驱动运行态差异变更
 	configs.SetCurrentConfig(newConfig)
 	if err := applyLiveRoomsByConfig(ctx, oldConfig, newConfig); err != nil {
-		writeJSON(writer, map[string]any{
-			"error": err.Error(),
+		writeJsonWithStatusCode(writer, http.StatusOK, commonResp{
+			ErrNo:  1,
+			ErrMsg: err.Error(),
 		})
 		return
 	}
@@ -344,24 +355,35 @@ func applyLiveRoomsByConfig(ctx context.Context, oldConfig *configs.Config, newC
 		if room, err := oldConfig.GetLiveRoomByUrl(newRoom.Url); err != nil {
 			// add live
 			if _, err := addLiveImpl(ctx, newRoom.Url, newRoom.IsListening); err != nil {
-				return err
+				applog.GetLogger().Errorf("failed to add live room %s: %v", newRoom.Url, err)
 			}
 		} else {
-			live, ok := inst.Lives[types.LiveID(room.LiveId)]
-			if !ok {
-				return fmt.Errorf("live id: %s can not find", room.LiveId)
+			if room.LiveId == "" {
+				// 如果旧配置里 LiveId 为空，尝试重新初始化
+				if _, err := addLiveImpl(ctx, newRoom.Url, newRoom.IsListening); err != nil {
+					applog.GetLogger().Errorf("failed to re-init live room %s: %v", newRoom.Url, err)
+				}
+				continue
 			}
-			live.UpdateLiveOptionsbyConfig(ctx, newRoom)
+			liveInstance, ok := inst.Lives[types.LiveID(room.LiveId)]
+			if !ok {
+				// 如果实例不存在，也尝试重新添加，而不是直接报错返回
+				if _, err := addLiveImpl(ctx, newRoom.Url, newRoom.IsListening); err != nil {
+					applog.GetLogger().Errorf("failed to restore live room %s: %v", newRoom.Url, err)
+				}
+				continue
+			}
+			liveInstance.UpdateLiveOptionsbyConfig(ctx, newRoom)
 			if room.IsListening != newRoom.IsListening {
 				if newRoom.IsListening {
 					// start listening
-					if err := startListening(ctx, live); err != nil {
-						return err
+					if err := startListening(ctx, liveInstance); err != nil {
+						applog.GetLogger().Errorf("failed to start listening for %s: %v", newRoom.Url, err)
 					}
 				} else {
 					// stop listening
-					if err := stopListening(ctx, live.GetLiveId()); err != nil {
-						return err
+					if err := stopListening(ctx, liveInstance.GetLiveId()); err != nil {
+						applog.GetLogger().Errorf("failed to stop listening for %s: %v", newRoom.Url, err)
 					}
 				}
 			}
@@ -371,11 +393,14 @@ func applyLiveRoomsByConfig(ctx context.Context, oldConfig *configs.Config, newC
 	for _, room := range loopRooms {
 		if _, ok := newUrlMap[room.Url]; !ok {
 			// remove live
-			live, ok := inst.Lives[types.LiveID(room.LiveId)]
-			if !ok {
-				return fmt.Errorf("live id: %s can not find", room.LiveId)
+			if room.LiveId == "" {
+				continue
 			}
-			removeLiveImpl(ctx, live)
+			liveInstance, ok := inst.Lives[types.LiveID(room.LiveId)]
+			if !ok {
+				continue
+			}
+			removeLiveImpl(ctx, liveInstance)
 		}
 	}
 	return nil
@@ -450,24 +475,224 @@ func getFileInfo(writer http.ResponseWriter, r *http.Request) {
 	writeJSON(writer, json)
 }
 
+func deleteFile(writer http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	path, err := url.PathUnescape(vars["path"])
+	if err != nil {
+		writeJSON(writer, commonResp{
+			ErrNo:  1,
+			ErrMsg: "无效的路径格式: " + err.Error(),
+		})
+		return
+	}
+
+	cfg := configs.GetCurrentConfig()
+	base, err := filepath.Abs(cfg.OutPutPath)
+	if err != nil {
+		writeJSON(writer, commonResp{
+			ErrNo:  1,
+			ErrMsg: "无效输出目录",
+		})
+		return
+	}
+
+	absPath, err := filepath.Abs(filepath.Join(base, path))
+	if err != nil {
+		writeJSON(writer, commonResp{
+			ErrNo:  1,
+			ErrMsg: "无效路径",
+		})
+		return
+	}
+	if !strings.HasPrefix(absPath, base) || absPath == base {
+		writeJSON(writer, commonResp{
+			ErrNo:  1,
+			ErrMsg: "异常路径或禁止删除根目录",
+		})
+		return
+	}
+
+	err = os.RemoveAll(absPath)
+	if err != nil {
+		var errMsg string
+		if errors.Is(err, os.ErrPermission) {
+			errMsg = "权限不足，无法删除该文件"
+		} else if strings.Contains(err.Error(), "being used by another process") {
+			errMsg = "文件正在被其他程序占用（可能正在录制中），无法删除"
+		} else {
+			errMsg = "删除失败: " + err.Error()
+		}
+		writeJSON(writer, commonResp{
+			ErrNo:  1,
+			ErrMsg: errMsg,
+		})
+		return
+	}
+
+	writeJSON(writer, commonResp{
+		Data: "OK",
+	})
+}
+
+type renameAction struct {
+	OldPath string `json:"old_path"` // 相对路径，例如 "room1/record.flv"
+	NewName string `json:"new_name"` // 新文件名，例如 "new_record.flv"
+}
+
+func renameFiles(writer http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Actions []renameAction `json:"actions"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(writer, commonResp{ErrNo: 1, ErrMsg: "无效的请求格式"})
+		return
+	}
+
+	cfg := configs.GetCurrentConfig()
+	base, err := filepath.Abs(cfg.OutPutPath)
+	if err != nil {
+		writeJSON(writer, commonResp{ErrNo: 1, ErrMsg: "无效输出目录"})
+		return
+	}
+
+	results := make([]string, 0)
+	for _, action := range req.Actions {
+		if strings.ContainsAny(action.NewName, "/\\") {
+			results = append(results, fmt.Sprintf("%s: 新文件名不能包含路径分隔符", action.OldPath))
+			continue
+		}
+
+		// 校验旧路径
+		oldAbs, err := filepath.Abs(filepath.Join(base, action.OldPath))
+		if err != nil || !strings.HasPrefix(oldAbs, base) || oldAbs == base {
+			results = append(results, fmt.Sprintf("%s: 路径无效", action.OldPath))
+			continue
+		}
+
+		// 构造新路径 (保持在同一目录下)
+		dir := filepath.Dir(oldAbs)
+		newAbs := filepath.Join(dir, action.NewName)
+
+		// 再次校验新路径安全性 (防止通过新文件名跳出目录)
+		newAbsClean, err := filepath.Abs(newAbs)
+		if err != nil {
+			results = append(results, fmt.Sprintf("%s: 新路径生成失败", action.OldPath))
+			continue
+		}
+		if !strings.HasPrefix(newAbsClean, base) {
+			results = append(results, fmt.Sprintf("%s: 新文件名含有非法字符", action.OldPath))
+			continue
+		}
+
+		// 执行重命名
+		if err := os.Rename(oldAbs, newAbs); err != nil {
+			var errMsg string
+			if errors.Is(err, os.ErrPermission) {
+				errMsg = "权限不足"
+			} else if strings.Contains(err.Error(), "being used by another process") {
+				errMsg = "文件被占用"
+			} else {
+				errMsg = err.Error()
+			}
+			results = append(results, fmt.Sprintf("%s -> %s 失败: %s", action.OldPath, action.NewName, errMsg))
+		}
+	}
+
+	if len(results) > 0 {
+		writeJSON(writer, commonResp{
+			ErrNo:  1,
+			ErrMsg: strings.Join(results, "; "),
+		})
+	} else {
+		writeJSON(writer, commonResp{Data: "OK"})
+	}
+}
+
+func deleteFilesBatch(writer http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Paths []string `json:"paths"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(writer, commonResp{ErrNo: 1, ErrMsg: "无效的请求格式"})
+		return
+	}
+
+	cfg := configs.GetCurrentConfig()
+	base, err := filepath.Abs(cfg.OutPutPath)
+	if err != nil {
+		writeJSON(writer, commonResp{ErrNo: 1, ErrMsg: "无效输出目录"})
+		return
+	}
+
+	results := make([]string, 0)
+	for _, path := range req.Paths {
+		absPath, err := filepath.Abs(filepath.Join(base, path))
+		if err != nil {
+			results = append(results, fmt.Sprintf("%s: 无效路径", path))
+			continue
+		}
+
+		// 安全检查：防止越权删除或删除根目录
+		if !strings.HasPrefix(absPath, base) || absPath == base {
+			results = append(results, fmt.Sprintf("%s: 禁止删除该路径", path))
+			continue
+		}
+
+		err = os.RemoveAll(absPath)
+		if err != nil {
+			var errMsg string
+			if errors.Is(err, os.ErrPermission) {
+				errMsg = "权限不足"
+			} else if strings.Contains(err.Error(), "being used by another process") {
+				errMsg = "文件正在被录制或占用中"
+			} else {
+				errMsg = err.Error()
+			}
+			results = append(results, fmt.Sprintf("%s 失败: %s", path, errMsg))
+		}
+	}
+
+	if len(results) > 0 {
+		writeJSON(writer, commonResp{
+			ErrNo:  1,
+			ErrMsg: strings.Join(results, "; "),
+		})
+	} else {
+		writeJSON(writer, commonResp{Data: "OK"})
+	}
+}
+
 func getLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 	inst := instance.GetInstance(r.Context())
 	hostCookieMap := make(map[string]*live.InfoCookie)
 	keys := make([]string, 0)
 	for _, v := range inst.Lives {
 		urltmp, _ := url.Parse(v.GetRawUrl())
-		if _, ok := hostCookieMap[urltmp.Host]; ok {
+		if urltmp == nil || urltmp.Host == "" {
 			continue
 		}
-		v1, _ := v.GetInfo()
 		host := urltmp.Host
-		if cookie, ok := configs.GetCurrentConfig().Cookies[host]; ok {
-			tmp := &live.InfoCookie{Platform_cn_name: v1.Live.GetPlatformCNName(), Host: host, Cookie: cookie}
-			hostCookieMap[host] = tmp
-		} else {
-			tmp := &live.InfoCookie{Platform_cn_name: v1.Live.GetPlatformCNName(), Host: host}
-			hostCookieMap[host] = tmp
+		// 统一 SoopLive 域名，避免重复存储
+		if strings.Contains(host, "sooplive.co.kr") || strings.Contains(host, "afreecatv.com") {
+			host = "sooplive.co.kr"
 		}
+		if _, ok := hostCookieMap[host]; ok {
+			continue
+		}
+		v1, err := v.GetInfo()
+		if err != nil || v1 == nil {
+			continue
+		}
+		cfg := configs.GetCurrentConfig()
+		tmp := &live.InfoCookie{Platform_cn_name: v1.Live.GetPlatformCNName(), Host: host}
+		if cookie, ok := cfg.Cookies[host]; ok {
+			tmp.Cookie = cookie
+		}
+		if acc, ok := cfg.Accounts[host]; ok {
+			tmp.Username = acc.Username
+			tmp.Password = acc.Password
+		}
+		hostCookieMap[host] = tmp
 		keys = append(keys, host)
 	}
 	sort.Strings(keys)
@@ -492,6 +717,11 @@ func putLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 	data := gjson.ParseBytes(b)
 
 	host := data.Get("Host").Str
+	// 规范化 SoopLive 域名
+	if strings.Contains(host, "sooplive.co.kr") || strings.Contains(host, "afreecatv.com") {
+		host = "sooplive.co.kr"
+	}
+
 	cookie := data.Get("Cookie").Str
 	if cookie == "" {
 
@@ -514,9 +744,24 @@ func putLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
+	// 更新账号密码（如果有提供）
+	username := data.Get("Username").Str
+	password := data.Get("Password").Str
+	if username != "" || password != "" {
+		newCfg, _ = configs.SetAccount(host, username, password)
+	}
 	for _, v := range newCfg.LiveRooms {
-		tmpurl, _ := url.Parse(v.Url)
-		if tmpurl.Host != host {
+		tmpurl, err := url.Parse(v.Url)
+		if err != nil {
+			applog.GetLogger().Errorf("failed to parse url %s: %v", v.Url, err)
+			continue
+		}
+		targetHost := tmpurl.Host
+		if strings.Contains(targetHost, "sooplive.co.kr") || strings.Contains(targetHost, "afreecatv.com") {
+			targetHost = "sooplive.co.kr"
+		}
+		if targetHost != host {
 			continue
 		}
 		live := inst.Lives[v.LiveId]
@@ -535,4 +780,233 @@ func putLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 	writeJSON(writer, commonResp{
 		Data: "OK",
 	})
+}
+
+func getBilibiliQrcode(writer http.ResponseWriter, r *http.Request) {
+	resp, err := requests.Get("https://passport.bilibili.com/x/passport-login/web/qrcode/generate")
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
+	body, err := resp.Bytes()
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
+	writeJSON(writer, json.RawMessage(body))
+}
+
+func pollBilibiliLogin(writer http.ResponseWriter, r *http.Request) {
+	qrcodeKey := r.URL.Query().Get("qrcode_key")
+	if qrcodeKey == "" {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "qrcode_key is required",
+		})
+		return
+	}
+
+	resp, err := requests.Get("https://passport.bilibili.com/x/passport-login/web/qrcode/poll", requests.Query("qrcode_key", qrcodeKey))
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := resp.Bytes()
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
+
+	res := gjson.ParseBytes(body)
+	if res.Get("data.code").Int() == 0 {
+		// 登录成功，从 Header 获取 Cookie
+		cookies := resp.Header["Set-Cookie"]
+		var cookieList []string
+		for _, c := range cookies {
+			// 精准提取 key=value 部分，避开 Expires, Path, HttpOnly 等干扰
+			parts := strings.Split(c, ";")
+			if len(parts) > 0 {
+				kv := strings.TrimSpace(parts[0])
+				if kv != "" && strings.Contains(kv, "=") {
+					cookieList = append(cookieList, kv)
+				}
+			}
+		}
+		cookieStr := strings.Join(cookieList, "; ")
+
+		// 构造返回数据
+		writeJSON(writer, map[string]any{
+			"code":    0,
+			"message": "0",
+			"data": map[string]any{
+				"code":    0,
+				"message": "登录成功",
+				"cookie":  cookieStr,
+			},
+		})
+		return
+	}
+
+	writeJSON(writer, json.RawMessage(body))
+}
+
+func checkBilibiliCookie(writer http.ResponseWriter, r *http.Request) {
+	cookie := r.URL.Query().Get("cookie")
+	if cookie == "" {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "cookie is required",
+		})
+		return
+	}
+
+	cookieKVs := make(map[string]string)
+	parts := strings.Split(cookie, ";")
+	for _, p := range parts {
+		kv := strings.SplitN(strings.TrimSpace(p), "=", 2)
+		if len(kv) == 2 {
+			cookieKVs[kv[0]] = kv[1]
+		}
+	}
+
+	resp, err := requests.Get("https://api.bilibili.com/x/member/web/account", requests.Cookies(cookieKVs))
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
+	body, err := resp.Bytes()
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
+
+	res := gjson.ParseBytes(body)
+	code := res.Get("code").Int()
+	if code == 0 {
+		uname := res.Get("data.uname").String()
+		writeJSON(writer, map[string]any{
+			"code":    0,
+			"message": "Cookie 有效",
+			"data": map[string]any{
+				"uname": uname,
+			},
+		})
+	} else {
+		message := res.Get("message").String()
+		writeJSON(writer, map[string]any{
+			"code":    code,
+			"message": "Cookie 无效: " + message,
+		})
+	}
+}
+
+func soopliveLogin(writer http.ResponseWriter, r *http.Request) {
+	b, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: err.Error(),
+		})
+		return
+	}
+
+	username := gjson.ParseBytes(b).Get("username").String()
+	password := gjson.ParseBytes(b).Get("password").String()
+
+	if username == "" || password == "" {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "用户名和密码不能为空",
+		})
+		return
+	}
+
+	resp, err := requests.Post("https://login.sooplive.co.kr/app/LoginAction.php",
+		requests.Form(map[string]string{
+			"szWork":        "login",
+			"szType":        "json",
+			"szUid":         username,
+			"szPassword":    password,
+			"isSaveId":      "true",
+			"isSavePw":      "false",
+			"isSaveJoin":    "false",
+			"isLoginRetain": "Y",
+		}),
+		requests.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+		requests.Header("Origin", "https://play.sooplive.co.kr"),
+		requests.Referer("https://play.sooplive.co.kr/"),
+	)
+
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "请求 SoopLive 登录失败: " + err.Error(),
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := resp.Bytes()
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "读取响应失败: " + err.Error(),
+		})
+		return
+	}
+
+	res := gjson.ParseBytes(body)
+	if res.Get("RESULT").Int() == 1 {
+		// 登录成功，从 Header 获取 Cookie
+		cookies := resp.Header["Set-Cookie"]
+		var cookieList []string
+		for _, c := range cookies {
+			parts := strings.Split(c, ";")
+			if len(parts) > 0 {
+				kv := strings.TrimSpace(parts[0])
+				if kv != "" && strings.Contains(kv, "=") {
+					cookieList = append(cookieList, kv)
+				}
+			}
+		}
+		cookieStr := strings.Join(cookieList, "; ")
+
+		// 自动更新到内存中以便立即生效
+		// 统一存储到 sooplive.co.kr，实现一份存储多处生效
+		configs.SetCookie("sooplive.co.kr", cookieStr)
+		configs.SetAccount("sooplive.co.kr", username, password)
+
+		writeJSON(writer, map[string]any{
+			"code":    0,
+			"message": "登录成功",
+			"data": map[string]any{
+				"cookie": cookieStr,
+			},
+		})
+	} else {
+		writeJSON(writer, map[string]any{
+			"code":    -1,
+			"message": "登录失败，请检查用户名和密码",
+		})
+	}
 }
