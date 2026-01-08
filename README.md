@@ -143,7 +143,7 @@ https://github.com/bililive-go/bililive-go/assets/2352900/6453900c-6321-417b-94f
 
 ## 新增通知服务
 
-新增了 Telegram 通知服务，用户可以在 Telegram 中收到直播开始、结束、异常等通知。
+新增了 Telegram、ntfy 通知服务，用户可以在 Telegram、ntfy 中收到直播开始、结束、异常等通知。
 
 有关通知服务的更多信息，请参阅 [通知服务文档](docs/notify.md)。
 

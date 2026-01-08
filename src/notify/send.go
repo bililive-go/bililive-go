@@ -6,6 +6,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/consts"
 	"github.com/bililive-go/bililive-go/src/notify/email"
+	"github.com/bililive-go/bililive-go/src/notify/ntfy"
 	"github.com/bililive-go/bililive-go/src/notify/telegram"
 	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 )
@@ -62,6 +63,51 @@ func SendNotification(logger *livelogger.LiveLogger, hostName, platform, liveURL
 		err := email.SendEmail(emailSubject, emailBody)
 		if err != nil {
 			logger.WithError(err).Error("Failed to send email")
+		}
+	}
+
+	// 检查是否开启了Ntfy通知服务
+	if cfg.Notify.Ntfy.Enable {
+		// 根据不同的状态发送不同的ntfy消息
+		var err error
+		switch status {
+		case consts.LiveStatusStart:
+			// 从配置中获取scheme URL
+			var schemeUrl string
+			// 根据liveURL查找对应的LiveRoom配置
+			if liveRoom, lookupErr := cfg.GetLiveRoomByUrl(liveURL); lookupErr == nil {
+				schemeUrl = liveRoom.SchemeUrl
+			}
+
+			// 发送Ntfy开始录制通知
+			err = ntfy.SendMessage(
+				cfg.Notify.Ntfy.URL,
+				cfg.Notify.Ntfy.Token,
+				cfg.Notify.Ntfy.Tag,
+				hostName,
+				platform,
+				liveURL,
+				schemeUrl,
+			)
+		case consts.LiveStatusStop:
+			// 发送Ntfy停止录制通知
+			err = ntfy.SendStopMessage(
+				cfg.Notify.Ntfy.URL,
+				cfg.Notify.Ntfy.Token,
+				cfg.Notify.Ntfy.Tag,
+				hostName,
+				platform,
+				liveURL,
+			)
+		}
+
+		if err != nil {
+			// 使用项目原来的日志打印方式打印错误
+			if logger != nil && logger.Logger != nil {
+				logger.Logger.WithError(err).Error("Failed to send Ntfy message")
+			} else {
+				fmt.Printf("[ERROR] Failed to send Ntfy message: %v\n", err)
+			}
 		}
 	}
 

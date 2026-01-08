@@ -78,6 +78,7 @@ type Log struct {
 type Notify struct {
 	Telegram Telegram `yaml:"telegram" json:"telegram"`
 	Email    Email    `yaml:"email" json:"email"`
+	Ntfy     Ntfy     `yaml:"ntfy" json:"ntfy"`
 }
 
 type Telegram struct {
@@ -123,6 +124,13 @@ type PlatformConfig struct {
 	OverridableConfig    `yaml:",inline" json:",inline"`
 	Name                 string `yaml:"name" json:"name"`                                                           // 平台中文名称
 	MinAccessIntervalSec int    `yaml:"min_access_interval_sec,omitempty" json:"min_access_interval_sec,omitempty"` // 平台访问最小间隔(秒)，用于防风控
+}
+
+type Ntfy struct {
+	Enable bool   `yaml:"enable"`
+	URL    string `yaml:"URL"`
+	Token  string `yaml:"token"`
+	Tag    string `yaml:"tag"`
 }
 
 // Config content all config info.
@@ -392,6 +400,7 @@ func SetLiveRoomId(url string, id types.LiveID) (*Config, error) {
 }
 
 type LiveRoom struct {
+<<<<<<< HEAD
 	Url         string       `yaml:"url" json:"url"`
 	IsListening bool         `yaml:"is_listening" json:"is_listening"`
 	LiveId      types.LiveID `yaml:"-" json:"live_id,omitempty"`
@@ -401,6 +410,15 @@ type LiveRoom struct {
 
 	// 房间级可覆盖配置
 	OverridableConfig `yaml:",inline" json:",inline"` // 房间级配置覆盖
+=======
+	Url         string       `yaml:"url"`
+	IsListening bool         `yaml:"is_listening"`
+	LiveId      types.LiveID `yaml:"-"`
+	Quality     int          `yaml:"quality,omitempty"`
+	AudioOnly   bool         `yaml:"audio_only,omitempty"`
+	NickName    string       `yaml:"nick_name,omitempty"`
+	SchemeUrl   string       `yaml:"scheme"`
+>>>>>>> master
 }
 
 type liveRoomAlias LiveRoom
@@ -477,6 +495,12 @@ var defaultConfig = Config{
 			SenderEmail:    "",
 			SenderPassword: "",
 			RecipientEmail: "",
+		},
+		Ntfy: Ntfy{
+			Enable: false,
+			URL:    "",
+			Token:  "",
+			Tag:    "",
 		},
 	},
 	AppDataPath:        "",
