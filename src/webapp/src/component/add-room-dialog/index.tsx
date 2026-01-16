@@ -1,11 +1,13 @@
 import { Modal, Input } from 'antd';
 import React from 'react';
 import API from '../../utils/api';
+import { ItemData } from "../../types";
 
 const api = new API();
 
 interface Props {
-    refresh?: any
+    refresh?: any,
+    liveList: ItemData[]
 }
 
 class AddRoomDialog extends React.Component<Props> {
@@ -25,6 +27,13 @@ class AddRoomDialog extends React.Component<Props> {
     };
 
     handleOk = () => {
+        const existLive = this.props.liveList.find(live => live.room.url.includes(this.state.textView) || this.state.textView.includes(live.room.url))
+
+        if(existLive) {
+            alert(`已存在直播间【${existLive.name}】`)
+            return
+        }
+
         this.setState({
             ModalText: '正在添加直播间......',
             confirmLoading: true,
