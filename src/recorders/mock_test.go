@@ -98,6 +98,48 @@ func (mr *MockRecorderMockRecorder) StartTime() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartTime", reflect.TypeOf((*MockRecorder)(nil).StartTime))
 }
 
+// GetParserPID mocks base method.
+func (m *MockRecorder) GetParserPID() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetParserPID")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// GetParserPID indicates an expected call of GetParserPID.
+func (mr *MockRecorderMockRecorder) GetParserPID() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetParserPID", reflect.TypeOf((*MockRecorder)(nil).GetParserPID))
+}
+
+// RequestSegment mocks base method.
+func (m *MockRecorder) RequestSegment() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RequestSegment")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// RequestSegment indicates an expected call of RequestSegment.
+func (mr *MockRecorderMockRecorder) RequestSegment() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestSegment", reflect.TypeOf((*MockRecorder)(nil).RequestSegment))
+}
+
+// HasFlvProxy mocks base method.
+func (m *MockRecorder) HasFlvProxy() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HasFlvProxy")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// HasFlvProxy indicates an expected call of HasFlvProxy.
+func (mr *MockRecorderMockRecorder) HasFlvProxy() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasFlvProxy", reflect.TypeOf((*MockRecorder)(nil).HasFlvProxy))
+}
+
 // MockManager is a mock of Manager interface.
 type MockManager struct {
 	ctrl     *gomock.Controller
@@ -217,4 +259,18 @@ func (m *MockManager) Start(ctx context.Context) error {
 func (mr *MockManagerMockRecorder) Start(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Start", reflect.TypeOf((*MockManager)(nil).Start), ctx)
+}
+
+// GetAllParserPIDs mocks base method.
+func (m *MockManager) GetAllParserPIDs() []int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllParserPIDs")
+	ret0, _ := ret[0].([]int)
+	return ret0
+}
+
+// GetAllParserPIDs indicates an expected call of GetAllParserPIDs.
+func (mr *MockManagerMockRecorder) GetAllParserPIDs() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllParserPIDs", reflect.TypeOf((*MockManager)(nil).GetAllParserPIDs))
 }

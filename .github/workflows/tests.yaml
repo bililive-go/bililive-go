@@ -52,3 +52,14 @@ jobs:
         with:
           working-directory: src/
           args: --build-tags=dev
+  check-agents:
+    name: Check AI Instruction Files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.24
+      - name: Check AI instruction files consistency
+        run: make check-agents

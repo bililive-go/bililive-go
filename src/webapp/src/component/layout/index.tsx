@@ -9,7 +9,8 @@ import {
     FolderOutlined,
     ToolOutlined,
     MenuFoldOutlined,
-    MenuUnfoldOutlined
+    MenuUnfoldOutlined,
+    LineChartOutlined
 } from '@ant-design/icons';
 import './layout.css';
 
@@ -127,6 +128,11 @@ class RootLayout extends React.Component<Props, State> {
                                         key: 'tasks',
                                         icon: <UnorderedListOutlined />,
                                         label: <Link to="/tasks">任务队列</Link>,
+                                    },
+                                    {
+                                        key: 'iostats',
+                                        icon: <LineChartOutlined />,
+                                        label: <Link to="/iostats">IO 统计</Link>,
                                     }
                                 ]}
                             />

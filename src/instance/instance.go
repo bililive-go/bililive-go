@@ -17,7 +17,7 @@ type Instance struct {
 	EventDispatcher  interfaces.Module
 	ListenerManager  interfaces.Module
 	RecorderManager  interfaces.Module
-	TaskQueueManager interfaces.Module
-	TaskEnqueuer     interfaces.TaskEnqueuer
-	LiveStateManager interface{} // 直播间状态持久化管理器 (*livestate.Manager)
+	PipelineManager  interfaces.Module // 后处理管道管理器
+	LiveStateManager interface{}       // 直播间状态持久化管理器 (*livestate.Manager)
+	IOStatsModule    interfaces.Module // IO 统计模块 (*iostats.Module)
 }

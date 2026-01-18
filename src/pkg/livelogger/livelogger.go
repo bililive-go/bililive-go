@@ -9,6 +9,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	applog "github.com/bililive-go/bililive-go/src/log"
+	bilisentry "github.com/bililive-go/bililive-go/src/pkg/sentry"
 )
 
 const (
@@ -209,7 +210,7 @@ func (l *LiveLogger) writeToBuffer(data []byte) {
 	if cb := getLogCallback(); cb != nil && l.roomID != "" {
 		// 移除末尾换行符
 		logLine := strings.TrimSuffix(string(data), "\n")
-		go cb(l.roomID, logLine)
+		bilisentry.Go(func() { cb(l.roomID, logLine) })
 	}
 }
 

@@ -45,3 +45,13 @@ run:
 .PHONY: lint
 lint:
 	golangci-lint run --path-mode=abs --build-tags=dev
+
+# 同步 AGENTS.md 到其他 AI 指示文件
+.PHONY: sync-agents
+sync-agents:
+	@go run build.go sync-agents
+
+# 检查 AI 指示文件是否一致（用于 CI）
+.PHONY: check-agents
+check-agents:
+	@go run build.go check-agents

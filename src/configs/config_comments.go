@@ -25,7 +25,7 @@ func DecorateConfigNode(node *yaml.Node) {
 	splitNode := findNode(root, "video_split_strategies")
 	if splitNode != nil {
 		setFieldComment(splitNode, "max_file_size",
-			`# 仅在 use_native_flv_parser=false 时生效
+			`# 仅在使用 ffmpeg 或 bililive-recorder 下载器时生效
 # 单位为字节 (byte)
 # 有效值为正数，默认值 0 为无效
 # 负数为非法值，程序会输出 log 提醒，并无视所设定的数值`, "")
@@ -72,6 +72,45 @@ func DecorateConfigNode(node *yaml.Node) {
 # (B站)0代表原画PRO(HEVC)优先, 其他数值为原画(AVC)
 # 原画PRO会保存为.ts文件, 原画为.flv
 # HEVC相比AVC体积更小, 减少35%体积, 画质相当, 但是B站转码有时候会崩`
+	}
+
+	// Sentry 配置注释
+	setFieldHeadComment(root, "sentry", "# Sentry 错误监控配置（用于收集崩溃日志）")
+	sentryNode := findNode(root, "sentry")
+	if sentryNode != nil {
+		setFieldComment(sentryNode, "enable", "# 是否启用 Sentry 错误监控", "")
+		setFieldComment(sentryNode, "dsn", "# Sentry DSN，留空则禁用。申请地址：https://sentry.io/", "")
+		setFieldComment(sentryNode, "environment", "# 环境标识：production 或 development", "")
+	}
+
+	// Proxy 代理配置注释
+	setFieldHeadComment(root, "proxy", "# 代理配置（支持 HTTP 和 SOCKS5 代理）")
+	proxyNode := findNode(root, "proxy")
+	if proxyNode != nil {
+		setFieldComment(proxyNode, "enable",
+			`# 是否启用配置的代理
+# false: 使用系统环境变量 (HTTP_PROXY, HTTPS_PROXY, ALL_PROXY)
+# true: 使用下方配置的代理地址`, "")
+		setFieldComment(proxyNode, "url",
+			`# 代理地址，支持以下格式：
+# HTTP 代理: http://host:port 或 http://user:pass@host:port
+# SOCKS5 代理: socks5://host:port 或 socks5://user:pass@host:port
+# 示例: socks5://127.0.0.1:1080 (翻墙软件常用端口)`, "")
+	}
+
+	// Feature 功能配置注释
+	featureNode := findNode(root, "feature")
+	if featureNode != nil {
+		setFieldComment(featureNode, "downloader_type",
+			`# 下载器类型：ffmpeg（默认）、native（内置 FLV 解析器）、bililive-recorder
+# ffmpeg: 使用 FFmpeg 录制，支持所有流格式，需要安装 FFmpeg
+# native: 使用内置 FLV 解析器，仅支持 FLV 流，无需额外依赖
+# bililive-recorder: 使用 BililiveRecorder CLI，仅支持 FLV 流`, "")
+		setFieldComment(featureNode, "enable_flv_proxy_segment",
+			`# FLV 代理分段功能（仅对 FFmpeg 下载器生效）
+# 当检测到视频编码参数变化（新的 SPS/PPS）时，会主动断开连接触发 FFmpeg 分段
+# 这可以避免因编码参数变化导致的花屏问题
+# 注意：启用后会在本地启动一个 FLV 代理服务器，FFmpeg 从代理读取流`, "")
 	}
 }
 

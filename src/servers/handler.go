@@ -30,9 +30,11 @@ import (
 	"github.com/bililive-go/bililive-go/src/livestate"
 	applog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
+	"github.com/bililive-go/bililive-go/src/pkg/memstats"
 	"github.com/bililive-go/bililive-go/src/pkg/ratelimit"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
 	"github.com/bililive-go/bililive-go/src/recorders"
+	"github.com/bililive-go/bililive-go/src/tools"
 	"github.com/bililive-go/bililive-go/src/types"
 )
 
@@ -409,6 +411,44 @@ func parseLiveAction(writer http.ResponseWriter, r *http.Request) {
 			"status":    info.Status,
 		})
 		return
+	case "segment":
+		// 请求在下一个关键帧处分段（仅在使用 FLV 代理时有效）
+		recorderMgr, ok := inst.RecorderManager.(recorders.Manager)
+		if !ok {
+			resp.ErrNo = http.StatusInternalServerError
+			resp.ErrMsg = "录制管理器不可用"
+			writeJsonWithStatusCode(writer, http.StatusInternalServerError, resp)
+			return
+		}
+
+		recorder, err := recorderMgr.GetRecorder(r.Context(), live.GetLiveId())
+		if err != nil {
+			resp.ErrNo = http.StatusBadRequest
+			resp.ErrMsg = "直播间未在录制中"
+			writeJsonWithStatusCode(writer, http.StatusBadRequest, resp)
+			return
+		}
+
+		// 检查是否支持 FLV 代理分段
+		if !recorder.HasFlvProxy() {
+			resp.ErrNo = http.StatusBadRequest
+			resp.ErrMsg = "当前录制未使用 FLV 代理，不支持手动分段（请在配置中启用 enable_flv_proxy_segment）"
+			writeJsonWithStatusCode(writer, http.StatusBadRequest, resp)
+			return
+		}
+
+		// 请求分段
+		if recorder.RequestSegment() {
+			writeJSON(writer, map[string]interface{}{
+				"success": true,
+				"message": "分段请求已接受，将在下一个关键帧处分段",
+			})
+		} else {
+			resp.ErrNo = http.StatusTooManyRequests
+			resp.ErrMsg = "分段请求被拒绝，可能距离上次分段时间过短（最小间隔 10 秒）"
+			writeJsonWithStatusCode(writer, http.StatusTooManyRequests, resp)
+		}
+		return
 	default:
 		resp.ErrNo = http.StatusBadRequest
 		resp.ErrMsg = fmt.Sprintf("invalid Action: %s", vars["action"])
@@ -713,6 +753,11 @@ type EffectiveConfigResponse struct {
 	DefaultOutPutTmpl        string `json:"default_out_put_tmpl"`
 	TimeoutInSeconds         int    `json:"timeout_in_seconds"`
 	LiveRoomsCount           int    `json:"live_rooms_count"`
+
+	// 下载器可用性信息
+	DownloaderAvailability tools.DownloaderAvailability `json:"downloader_availability"`
+	// 可用的下载器类型列表
+	AvailableDownloaders []string `json:"available_downloaders"`
 }
 
 // getEffectiveConfig 获取实际生效的配置值（用于GUI模式显示）
@@ -766,6 +811,19 @@ func getEffectiveConfig(writer http.ResponseWriter, r *http.Request) {
 	// 默认输出模板
 	defaultOutputTmpl := `{{ .Live.GetPlatformCNName }}/{{ with .Live.GetOptions.NickName }}{{ . | filenameFilter }}{{ else }}{{ .HostName | filenameFilter }}{{ end }}/[{{ now | date "2006-01-02 15-04-05"}}][{{ .HostName | filenameFilter }}][{{ .RoomName | filenameFilter }}].flv`
 
+	// 获取下载器可用性信息
+	downloaderAvail := tools.GetDownloaderAvailability()
+
+	// 构建可用下载器列表
+	availableDownloaders := []string{string(configs.DownloaderNative)} // native 始终可用
+	if downloaderAvail.FFmpegAvailable {
+		// 把 ffmpeg 放在第一位作为推荐选项
+		availableDownloaders = append([]string{string(configs.DownloaderFFmpeg)}, availableDownloaders...)
+	}
+	if downloaderAvail.BililiveRecorderAvailable {
+		availableDownloaders = append(availableDownloaders, string(configs.DownloaderBililiveRecorder))
+	}
+
 	// 构建响应
 	response := &EffectiveConfigResponse{
 		Config:                   cfg,
@@ -778,6 +836,8 @@ func getEffectiveConfig(writer http.ResponseWriter, r *http.Request) {
 		DefaultOutPutTmpl:        defaultOutputTmpl,
 		TimeoutInSeconds:         cfg.TimeoutInUs / 1000000,
 		LiveRoomsCount:           len(cfg.LiveRooms),
+		DownloaderAvailability:   downloaderAvail,
+		AvailableDownloaders:     availableDownloaders,
 	}
 
 	writeJSON(writer, response)
@@ -1173,6 +1233,9 @@ func applyConfigUpdates(c *configs.Config, updates map[string]interface{}) error
 
 	// 处理功能特性配置
 	if feature, ok := updates["feature"].(map[string]interface{}); ok {
+		if downloaderType, ok := feature["downloader_type"].(string); ok {
+			c.Feature.DownloaderType = configs.ParseDownloaderType(downloaderType)
+		}
 		if useNativeFlvParser, ok := feature["use_native_flv_parser"].(bool); ok {
 			c.Feature.UseNativeFlvParser = useNativeFlvParser
 		}
@@ -1438,6 +1501,30 @@ func applyOverridableConfigUpdates(oc *configs.OverridableConfig, updates map[st
 	if timeoutSec, ok := updates["timeout_in_seconds"].(float64); ok {
 		val := int(timeoutSec * 1000000)
 		oc.TimeoutInUs = &val
+	}
+
+	// 处理 feature 配置（包括 downloader_type）
+	if feature, ok := updates["feature"].(map[string]interface{}); ok {
+		if oc.Feature == nil {
+			oc.Feature = &configs.Feature{}
+		}
+		if downloaderType, ok := feature["downloader_type"].(string); ok {
+			oc.Feature.DownloaderType = configs.ParseDownloaderType(downloaderType)
+		}
+		if useNativeFlvParser, ok := feature["use_native_flv_parser"].(bool); ok {
+			oc.Feature.UseNativeFlvParser = useNativeFlvParser
+		}
+		if enableFlvProxySegment, ok := feature["enable_flv_proxy_segment"].(bool); ok {
+			oc.Feature.EnableFlvProxySegment = enableFlvProxySegment
+		}
+	}
+
+	// 也支持直接在顶层设置 downloader_type（简化前端逻辑）
+	if downloaderType, ok := updates["downloader_type"].(string); ok {
+		if oc.Feature == nil {
+			oc.Feature = &configs.Feature{}
+		}
+		oc.Feature.DownloaderType = configs.ParseDownloaderType(downloaderType)
 	}
 }
 
@@ -1916,4 +2003,149 @@ func contains(slice []string, val string) bool {
 		}
 	}
 	return false
+}
+
+// ============================================================================
+// 远程 WebUI 相关处理函数
+// ============================================================================
+
+// RemoteWebuiStatusResponse 远程 WebUI 状态响应
+type RemoteWebuiStatusResponse struct {
+	Available          bool                   `json:"available"`
+	AppVersion         string                 `json:"app_version"`
+	RemoteUIVersion    string                 `json:"remote_ui_version,omitempty"`
+	LocalUIVersion     string                 `json:"local_ui_version,omitempty"`
+	RemoteUIURL        string                 `json:"remote_ui_url,omitempty"`
+	Error              string                 `json:"error,omitempty"`
+	LastCheck          string                 `json:"last_check,omitempty"`
+	RemoteWebuiBaseURL string                 `json:"remote_webui_base_url"`
+	Status             map[string]interface{} `json:"status,omitempty"`
+}
+
+// getRemoteWebuiStatus 获取远程 WebUI 状态
+func getRemoteWebuiStatus(writer http.ResponseWriter, r *http.Request) {
+	response := RemoteWebuiStatusResponse{
+		Available:          false,
+		AppVersion:         consts.AppVersion,
+		RemoteWebuiBaseURL: "https://bililive-go.com",
+	}
+
+	// 读取本地 UI 版本
+	response.LocalUIVersion = getLocalUIVersion()
+
+	// 尝试获取远程 WebUI 信息
+	remoteInfo, err := fetchRemoteWebuiInfo(consts.AppVersion)
+	if err != nil {
+		response.Error = err.Error()
+		writeJSON(writer, response)
+		return
+	}
+
+	response.Available = true
+	response.RemoteUIVersion = remoteInfo.UIVersion
+	response.RemoteUIURL = remoteInfo.IndexURL
+	response.LastCheck = time.Now().Format(time.RFC3339)
+
+	writeJSON(writer, response)
+}
+
+// RemoteWebuiInfo 远程 WebUI 信息
+type RemoteWebuiInfo struct {
+	UIVersion string `json:"uiVersion"`
+	IndexURL  string `json:"indexUrl"`
+	WebuiPath string `json:"webuiPath"`
+}
+
+// fetchRemoteWebuiInfo 从远程获取 WebUI 信息
+func fetchRemoteWebuiInfo(appVersion string) (*RemoteWebuiInfo, error) {
+	apiURL := fmt.Sprintf("https://bililive-go.com/api/webui?appversion=%s", url.QueryEscape(appVersion))
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(apiURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch remote webui info: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("remote API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		SelectedVersion struct {
+			UIVersion string `json:"uiVersion"`
+		} `json:"selectedVersion"`
+		IndexURL  string `json:"indexUrl"`
+		WebuiPath string `json:"webuiPath"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode remote webui info: %w", err)
+	}
+
+	return &RemoteWebuiInfo{
+		UIVersion: result.SelectedVersion.UIVersion,
+		IndexURL:  result.IndexURL,
+		WebuiPath: result.WebuiPath,
+	}, nil
+}
+
+// getLocalUIVersion 获取本地 UI 版本
+func getLocalUIVersion() string {
+	// 尝试从嵌入的 version.json 读取
+	// 如果读取失败，返回 "unknown"
+	return "1.0.0" // TODO: 从嵌入的资源中读取
+}
+
+// checkRemoteWebuiUpdate 检查远程 WebUI 是否有更新
+func checkRemoteWebuiUpdate(writer http.ResponseWriter, r *http.Request) {
+	localVersion := getLocalUIVersion()
+
+	remoteInfo, err := fetchRemoteWebuiInfo(consts.AppVersion)
+	if err != nil {
+		writeJSON(writer, map[string]interface{}{
+			"has_update":    false,
+			"error":         err.Error(),
+			"local_version": localVersion,
+			"app_version":   consts.AppVersion,
+		})
+		return
+	}
+
+	hasUpdate := remoteInfo.UIVersion != localVersion && remoteInfo.UIVersion != ""
+
+	writeJSON(writer, map[string]interface{}{
+		"has_update":     hasUpdate,
+		"local_version":  localVersion,
+		"remote_version": remoteInfo.UIVersion,
+		"remote_url":     remoteInfo.IndexURL,
+		"app_version":    consts.AppVersion,
+	})
+}
+
+// getMemoryStats 获取内存统计信息
+func getMemoryStats(writer http.ResponseWriter, r *http.Request) {
+	inst := instance.GetInstance(r.Context())
+
+	// 获取所有 parser 的 PID
+	var pids []int
+	if rm, ok := inst.RecorderManager.(recorders.Manager); ok {
+		pids = rm.GetAllParserPIDs()
+	}
+
+	// 添加所有通过 tools 包启动的子进程 PID（如 bililive-tools、klive 等）
+	toolsPIDs := tools.GetAllProcessPIDs()
+	pids = append(pids, toolsPIDs...)
+
+	stats, err := memstats.GetMemoryStats(pids)
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: fmt.Sprintf("获取内存统计失败: %v", err),
+		})
+		return
+	}
+
+	writeJSON(writer, stats)
 }

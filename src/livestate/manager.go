@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	bilisentry "github.com/bililive-go/bililive-go/src/pkg/sentry"
 	"github.com/sirupsen/logrus"
 )
 
@@ -48,7 +49,7 @@ func (m *Manager) Start() error {
 
 	// 启动心跳更新
 	m.heartbeatTicker = time.NewTicker(heartbeatInterval)
-	go m.heartbeatLoop()
+	bilisentry.Go(m.heartbeatLoop)
 
 	logrus.Info("直播间状态管理器已启动")
 	return nil

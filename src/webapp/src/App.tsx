@@ -6,13 +6,15 @@ import LiveList from './component/live-list/index';
 import LiveInfo from './component/live-info/index';
 import ConfigInfo from './component/config-info/index';
 import FileList from './component/file-list/index';
-import TaskList from './component/task-list/index';
+import TaskPage from './component/task-page/index';
+import IOStats from './component/io-stats/index';
 
 const App: React.FC = () => {
   return (
     <RootLayout>
       <Routes>
-        <Route path="/tasks/*" element={<TaskList />} />
+        <Route path="/iostats/*" element={<IOStats />} />
+        <Route path="/tasks/*" element={<TaskPage />} />
         <Route path="/fileList/*" element={<FileList />} />
         <Route path="/configInfo/*" element={<ConfigInfo />} />
         <Route path="/liveInfo" element={<LiveInfo />} />
@@ -23,3 +25,4 @@ const App: React.FC = () => {
 }
 
 export default App;
+

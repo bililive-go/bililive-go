@@ -47,8 +47,32 @@ func (r *RPC) verify() error {
 
 // Feature info.
 type Feature struct {
-	UseNativeFlvParser         bool `yaml:"use_native_flv_parser" json:"use_native_flv_parser"`
+	// DownloaderType 指定使用的下载器类型
+	// 可选值: "ffmpeg" (默认), "native" (内置FLV解析器), "bililive-recorder" (BililiveRecorder CLI)
+	DownloaderType DownloaderType `yaml:"downloader_type,omitempty" json:"downloader_type,omitempty"`
+
+	// UseNativeFlvParser 已废弃，保留用于向后兼容
+	// 如果设置为 true 且 DownloaderType 为空，则会自动转换为 DownloaderType = "native"
+	UseNativeFlvParser         bool `yaml:"use_native_flv_parser,omitempty" json:"use_native_flv_parser,omitempty"`
 	RemoveSymbolOtherCharacter bool `yaml:"remove_symbol_other_character" json:"remove_symbol_other_character"`
+
+	// EnableFlvProxySegment 启用 FLV 代理分段功能（仅对 FFmpeg 下载器生效）
+	// 当检测到视频编码参数变化（新的 SPS/PPS）时，会主动断开连接触发 FFmpeg 分段
+	// 这可以避免因编码参数变化导致的花屏问题
+	EnableFlvProxySegment bool `yaml:"enable_flv_proxy_segment,omitempty" json:"enable_flv_proxy_segment,omitempty"`
+}
+
+// GetEffectiveDownloaderType 获取实际生效的下载器类型
+// 处理向后兼容：如果设置了旧的 UseNativeFlvParser，则转换为对应的 DownloaderType
+func (f *Feature) GetEffectiveDownloaderType() DownloaderType {
+	if f.DownloaderType != "" && f.DownloaderType.IsValid() {
+		return f.DownloaderType
+	}
+	// 向后兼容：如果设置了 UseNativeFlvParser，转换为 native
+	if f.UseNativeFlvParser {
+		return DownloaderNative
+	}
+	return DownloaderFFmpeg
 }
 
 // VideoSplitStrategies info.
@@ -58,12 +82,34 @@ type VideoSplitStrategies struct {
 	MaxFileSize       int           `yaml:"max_file_size" json:"max_file_size"`
 }
 
+// UploadTiming 上传时机
+type UploadTiming string
+
+const (
+	// UploadTimingImmediate 录制完成后立即上传原始文件
+	UploadTimingImmediate UploadTiming = "immediate"
+	// UploadTimingAfterProcess 后处理（修复/转换）完成后上传
+	UploadTimingAfterProcess UploadTiming = "after_process"
+)
+
+// CloudUpload 云上传配置
+type CloudUpload struct {
+	Enable             bool     `yaml:"enable" json:"enable"`                                               // 是否启用云上传
+	StorageName        string   `yaml:"storage_name" json:"storage_name"`                                   // 使用的 OpenList 存储名称
+	UploadPathTmpl     string   `yaml:"upload_path_tmpl" json:"upload_path_tmpl"`                           // 上传路径模板
+	DeleteAfterUpload  bool     `yaml:"delete_after_upload" json:"delete_after_upload"`                     // 上传成功后删除本地文件
+	AdditionalStorages []string `yaml:"additional_storages,omitempty" json:"additional_storages,omitempty"` // 额外存储（支持多目标上传）
+}
+
 // On record finished actions.
 type OnRecordFinished struct {
-	ConvertToMp4          bool   `yaml:"convert_to_mp4" json:"convert_to_mp4"`
-	DeleteFlvAfterConvert bool   `yaml:"delete_flv_after_convert" json:"delete_flv_after_convert"`
-	CustomCommandline     string `yaml:"custom_commandline" json:"custom_commandline"`
-	FixFlvAtFirst         bool   `yaml:"fix_flv_at_first" json:"fix_flv_at_first"`
+	ConvertToMp4          bool         `yaml:"convert_to_mp4" json:"convert_to_mp4"`
+	DeleteFlvAfterConvert bool         `yaml:"delete_flv_after_convert" json:"delete_flv_after_convert"`
+	CustomCommandline     string       `yaml:"custom_commandline" json:"custom_commandline"`
+	FixFlvAtFirst         bool         `yaml:"fix_flv_at_first" json:"fix_flv_at_first"`
+	SaveCover             bool         `yaml:"save_cover" json:"save_cover"`       // 保存视频第一帧作为封面图（.jpg）
+	CloudUpload           CloudUpload  `yaml:"cloud_upload" json:"cloud_upload"`   // 云上传配置
+	UploadTiming          UploadTiming `yaml:"upload_timing" json:"upload_timing"` // 上传时机
 }
 
 type Log struct {
@@ -104,6 +150,39 @@ type TaskQueue struct {
 
 var defaultTaskQueue = TaskQueue{
 	MaxConcurrent: 3,
+}
+
+// Sentry 错误监控配置
+type Sentry struct {
+	Enable bool `yaml:"enable" json:"enable"` // 是否启用 Sentry
+}
+
+var defaultSentry = Sentry{
+	Enable: false,
+}
+
+// Proxy 代理配置
+type Proxy struct {
+	// Enable 是否启用配置的代理（false 时使用系统环境变量 HTTP_PROXY 等）
+	Enable bool `yaml:"enable" json:"enable"`
+	// URL 代理地址，支持 http://host:port 或 socks5://host:port
+	URL string `yaml:"url" json:"url"`
+}
+
+var defaultProxy = Proxy{
+	Enable: false,
+	URL:    "",
+}
+
+// OpenListConfig OpenList 服务配置
+type OpenListConfig struct {
+	Port     int    `yaml:"port" json:"port"`           // OpenList 监听端口（默认 5244）
+	DataPath string `yaml:"data_path" json:"data_path"` // OpenList 数据目录（留空使用默认路径）
+}
+
+var defaultOpenListConfig = OpenListConfig{
+	Port:     5244,
+	DataPath: "", // 默认使用 AppDataPath/openlist
 }
 
 // OverridableConfig 包含可以在不同层级被覆盖的设置
@@ -161,6 +240,15 @@ type Config struct {
 
 	// 任务队列配置
 	TaskQueue TaskQueue `yaml:"task_queue" json:"task_queue"`
+
+	// Sentry 错误监控配置
+	Sentry Sentry `yaml:"sentry" json:"sentry"`
+
+	// 代理配置
+	Proxy Proxy `yaml:"proxy" json:"proxy"`
+
+	// OpenList 配置（用于云盘上传）
+	OpenList OpenListConfig `yaml:"openlist" json:"openlist"`
 
 	// 新的层级配置字段
 	PlatformConfigs map[string]PlatformConfig `yaml:"platform_configs,omitempty" json:"platform_configs,omitempty"` // 平台特定配置
@@ -400,25 +488,16 @@ func SetLiveRoomId(url string, id types.LiveID) (*Config, error) {
 }
 
 type LiveRoom struct {
-<<<<<<< HEAD
 	Url         string       `yaml:"url" json:"url"`
 	IsListening bool         `yaml:"is_listening" json:"is_listening"`
 	LiveId      types.LiveID `yaml:"-" json:"live_id,omitempty"`
 	Quality     int          `yaml:"quality,omitempty" json:"quality,omitempty"`
 	AudioOnly   bool         `yaml:"audio_only,omitempty" json:"audio_only,omitempty"`
 	NickName    string       `yaml:"nick_name,omitempty" json:"nick_name,omitempty"`
+	SchemeUrl   string       `yaml:"scheme" json:"scheme,omitempty"`
 
 	// 房间级可覆盖配置
 	OverridableConfig `yaml:",inline" json:",inline"` // 房间级配置覆盖
-=======
-	Url         string       `yaml:"url"`
-	IsListening bool         `yaml:"is_listening"`
-	LiveId      types.LiveID `yaml:"-"`
-	Quality     int          `yaml:"quality,omitempty"`
-	AudioOnly   bool         `yaml:"audio_only,omitempty"`
-	NickName    string       `yaml:"nick_name,omitempty"`
-	SchemeUrl   string       `yaml:"scheme"`
->>>>>>> master
 }
 
 type liveRoomAlias LiveRoom
@@ -479,6 +558,14 @@ var defaultConfig = Config{
 		ConvertToMp4:          false,
 		DeleteFlvAfterConvert: false,
 		FixFlvAtFirst:         true,
+		SaveCover:             false,
+		CloudUpload: CloudUpload{
+			Enable:            false,
+			StorageName:       "",
+			UploadPathTmpl:    "/录播归档/{{ .Platform }}/{{ .HostName }}/{{ .RoomName }}-{{ now | date \"2006-01-02\" }}.{{ .Ext }}",
+			DeleteAfterUpload: false,
+		},
+		UploadTiming: UploadTimingAfterProcess,
 	},
 	TimeoutInUs: 60000000,
 	Notify: Notify{
@@ -507,6 +594,9 @@ var defaultConfig = Config{
 	ReadOnlyToolFolder: "",
 	ToolRootFolder:     "",
 	TaskQueue:          defaultTaskQueue,
+	Sentry:             defaultSentry,
+	Proxy:              defaultProxy,
+	OpenList:           defaultOpenListConfig,
 	PlatformConfigs:    map[string]PlatformConfig{},
 }
 

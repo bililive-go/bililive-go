@@ -49,11 +49,8 @@ func (m *BackupManager) CreateBackup() (string, error) {
 		return "", fmt.Errorf("failed to create backup: %w", err)
 	}
 
-	// 清理旧备份
-	if err := m.CleanupOldBackups(); err != nil {
-		// 清理失败不影响主流程，只记录日志
-		// logrus.WithError(err).Warn("failed to cleanup old backups")
-	}
+	// 清理旧备份（清理失败不影响主流程）
+	_ = m.CleanupOldBackups()
 
 	return backupPath, nil
 }

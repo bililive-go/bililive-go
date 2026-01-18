@@ -11,6 +11,7 @@ import (
 	"time"
 
 	blog "github.com/bililive-go/bililive-go/src/log"
+	"github.com/bililive-go/bililive-go/src/pkg/proxy"
 )
 
 type ByteCounter struct {
@@ -252,6 +253,9 @@ func CreateDefaultClient() *http.Client {
 	transport.DialContext = dialer.DialContext
 	transport.DialTLSContext = createTLSDialer(dialer, false, "")
 
+	// 应用代理设置
+	proxy.ApplyProxyToTransport(transport)
+
 	return &http.Client{Transport: transport}
 }
 
@@ -278,6 +282,9 @@ func CreateConnCounterClient() (*http.Client, error) {
 	transport.DialContext = dialPlain
 	// Use "tls:" prefix to distinguish from plain connections
 	transport.DialTLSContext = createTLSDialer(dialer, true, "tls:")
+
+	// 应用代理设置
+	proxy.ApplyProxyToTransport(transport)
 
 	return &http.Client{Transport: transport}, nil
 }

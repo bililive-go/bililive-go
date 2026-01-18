@@ -13,6 +13,7 @@ import (
 	applog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/notify"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
+	bilisentry "github.com/bililive-go/bililive-go/src/pkg/sentry"
 )
 
 const (
@@ -61,7 +62,7 @@ func (l *listener) Start() error {
 
 	l.ed.DispatchEvent(events.NewEvent(ListenStart, l.Live))
 	l.refresh()
-	go l.run()
+	bilisentry.Go(func() { l.run() })
 	return nil
 }
 

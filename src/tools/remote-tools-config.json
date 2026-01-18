@@ -12,6 +12,19 @@
       "isExecutable": false
     }
   },
+  "bililive-recorder-cli": {
+    "mod-v0.0.2": {
+      "downloadUrl": [
+        "https://github.com/kira1928/BililiveRecorder/releases/download/mod-v0.0.2/BililiveRecorder-CLI-any.zip",
+        "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/kira1928/BililiveRecorder/releases/download/mod-v0.0.2/BililiveRecorder-CLI-any.zip"
+      ],
+      "pathToEntry": "BililiveRecorder.Cli.dll",
+      "printInfoCmd": [
+        "--version"
+      ],
+      "isExecutable": false
+    }
+  },
   "ffmpeg": {
     "n8.0-latest": {
       "downloadUrl": {
@@ -173,6 +186,50 @@
         "--help"
       ],
       "isExecutable": false
+    }
+  },
+  "openlist": {
+    "v4.1.9": {
+      "downloadUrl": {
+        "darwin": {
+          "amd64": [
+            "https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-darwin-amd64.tar.gz",
+            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-darwin-amd64.tar.gz"
+          ],
+          "arm64": [
+            "https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-darwin-arm64.tar.gz",
+            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-darwin-arm64.tar.gz"
+          ]
+        },
+        "linux": {
+          "amd64": [
+            "https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-linux-amd64.tar.gz",
+            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-linux-amd64.tar.gz"
+          ],
+          "arm64": [
+            "https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-linux-arm64.tar.gz",
+            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-linux-arm64.tar.gz"
+          ],
+          "arm": [
+            "https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-linux-armv7.tar.gz",
+            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-linux-armv7.tar.gz"
+          ]
+        },
+        "windows": {
+          "amd64": [
+            "https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-windows-amd64.zip",
+            "https://bililive-go.com/remotetools/download?downloadurl=https://github.com/OpenListTeam/OpenList/releases/download/v4.1.9/openlist-windows-amd64.zip"
+          ]
+        }
+      },
+      "pathToEntry": {
+        "darwin": "openlist",
+        "linux": "openlist",
+        "windows": "openlist.exe"
+      },
+      "printInfoCmd": [
+        "version"
+      ]
     }
   }
 }

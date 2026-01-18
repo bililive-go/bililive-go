@@ -14,6 +14,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 	"github.com/bililive-go/bililive-go/src/pkg/ratelimit"
+	bilisentry "github.com/bililive-go/bililive-go/src/pkg/sentry"
 	"github.com/bililive-go/bililive-go/src/types"
 	"github.com/bluele/gcache"
 )
@@ -21,12 +22,23 @@ import (
 // SchedulerRefreshCallback 调度器刷新完成的回调函数类型
 type SchedulerRefreshCallback func(live Live, status SchedulerStatus)
 
+// RequestStatusCallback 请求状态追踪的回调函数类型
+type RequestStatusCallback func(liveID, platform string, success bool, errMsg string)
+
 // 全局调度器刷新回调（由外部包设置，避免循环依赖）
 var schedulerRefreshCallback SchedulerRefreshCallback
+
+// 全局请求状态追踪回调（由 iostats 包设置，避免循环依赖）
+var requestStatusCallback RequestStatusCallback
 
 // SetSchedulerRefreshCallback 设置调度器刷新完成的回调函数
 func SetSchedulerRefreshCallback(callback SchedulerRefreshCallback) {
 	schedulerRefreshCallback = callback
+}
+
+// SetRequestStatusCallback 设置请求状态追踪的回调函数
+func SetRequestStatusCallback(callback RequestStatusCallback) {
+	requestStatusCallback = callback
 }
 
 var (
@@ -149,11 +161,24 @@ func WithNickName(nickName string) Option {
 }
 
 type StreamUrlInfo struct {
-	Url                  *url.URL
-	Name                 string
-	Description          string
-	Resolution           int
-	Vbitrate             int
+	Url         *url.URL
+	Name        string
+	Description string
+
+	// 兼容旧字段
+	Resolution int // 已废弃，使用Width/Height代替
+	Vbitrate   int // 已废弃，使用Bitrate代替
+
+	// 新增：完整的流信息
+	Quality    string  `json:"quality"`     // 清晰度标识: "1080p", "720p", "原画"
+	Format     string  `json:"format"`      // 流格式: "flv", "hls", "rtmp"
+	Width      int     `json:"width"`       // 宽度: 1920, 1280
+	Height     int     `json:"height"`      // 高度: 1080, 720
+	Bitrate    int     `json:"bitrate"`     // 码率 (kbps)
+	FrameRate  float64 `json:"frame_rate"`  // 帧率
+	Codec      string  `json:"codec"`       // 视频编码: "h264", "h265"
+	AudioCodec string  `json:"audio_codec"` // 音频编码: "aac"
+
 	HeadersForDownloader map[string]string
 }
 
@@ -267,6 +292,17 @@ func (w *WrappedLive) GetInfo() (*Info, error) {
 
 	i, err := w.Live.GetInfo()
 
+	// 记录请求状态到 IO 统计（通过回调避免循环依赖）
+	if requestStatusCallback != nil {
+		liveID := string(w.GetLiveId())
+		platform := w.GetPlatformCNName()
+		if err != nil {
+			requestStatusCallback(liveID, platform, false, err.Error())
+		} else {
+			requestStatusCallback(liveID, platform, true, "")
+		}
+	}
+
 	// 不管成功还是失败，都通知所有等待的调用方
 	w.notifyWaiters(i, err)
 
@@ -361,7 +397,7 @@ func (w *WrappedLive) startScheduler() {
 		w.mu.Lock()
 		w.schedulerStarted = true
 		w.mu.Unlock()
-		go w.runScheduler()
+		bilisentry.Go(w.runScheduler)
 	})
 }
 

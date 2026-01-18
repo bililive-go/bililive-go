@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	bilisentry "github.com/bililive-go/bililive-go/src/pkg/sentry"
 	"github.com/sirupsen/logrus"
 )
 
@@ -112,14 +113,14 @@ func (b *BatchMigrator) runParallel() *BatchMigrationResult {
 
 	for _, config := range b.configs {
 		wg.Add(1)
-		go func(cfg *MigrationConfig) {
+		bilisentry.Go(func() {
 			defer wg.Done()
 
-			migrator, err := NewMigrator(cfg)
+			migrator, err := NewMigrator(config)
 			if err != nil {
 				mu.Lock()
 				result.Success = false
-				result.Errors = append(result.Errors, fmt.Errorf("failed to create migrator for %s: %w", cfg.DBPath, err))
+				result.Errors = append(result.Errors, fmt.Errorf("failed to create migrator for %s: %w", config.DBPath, err))
 				mu.Unlock()
 				return
 			}
@@ -127,22 +128,22 @@ func (b *BatchMigrator) runParallel() *BatchMigrationResult {
 			// 先检查是否需要恢复
 			recovered, err := migrator.CheckAndRecover()
 			if err != nil {
-				b.logger.WithError(err).WithField("db_path", cfg.DBPath).Warn("recovery check failed")
+				b.logger.WithError(err).WithField("db_path", config.DBPath).Warn("recovery check failed")
 			}
 			if recovered {
-				b.logger.WithField("db_path", cfg.DBPath).Info("recovered from incomplete migration")
+				b.logger.WithField("db_path", config.DBPath).Info("recovered from incomplete migration")
 			}
 
 			// 执行迁移
 			migResult, err := migrator.Run()
 			mu.Lock()
-			result.Results[cfg.DBPath] = migResult
+			result.Results[config.DBPath] = migResult
 			if err != nil {
 				result.Success = false
-				result.Errors = append(result.Errors, fmt.Errorf("migration failed for %s: %w", cfg.DBPath, err))
+				result.Errors = append(result.Errors, fmt.Errorf("migration failed for %s: %w", config.DBPath, err))
 			}
 			mu.Unlock()
-		}(config)
+		})
 	}
 
 	wg.Wait()

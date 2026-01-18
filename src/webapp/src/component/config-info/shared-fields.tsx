@@ -220,3 +220,91 @@ export const SimpleConfigField: React.FC<SimpleConfigFieldProps> = ({
     </div>
   );
 };
+
+// ============================================================================
+// 下载器类型相关的工具函数和组件
+// ============================================================================
+
+// 下载器类型常量
+export type DownloaderType = 'ffmpeg' | 'native' | 'bililive-recorder' | '';
+
+// 下载器可用性信息
+export interface DownloaderAvailability {
+  ffmpeg_available: boolean;
+  ffmpeg_path?: string;
+  native_available: boolean;
+  bililive_recorder_available: boolean;
+  bililive_recorder_path?: string;
+}
+
+/**
+ * 获取下载器类型的显示名称
+ */
+export const getDownloaderDisplayName = (type: DownloaderType | undefined | null): string => {
+  switch (type) {
+    case 'ffmpeg':
+      return 'FFmpeg';
+    case 'native':
+      return '原生 FLV 解析器';
+    case 'bililive-recorder':
+      return '录播姬';
+    default:
+      return 'FFmpeg (默认)';
+  }
+};
+
+/**
+ * 计算下载器类型的继承信息
+ */
+export const getDownloaderInheritance = (
+  level: 'global' | 'platform' | 'room',
+  currentValue: DownloaderType | undefined | null,
+  platformValue: DownloaderType | undefined | null,
+  globalValue: DownloaderType | undefined | null,
+  platformKey?: string
+): {
+  source: 'global' | 'platform' | 'default';
+  linkTo: string;
+  isOverridden: boolean;
+  inheritedValue: string;
+} => {
+  const hasOwnValue = currentValue != null && currentValue !== '';
+
+  if (level === 'global') {
+    return {
+      source: 'default',
+      linkTo: '',
+      isOverridden: hasOwnValue,
+      inheritedValue: 'FFmpeg (默认)'
+    };
+  }
+
+  if (level === 'platform') {
+    return {
+      source: 'global',
+      linkTo: '/configInfo?tab=global',
+      isOverridden: hasOwnValue,
+      inheritedValue: getDownloaderDisplayName(globalValue)
+    };
+  }
+
+  // room level
+  const platformHasOwnValue = platformValue != null && platformValue !== '';
+
+  if (platformHasOwnValue) {
+    return {
+      source: 'platform',
+      linkTo: `/configInfo?tab=platforms&platform=${platformKey}`,
+      isOverridden: hasOwnValue,
+      inheritedValue: getDownloaderDisplayName(platformValue)
+    };
+  }
+
+  return {
+    source: 'global',
+    linkTo: '/configInfo?tab=global',
+    isOverridden: hasOwnValue,
+    inheritedValue: getDownloaderDisplayName(globalValue)
+  };
+};
+

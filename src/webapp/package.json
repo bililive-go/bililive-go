@@ -14,7 +14,8 @@
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "react-router-dom": "6",
-    "react-simple-code-editor": "^0.13.1"
+    "react-simple-code-editor": "^0.13.1",
+    "recharts": "^3.6.0"
   },
   "scripts": {
     "start": "react-scripts start",

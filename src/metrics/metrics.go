@@ -13,8 +13,8 @@ import (
 	"github.com/bililive-go/bililive-go/src/interfaces"
 	"github.com/bililive-go/bililive-go/src/listeners"
 	"github.com/bililive-go/bililive-go/src/live"
+	bilisentry "github.com/bililive-go/bililive-go/src/pkg/sentry"
 	"github.com/bililive-go/bililive-go/src/recorders"
-	"github.com/bililive-go/bililive-go/src/types"
 )
 
 var (
@@ -59,7 +59,7 @@ func (c collector) Collect(ch chan<- prometheus.Metric) {
 	wg := sync.WaitGroup{}
 	for id, l := range c.inst.Lives {
 		wg.Add(1)
-		go func(id types.LiveID, l live.Live) {
+		bilisentry.Go(func() {
 			defer wg.Done()
 			obj, err := c.inst.Cache.Get(l)
 			if err != nil {
@@ -87,7 +87,7 @@ func (c collector) Collect(ch chan<- prometheus.Metric) {
 					}
 				}
 			}
-		}(id, l)
+		})
 	}
 	wg.Wait()
 }

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/bluele/gcache"
 	kiratools "github.com/kira1928/remotetools/pkg/tools"
@@ -22,13 +23,20 @@ import (
 	"github.com/bililive-go/bililive-go/src/livestate"
 	"github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/metrics"
+	"github.com/bililive-go/bililive-go/src/pipeline"
+	"github.com/bililive-go/bililive-go/src/pipeline/stages"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
+	"github.com/bililive-go/bililive-go/src/pkg/iostats"
+	"github.com/bililive-go/bililive-go/src/pkg/kliveproxy"
 	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
+	"github.com/bililive-go/bililive-go/src/pkg/metadata"
+	"github.com/bililive-go/bililive-go/src/pkg/openlist"
 	"github.com/bililive-go/bililive-go/src/pkg/ratelimit"
+	bilisentryPkg "github.com/bililive-go/bililive-go/src/pkg/sentry"
+	"github.com/bililive-go/bililive-go/src/pkg/update"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
 	"github.com/bililive-go/bililive-go/src/recorders"
 	"github.com/bililive-go/bililive-go/src/servers"
-	"github.com/bililive-go/bililive-go/src/task"
 	"github.com/bililive-go/bililive-go/src/tools"
 	"github.com/bililive-go/bililive-go/src/types"
 )
@@ -67,7 +75,19 @@ func getConfigBesidesExecutable() (*configs.Config, error) {
 	return config, nil
 }
 
+var (
+	// SentryDSN Sentry DSN (编译时注入)
+	SentryDSN = "https://28f01efc088e5798fb9aac158f4fd327@o4510730440474624.ingest.us.sentry.io/4510730444406784"
+	// SentryEnv Sentry Environment (编译时注入)
+	SentryEnv = "production"
+)
+
 func main() {
+	// 程序退出时刷新 Sentry 事件队列
+	defer bilisentryPkg.Flush(2 * time.Second)
+	// 捕获主 goroutine 的 panic
+	defer bilisentryPkg.Recover()
+
 	// 如果提供了 --sync-built-in-tools-to-path，则进行同步（下载容器内置工具并清理其他版本/其他工具）后退出
 	if flag.SyncBuiltInToolsToPath != nil && *flag.SyncBuiltInToolsToPath != "" {
 		if err := tools.SyncBuiltInTools(*flag.SyncBuiltInToolsToPath); err != nil {
@@ -84,6 +104,27 @@ func main() {
 	}
 
 	configs.SetCurrentConfig(config)
+
+	// 初始化元数据存储（用于存储设备 ID、升级状态等关键信息）
+	if err := metadata.Init(filepath.Join(config.AppDataPath, "db")); err != nil {
+		fmt.Fprintf(os.Stderr, "警告: 元数据存储初始化失败: %v\n", err)
+	}
+	defer metadata.Close()
+
+	// 初始化 Sentry 错误监控
+	if config.Sentry.Enable && SentryDSN != "" {
+		environment := SentryEnv
+		// 允许 debug 模式覆盖环境配置
+		if config.Debug {
+			environment = "development"
+		}
+		if err := bilisentryPkg.Init(SentryDSN, environment, consts.AppVersion); err != nil {
+			// Sentry 初始化失败不影响程序运行，仅记录警告
+			fmt.Fprintf(os.Stderr, "警告: Sentry 初始化失败: %v\n", err)
+		} else {
+			fmt.Println("Sentry 初始化成功")
+		}
+	}
 
 	inst := new(instance.Instance)
 	// TODO: Replace gcache with hashmap.
@@ -106,6 +147,34 @@ func main() {
 	}
 	logger.Debugf("%+v", consts.AppInfo)
 	logger.Debugf("%+v", configs.GetCurrentConfig())
+
+	// 初始化更新管理器并尝试连接到启动器（如果由启动器启动）
+	var updateManager *update.Manager
+	if os.Getenv("BILILIVE_LAUNCHER") != "" {
+		logger.Info("检测到由启动器启动，正在连接到启动器...")
+		instanceID := os.Getenv("BILILIVE_INSTANCE_ID")
+		if instanceID == "" {
+			instanceID = "default"
+		}
+		updateManager = update.NewManager(update.ManagerConfig{
+			CurrentVersion: consts.AppVersion,
+			DownloadDir:    filepath.Join(config.AppDataPath, "updates"),
+			InstanceID:     instanceID,
+		})
+		if err := updateManager.ConnectToLauncher(rootCtx); err != nil {
+			logger.WithError(err).Warn("连接到启动器失败，自动更新功能将不可用")
+		} else {
+			logger.Info("已连接到启动器")
+			// 设置关闭请求处理
+			updateManager.OnShutdownRequest(func(gracePeriod int) {
+				logger.Infof("收到启动器关闭请求，优雅期 %d 秒", gracePeriod)
+				// 发送关闭确认
+				updateManager.AckShutdown()
+				// 触发主程序关闭
+				rootCancel()
+			})
+		}
+	}
 
 	if !utils.IsFFmpegExist(ctx) {
 		hasFoundFfmpeg := false
@@ -134,22 +203,50 @@ func main() {
 
 	events.NewDispatcher(ctx)
 
-	// 初始化任务队列管理器
-	dbPath := filepath.Join(config.AppDataPath, "db", "tasks.db")
-	taskStore, err := task.NewSQLiteStore(dbPath)
-	if err != nil {
-		logger.WithError(err).Fatal("failed to initialize task queue database")
+	ed := inst.EventDispatcher.(events.Dispatcher)
+
+	// 如果启用了云上传功能，初始化 OpenList 管理器
+	var openlistManager *openlist.Manager
+	if config.OnRecordFinished.CloudUpload.Enable {
+		// 获取 OpenList 数据目录
+		openlistDataPath := config.OpenList.DataPath
+		if openlistDataPath == "" {
+			openlistDataPath = filepath.Join(config.AppDataPath, "openlist")
+		}
+		openlistPort := config.OpenList.Port
+		if openlistPort == 0 {
+			openlistPort = 5244
+		}
+
+		// 创建 OpenList 管理器
+		openlistManager = openlist.NewManager(openlistDataPath, openlistPort)
+
+		// 在后台启动 OpenList
+		bilisentryPkg.Go(func() {
+			if err := openlistManager.Start(rootCtx); err != nil {
+				logger.WithError(err).Error("启动 OpenList 失败，云上传功能将不可用")
+			}
+		})
+
+		// 设置全局 OpenList 管理器供 API 和 Pipeline 使用
+		servers.SetOpenListManager(openlistManager)
+
+		logger.Info("云上传功能已启用")
 	}
-	taskQueueConfig := &task.QueueConfig{
+
+	// 初始化 Pipeline 管道管理器
+	pipelineDbPath := filepath.Join(config.AppDataPath, "db", "pipeline.db")
+	pipelineStore, err := pipeline.NewSQLiteStore(pipelineDbPath)
+	if err != nil {
+		logger.WithError(err).Fatal("初始化 Pipeline 数据库失败")
+	}
+	pipelineConfig := &pipeline.ManagerConfig{
 		MaxConcurrent: config.TaskQueue.MaxConcurrent,
 	}
-	ed := inst.EventDispatcher.(events.Dispatcher)
-	taskQueueManager := task.NewQueueManager(ctx, taskStore, taskQueueConfig, ed)
-	// 注册执行器
-	taskQueueManager.RegisterExecutor(task.TaskTypeFixFlv, task.NewFixFLVExecutor())
-	taskQueueManager.RegisterExecutor(task.TaskTypeConvertMp4, task.NewConvertMP4Executor(config.OnRecordFinished.DeleteFlvAfterConvert))
-	inst.TaskQueueManager = taskQueueManager
-	inst.TaskEnqueuer = taskQueueManager
+	pipelineManager := pipeline.NewManager(ctx, pipelineStore, pipelineConfig, ed)
+	// 注册所有内置阶段
+	stages.RegisterBuiltinStagesToManager(pipelineManager)
+	inst.PipelineManager = pipelineManager
 
 	// 初始化直播间状态管理器
 	liveStateDbPath := filepath.Join(config.AppDataPath, "db", "lives.db")
@@ -184,6 +281,23 @@ func main() {
 			servers.GetSSEHub().BroadcastLog(types.LiveID(roomID), logLine)
 		})
 		logger.Info("HTTP server started, initializing live rooms...")
+
+		// 通知启动器主程序已成功启动
+		if updateManager != nil && updateManager.IsLauncherConnected() {
+			if err := updateManager.NotifyStartup(true, "", os.Getpid()); err != nil {
+				logger.WithError(err).Warn("通知启动器启动成功失败")
+			} else {
+				logger.Debug("已通知启动器启动成功")
+			}
+		}
+
+		// 启动 klive 工具（klive 自己管理远程访问设置）
+		kliveManager := kliveproxy.NewManager()
+		if err := kliveManager.Start(ctx, config.RPC.Bind); err != nil {
+			logger.WithError(err).Warn("启动 klive 工具失败")
+		} else {
+			logger.Info("klive 工具已启动")
+		}
 	}
 
 	// 启动 manager
@@ -194,13 +308,71 @@ func main() {
 		logger.Fatalf("failed to init recorder manager, error: %s", err)
 	}
 
-	// 启动任务队列管理器
-	if err = taskQueueManager.Start(ctx); err != nil {
-		logger.Fatalf("failed to init task queue manager, error: %s", err)
+	// 启动 Pipeline 管道管理器
+	if err = pipelineManager.Start(ctx); err != nil {
+		logger.Fatalf("failed to init pipeline manager, error: %s", err)
 	}
 
 	if err = metrics.NewCollector(ctx).Start(ctx); err != nil {
 		logger.Fatalf("failed to init metrics collector, error: %s", err)
+	}
+
+	// 初始化 IO 统计模块
+	iostatsConfig := iostats.DefaultConfig()
+	if iostatsModule, err := iostats.NewModule(ctx, iostatsConfig); err != nil {
+		logger.WithError(err).Warn("初始化 IO 统计模块失败，统计功能将不可用")
+	} else {
+		inst.IOStatsModule = iostatsModule
+		if err := iostatsModule.Start(ctx); err != nil {
+			logger.WithError(err).Warn("启动 IO 统计模块失败")
+		}
+
+		// 设置请求状态追踪回调（从 live 包调用，避免循环依赖）
+		live.SetRequestStatusCallback(func(liveID, platform string, success bool, errMsg string) {
+			if success {
+				iostats.TrackRequestSuccess(liveID, platform)
+			} else {
+				iostats.TrackRequestFailure(liveID, platform, errMsg)
+			}
+		})
+
+		// 设置录制器状态提供者（用于收集录制写入速度）
+		iostats.SetRecorderStatusProvider(func() []iostats.RecorderStatus {
+			if inst.RecorderManager == nil {
+				return nil
+			}
+			rm, ok := inst.RecorderManager.(recorders.Manager)
+			if !ok {
+				return nil
+			}
+
+			var statuses []iostats.RecorderStatus
+			for liveID, l := range inst.Lives {
+				status, err := rm.GetRecorderStatus(context.Background(), liveID)
+				if err != nil {
+					continue
+				}
+
+				rs := iostats.RecorderStatus{
+					LiveID:   string(liveID),
+					Platform: l.GetPlatformCNName(),
+				}
+
+				if totalSizeStr, ok := status["total_size"]; ok {
+					var n int64
+					fmt.Sscanf(totalSizeStr, "%d", &n)
+					rs.TotalSize = n
+				}
+				if fileSizeStr, ok := status["file_size"]; ok {
+					var n int64
+					fmt.Sscanf(fileSizeStr, "%d", &n)
+					rs.FileSize = n
+				}
+
+				statuses = append(statuses, rs)
+			}
+			return statuses
+		})
 	}
 
 	// 初始化 live rooms
@@ -300,7 +472,8 @@ func main() {
 	var initWg sync.WaitGroup
 	for _, l := range nonListeningRooms {
 		initWg.Add(1)
-		go func(l live.Live) {
+		l := l
+		bilisentryPkg.GoWithContext(ctx, func(ctx context.Context) {
 			defer initWg.Done()
 
 			for {
@@ -341,14 +514,14 @@ func main() {
 				}
 				// 如果还没完成，继续循环重试
 			}
-		}(l)
+		})
 	}
 
 	// 在另一个 goroutine 中等待所有初始化完成
-	go func() {
+	bilisentryPkg.Go(func() {
 		initWg.Wait()
 		logger.Info("all non-listening rooms initialized")
-	}()
+	})
 
 	logger.Infof("Created %d live rooms (%d listening, %d not listening)",
 		len(inst.Lives), len(listeningRooms), len(nonListeningRooms))
@@ -356,8 +529,9 @@ func main() {
 	c := make(chan os.Signal, 1)
 	// 使用 os.Interrupt 更跨平台，在 Windows 上 SIGHUP 可能不被支持
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-c
+	msgChan := c
+	bilisentryPkg.Go(func() {
+		<-msgChan
 		logger.Info("Received shutdown signal, closing...")
 		// 取消根 context，这会导致所有派生的 context 被取消
 		// 包括：WrappedLive 的调度器、非监听直播间的初始化循环等
@@ -369,15 +543,24 @@ func main() {
 		// 关闭管理器
 		inst.ListenerManager.Close(ctx)
 		inst.RecorderManager.Close(ctx)
-		if inst.TaskQueueManager != nil {
-			inst.TaskQueueManager.Close(ctx)
+		// 关闭 Pipeline 管道管理器
+		if inst.PipelineManager != nil {
+			inst.PipelineManager.Close(ctx)
 		}
 		// 关闭直播间状态管理器
 		if liveStateManager != nil {
 			liveStateManager.Close()
 		}
+		// 关闭 IO 统计模块
+		if inst.IOStatsModule != nil {
+			inst.IOStatsModule.Close(ctx)
+		}
+		// 关闭 OpenList 管理器
+		if openlistManager != nil {
+			openlistManager.Stop()
+		}
 		logger.Info("Shutdown complete")
-	}()
+	})
 
 	inst.WaitGroup.Wait()
 	logger.Info("Bye~")

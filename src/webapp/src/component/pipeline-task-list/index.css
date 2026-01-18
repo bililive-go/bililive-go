@@ -1,0 +1,23 @@
+.task-list-container {
+  padding: 16px;
+}
+
+.task-list-container .ant-card {
+  transition: all 0.3s;
+}
+
+.task-list-container .ant-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.task-list-container .ant-statistic-title {
+  font-size: 12px;
+}
+
+.task-list-container .ant-table-cell {
+  vertical-align: middle;
+}
+
+.task-list-container .ant-steps-small .ant-steps-item-title {
+  font-size: 12px;
+}

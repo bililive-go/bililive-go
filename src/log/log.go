@@ -14,6 +14,7 @@ import (
 
 	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/interfaces"
+	bilisentry "github.com/bililive-go/bililive-go/src/pkg/sentry"
 )
 
 var (
@@ -78,13 +79,13 @@ func New(ctx context.Context) *interfaces.Logger {
 	stopDebugWatcher = cancel
 	watcherMu.Unlock()
 
-	go func() {
+	bilisentry.GoWithContext(watcherCtx, func(ctx context.Context) {
 		ticker := time.NewTicker(500 * time.Millisecond)
 		defer ticker.Stop()
 		prev := config.Debug
 		for {
 			select {
-			case <-watcherCtx.Done():
+			case <-ctx.Done():
 				return
 			case <-ticker.C:
 				now := configs.IsDebug()
@@ -101,7 +102,7 @@ func New(ctx context.Context) *interfaces.Logger {
 				prev = now
 			}
 		}
-	}()
+	})
 
 	return &interfaces.Logger{Logger: logrus.StandardLogger()}
 }

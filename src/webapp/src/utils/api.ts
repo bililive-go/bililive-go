@@ -244,6 +244,23 @@ class API {
         const url = `${BASE_URL}/lives/${liveId}/history${queryString ? '?' + queryString : ''}`;
         return utils.requestGet(url);
     }
+
+    /**
+     * 获取远程 WebUI 状态
+     * 返回当前程序版本对应的云端 WebUI 信息
+     */
+    getRemoteWebuiStatus() {
+        return utils.requestGet(`${BASE_URL}/webui/remote/status`);
+    }
+
+    /**
+     * 检查是否有更新的云端 WebUI 可用
+     * 比较本地 WebUI 版本和云端可用版本
+     */
+    checkWebuiUpdate() {
+        return utils.requestGet(`${BASE_URL}/webui/remote/check`);
+    }
 }
 
 export default API;
+

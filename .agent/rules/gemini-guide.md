@@ -1,10 +1,10 @@
----
-trigger: always_on
----
-
 # AI 开发指南
 
 本文档为在此项目中工作的 AI 助手（如 GitHub Copilot、Gemini、Claude、Codex、Antigravity 等）提供指导。
+
+> **注意**：本文件是 AI 指示的唯一源文件。修改后请运行 `make sync-agents` 同步到其他位置：
+> - `.github/copilot-instructions.md`
+> - `.agent/rules/gemini-guide.md`
 
 ## 语言要求
 
@@ -84,6 +84,17 @@ make test
 - Go 代码必须能通过 `-tags dev` 编译
 - 确保新增的包导入已使用
 - 确保接口方法签名正确
+
+### 配置修改同步要求
+
+修改 `configs/config.go` 中的配置结构体时，必须同步修改以下文件：
+
+1. **配置注释文件**: `configs/config_comments.go`
+   - 为新增的配置项添加中文注释说明
+
+2. **前端配置页面**: `webapp/src/component/config-info/index.tsx`
+   - 在 `EffectiveConfig` 接口中添加对应的类型定义
+   - 在 `GlobalSettings` 组件中添加配置项的 UI 控件
 
 ## 环境准备（用于 CI/CD 等自动化环境）
 

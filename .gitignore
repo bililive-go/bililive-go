@@ -165,8 +165,11 @@ node_modules
 #vscode
 .vscode
 
+# AI agent 临时文件（保留 rules 目录）
+.agent/*
+!.agent/rules/
+
 !src/cmd/build/
 .appdata/
 coverage.txt
-.agent/artifacts/
-.agent/workflows/
+.local

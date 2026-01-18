@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/bililive-go/bililive-go/src/configs"
 	blog "github.com/bililive-go/bililive-go/src/log"
+	bilisentry "github.com/bililive-go/bililive-go/src/pkg/sentry"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
 	"github.com/tidwall/gjson"
 
@@ -52,13 +54,53 @@ func IsBToolsStarting() bool {
 	return status == BToolsStatusStarting || status == BToolsStatusNotStarted
 }
 
+// DownloaderAvailability 包含各下载器的可用状态
+type DownloaderAvailability struct {
+	FFmpegAvailable           bool   `json:"ffmpeg_available"`
+	FFmpegPath                string `json:"ffmpeg_path,omitempty"`
+	NativeAvailable           bool   `json:"native_available"` // 内置解析器永远可用
+	BililiveRecorderAvailable bool   `json:"bililive_recorder_available"`
+	BililiveRecorderPath      string `json:"bililive_recorder_path,omitempty"`
+}
+
+// GetDownloaderAvailability 返回所有下载器的可用状态
+func GetDownloaderAvailability() DownloaderAvailability {
+	result := DownloaderAvailability{
+		NativeAvailable: true, // 内置解析器永远可用
+	}
+
+	api := tools.Get()
+	if api == nil {
+		return result
+	}
+
+	// 检查 FFmpeg
+	ffmpeg, err := api.GetTool("ffmpeg")
+	if err == nil && ffmpeg.DoesToolExist() {
+		result.FFmpegAvailable = true
+		result.FFmpegPath = ffmpeg.GetToolPath()
+	}
+
+	// 检查 BililiveRecorder CLI
+	dotnet, err := api.GetTool("dotnet")
+	if err == nil && dotnet.DoesToolExist() {
+		recorder, err := api.GetTool("bililive-recorder-cli")
+		if err == nil && recorder.DoesToolExist() {
+			result.BililiveRecorderAvailable = true
+			result.BililiveRecorderPath = recorder.GetToolPath()
+		}
+	}
+
+	return result
+}
+
 func AsyncInit() {
-	go func() {
+	bilisentry.Go(func() {
 		err := Init()
 		if err != nil {
 			blog.GetLogger().Errorln("Failed to initialize RemoteTools:", err)
 		}
-	}()
+	})
 }
 
 func SyncBuiltInTools(targetToolFolder string) (err error) {
@@ -188,12 +230,12 @@ func Init() (err error) {
 	} {
 		AsyncDownloadIfNecessary(toolName)
 	}
-	go func() {
+	bilisentry.Go(func() {
 		err := startBTools()
 		if err != nil {
 			blog.GetLogger().WithError(err).Errorln("Failed to start bililive-tools")
 		}
-	}()
+	})
 
 	return nil
 }
@@ -269,16 +311,21 @@ func startBTools() error {
 	currentBToolsStatus.Store(int32(BToolsStatusReady))
 
 	// 在 Windows 下使用 Job Object，确保主进程退出时子进程被一并终止
-	return runWithKillOnClose(cmd)
+	// 使用 runWithKillOnCloseAndGetPID 来获取进程 PID
+	return runWithKillOnCloseAndGetPID(cmd, func(pid int) {
+		// 使用通用的进程跟踪器注册子进程
+		RegisterProcess("bililive-tools", pid, ProcessCategoryBTools)
+		blog.GetLogger().Infof("bililive-tools process started with PID: %d", pid)
+	})
 }
 
 func AsyncDownloadIfNecessary(toolName string) {
-	go func() {
+	bilisentry.Go(func() {
 		err := DownloadIfNecessary(toolName)
 		if err != nil {
 			blog.GetLogger().Errorln("Failed to download", toolName, "tool:", err)
 		}
-	}()
+	})
 }
 
 func DownloadIfNecessary(toolName string) (err error) {
@@ -310,6 +357,12 @@ func Get() *tools.API {
 }
 
 func FixFlvByBililiveRecorder(ctx context.Context, fileName string) (outputFiles []string, err error) {
+	return FixFlvByBililiveRecorderWithPID(ctx, fileName, nil)
+}
+
+// FixFlvByBililiveRecorderWithPID 使用 BililiveRecorder 修复 FLV 文件
+// onPID 可选回调函数，在子进程启动后立即调用，传递子进程 PID
+func FixFlvByBililiveRecorderWithPID(ctx context.Context, fileName string, onPID func(pid int)) (outputFiles []string, err error) {
 	defer func() {
 		if err != nil {
 			blog.GetLogger().WithError(err).Warn("failed to fix flv file by bililive-recorder")
@@ -358,11 +411,37 @@ func FixFlvByBililiveRecorder(ctx context.Context, fileName string) (outputFiles
 	if err != nil {
 		return
 	}
-	var out []byte
-	out, err = cmd.Output()
-	if err != nil {
+
+	// 使用 cmd.Start() 非阻塞启动，以便获取 PID
+	stdout, pipeErr := cmd.StdoutPipe()
+	if pipeErr != nil {
+		err = fmt.Errorf("failed to create stdout pipe: %w", pipeErr)
 		return
 	}
+
+	if err = cmd.Start(); err != nil {
+		return
+	}
+
+	// 回调通知调用方子进程 PID
+	if onPID != nil && cmd.Process != nil {
+		onPID(cmd.Process.Pid)
+	}
+
+	// 读取 stdout
+	out, readErr := io.ReadAll(stdout)
+	if readErr != nil {
+		// 仍需等待进程结束
+		cmd.Wait()
+		err = fmt.Errorf("failed to read stdout: %w", readErr)
+		return
+	}
+
+	// 等待进程结束
+	if err = cmd.Wait(); err != nil {
+		return
+	}
+
 	outJson := gjson.ParseBytes(out)
 	if !outJson.Exists() {
 		err = fmt.Errorf("bililive-recorder returned no json: %s", string(out))

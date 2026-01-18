@@ -20,12 +20,25 @@ import API from '../../utils/api';
 import './config-info.css';
 import './config-gui.css';
 import { OutputTemplatePreview, getFFmpegInheritance, getFFmpegDisplayValue } from './shared-fields';
+import CloudUploadSettings from './CloudUploadSettings';
 
 const api = new API();
 const { TextArea } = Input;
 const { Panel } = Collapse;
 
 // 配置项类型定义
+// 下载器可用性信息
+interface DownloaderAvailability {
+  ffmpeg_available: boolean;
+  ffmpeg_path?: string;
+  native_available: boolean;
+  bililive_recorder_available: boolean;
+  bililive_recorder_path?: string;
+}
+
+// 下载器类型常量
+type DownloaderType = 'ffmpeg' | 'native' | 'bililive-recorder' | '';
+
 interface EffectiveConfig {
   rpc: { enable: boolean; bind: string };
   debug: boolean;
@@ -42,7 +55,8 @@ interface EffectiveConfig {
   };
   actual_log_folder: string;
   feature: {
-    use_native_flv_parser: boolean;
+    downloader_type?: DownloaderType;
+    use_native_flv_parser?: boolean; // 已废弃，保留用于向后兼容
     remove_symbol_other_character: boolean;
   };
   out_put_tmpl: string;
@@ -84,6 +98,14 @@ interface EffectiveConfig {
   actual_tool_root_folder: string;
   platform_configs: Record<string, any>;
   live_rooms_count: number;
+  // 下载器相关字段
+  downloader_availability: DownloaderAvailability;
+  available_downloaders: string[];
+  // 代理配置
+  proxy: {
+    enable: boolean;
+    url: string;
+  };
 }
 
 interface PlatformStat {
@@ -446,9 +468,32 @@ const GlobalSettings: React.FC<{
 
         {/* 功能特性 */}
         <Card title="功能特性" size="small" style={{ marginBottom: 16 }}>
-          <ConfigField label="使用原生 FLV 解析器" description="可能提升性能，但兼容性可能不如 FFmpeg">
-            <Form.Item name={['feature', 'use_native_flv_parser']} valuePropName="checked" noStyle>
-              <Switch />
+          <ConfigField
+            label="下载器类型"
+            description="选择用于下载直播流的工具。录播姬需要单独安装。"
+          >
+            <Form.Item name={['feature', 'downloader_type']} noStyle>
+              <Select style={{ width: 280 }} placeholder="选择下载器">
+                <Select.Option
+                  value="ffmpeg"
+                  disabled={!config.downloader_availability?.ffmpeg_available}
+                >
+                  <Tooltip title={!config.downloader_availability?.ffmpeg_available ? '未找到 FFmpeg，请先安装' : config.downloader_availability?.ffmpeg_path}>
+                    FFmpeg {!config.downloader_availability?.ffmpeg_available && '(不可用)'}
+                  </Tooltip>
+                </Select.Option>
+                <Select.Option value="native">
+                  原生 FLV 解析器 (内置)
+                </Select.Option>
+                <Select.Option
+                  value="bililive-recorder"
+                  disabled={!config.downloader_availability?.bililive_recorder_available}
+                >
+                  <Tooltip title={!config.downloader_availability?.bililive_recorder_available ? '未安装录播姬 CLI，请在工具页面安装' : config.downloader_availability?.bililive_recorder_path}>
+                    录播姬 {!config.downloader_availability?.bililive_recorder_available && '(未安装)'}
+                  </Tooltip>
+                </Select.Option>
+              </Select>
             </Form.Item>
           </ConfigField>
           <ConfigField label="移除特殊字符" description="从文件名中移除特殊字符">
@@ -501,6 +546,9 @@ const GlobalSettings: React.FC<{
           </ConfigField>
         </Card>
 
+        {/* 云盘上传设置 */}
+        <CloudUploadSettings config={config} />
+
         {/* 高级设置 */}
         <Card title="高级设置" size="small" style={{ marginBottom: 16 }}>
           <ConfigField
@@ -528,6 +576,28 @@ const GlobalSettings: React.FC<{
           >
             <Form.Item name="tool_root_folder" noStyle>
               <Input placeholder="留空使用默认目录" style={{ width: 400 }} />
+            </Form.Item>
+          </ConfigField>
+        </Card>
+
+        {/* 代理设置 */}
+        <Card title="代理设置" size="small" style={{ marginBottom: 16 }}>
+          <ConfigField
+            label="启用代理配置"
+            description="关闭时使用系统环境变量 (HTTP_PROXY, HTTPS_PROXY, ALL_PROXY)"
+            valueDisplay={config.proxy?.enable ? '已启用' : '使用系统环境变量'}
+          >
+            <Form.Item name={['proxy', 'enable']} valuePropName="checked" noStyle>
+              <Switch />
+            </Form.Item>
+          </ConfigField>
+          <ConfigField
+            label="代理地址"
+            description="支持 HTTP 代理 (http://host:port) 和 SOCKS5 代理 (socks5://host:port)"
+            valueDisplay={config.proxy?.url || '(未设置)'}
+          >
+            <Form.Item name={['proxy', 'url']} noStyle>
+              <Input placeholder="例如: socks5://127.0.0.1:1080 或 http://127.0.0.1:7890" style={{ width: 400 }} />
             </Form.Item>
           </ConfigField>
         </Card>
@@ -995,6 +1065,49 @@ const PlatformConfigForm: React.FC<{
             />
           </Form.Item>
         </ConfigField>
+
+        <ConfigField
+          label="下载器类型"
+          description="选择用于下载直播流的工具"
+          inheritance={{
+            source: 'global',
+            linkTo: '/configInfo?tab=global',
+            isOverridden: (platform as any).feature?.downloader_type != null && (platform as any).feature?.downloader_type !== '',
+            inheritedValue: globalConfig?.feature?.downloader_type ?
+              (globalConfig.feature.downloader_type === 'native' ? '原生 FLV 解析器' :
+                globalConfig.feature.downloader_type === 'bililive-recorder' ? '录播姬' : 'FFmpeg')
+              : 'FFmpeg (默认)'
+          }}
+          id={`platforms-${platformKey}-downloader_type`}
+        >
+          <Form.Item name={['feature', 'downloader_type']} noStyle>
+            <Select
+              style={{ width: 280 }}
+              placeholder="继承全局设置"
+              allowClear
+            >
+              <Select.Option
+                value="ffmpeg"
+                disabled={!globalConfig?.downloader_availability?.ffmpeg_available}
+              >
+                <Tooltip title={!globalConfig?.downloader_availability?.ffmpeg_available ? '未找到 FFmpeg，请先安装' : undefined}>
+                  FFmpeg {!globalConfig?.downloader_availability?.ffmpeg_available && '(不可用)'}
+                </Tooltip>
+              </Select.Option>
+              <Select.Option value="native">
+                原生 FLV 解析器 (内置)
+              </Select.Option>
+              <Select.Option
+                value="bililive-recorder"
+                disabled={!globalConfig?.downloader_availability?.bililive_recorder_available}
+              >
+                <Tooltip title={!globalConfig?.downloader_availability?.bililive_recorder_available ? '未安装录播姬 CLI' : undefined}>
+                  录播姬 {!globalConfig?.downloader_availability?.bililive_recorder_available && '(未安装)'}
+                </Tooltip>
+              </Select.Option>
+            </Select>
+          </Form.Item>
+        </ConfigField>
       </Form>
 
       <div className="config-actions">
@@ -1218,6 +1331,51 @@ export const RoomConfigForm: React.FC<{
             placeholder={`继承${(platformConfig as any)?.out_put_tmpl ? '平台' : '全局'}: ${(platformConfig as any)?.out_put_tmpl || globalConfig?.default_out_put_tmpl}`}
             style={{ width: 500 }}
           />
+        </Form.Item>
+      </ConfigField>
+
+      <ConfigField
+        label="下载器类型"
+        description="选择用于下载直播流的工具"
+        inheritance={{
+          source: (platformConfig as any)?.feature?.downloader_type ? 'platform' : 'global',
+          linkTo: (platformConfig as any)?.feature?.downloader_type ? `/configInfo?tab=platforms&platform=${platformKey}` : '/configInfo?tab=global',
+          isOverridden: room.feature?.downloader_type != null && room.feature?.downloader_type !== '',
+          inheritedValue: (() => {
+            const inheritedType = (platformConfig as any)?.feature?.downloader_type || globalConfig?.feature?.downloader_type;
+            if (inheritedType === 'native') return '原生 FLV 解析器';
+            if (inheritedType === 'bililive-recorder') return '录播姬';
+            return 'FFmpeg (默认)';
+          })()
+        }}
+        id={`rooms-live-${room.live_id}-downloader_type`}
+      >
+        <Form.Item name={['feature', 'downloader_type']} noStyle>
+          <Select
+            style={{ width: 280 }}
+            placeholder={`继承${(platformConfig as any)?.feature?.downloader_type ? '平台' : '全局'}设置`}
+            allowClear
+          >
+            <Select.Option
+              value="ffmpeg"
+              disabled={!globalConfig?.downloader_availability?.ffmpeg_available}
+            >
+              <Tooltip title={!globalConfig?.downloader_availability?.ffmpeg_available ? '未找到 FFmpeg' : undefined}>
+                FFmpeg {!globalConfig?.downloader_availability?.ffmpeg_available && '(不可用)'}
+              </Tooltip>
+            </Select.Option>
+            <Select.Option value="native">
+              原生 FLV 解析器 (内置)
+            </Select.Option>
+            <Select.Option
+              value="bililive-recorder"
+              disabled={!globalConfig?.downloader_availability?.bililive_recorder_available}
+            >
+              <Tooltip title={!globalConfig?.downloader_availability?.bililive_recorder_available ? '未安装录播姬 CLI' : undefined}>
+                录播姬 {!globalConfig?.downloader_availability?.bililive_recorder_available && '(未安装)'}
+              </Tooltip>
+            </Select.Option>
+          </Select>
         </Form.Item>
       </ConfigField>
 
