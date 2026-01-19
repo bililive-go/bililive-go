@@ -871,7 +871,7 @@ const PlatformSettings: React.FC<{
               {platform.listening_count > 0 && (
                 // @ts-ignore
                 <Badge
-                  count={platform.room_count}
+                  count={platform.listening_count}
                   showZero
                   style={{ backgroundColor: '#f0f0f0', color: 'rgba(0,0,0,0.45)', boxShadow: '0 0 0 1px #d9d9d9 inset' }}
                 >
