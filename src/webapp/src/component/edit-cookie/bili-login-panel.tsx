@@ -21,6 +21,7 @@ const BiliLoginPanel: React.FC<BiliLoginPanelProps> = ({ initialCookie, onCookie
 
     const pollTimerRef = useRef<any>(null);
     const hasAutoVerified = useRef(false);
+    const isMounted = useRef(true);
     const textViewRef = useRef(textView);
     const onCookieChangeRef = useRef(onCookieChange);
 
@@ -35,6 +36,7 @@ const BiliLoginPanel: React.FC<BiliLoginPanelProps> = ({ initialCookie, onCookie
         setVerificationInfo(null);
         api.verifyBilibiliCookie(target)
             .then((rsp: any) => {
+                if (!isMounted.current) return;
                 setVerifying(false);
                 if (rsp.code === 0 && rsp.data && rsp.data.isLogin) {
                     setVerificationInfo({
@@ -46,7 +48,10 @@ const BiliLoginPanel: React.FC<BiliLoginPanelProps> = ({ initialCookie, onCookie
                     notification.warning({ message: 'Cookie 可能无效或已过期' });
                 }
             })
-            .catch(() => setVerifying(false));
+            .catch(() => {
+                if (!isMounted.current) return;
+                setVerifying(false);
+            });
     }, [api]);
 
     const processLoginSuccess = useCallback((urlStr: string) => {
@@ -77,6 +82,7 @@ const BiliLoginPanel: React.FC<BiliLoginPanelProps> = ({ initialCookie, onCookie
         pollTimerRef.current = setInterval(() => {
             api.pollBilibiliQRCode(key)
                 .then((res: any) => {
+                    if (!isMounted.current) return;
                     if (res.code === 0) {
                         const data = res.data;
                         if (data.code === 0) {
@@ -106,6 +112,7 @@ const BiliLoginPanel: React.FC<BiliLoginPanelProps> = ({ initialCookie, onCookie
         setLoginMsg('正在获取二维码...');
         api.getBilibiliQRCode()
             .then((res: any) => {
+                if (!isMounted.current) return;
                 if (res.code === 0) {
                     setQrCodeUrl(res.data.url);
                     setLoginStatus('active');
@@ -117,6 +124,7 @@ const BiliLoginPanel: React.FC<BiliLoginPanelProps> = ({ initialCookie, onCookie
                 }
             })
             .catch(err => {
+                if (!isMounted.current) return;
                 setLoginStatus('expired');
                 setLoginMsg('获取连接失败');
                 console.error(err);
@@ -130,8 +138,10 @@ const BiliLoginPanel: React.FC<BiliLoginPanelProps> = ({ initialCookie, onCookie
     };
 
     useEffect(() => {
+        isMounted.current = true;
         getBiliQRCode();
         return () => {
+            isMounted.current = false;
             if (pollTimerRef.current) clearInterval(pollTimerRef.current);
         };
     }, [getBiliQRCode]);
