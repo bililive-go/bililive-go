@@ -98,6 +98,11 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/batch/file/delete", batchDeleteFiles).Methods("POST")
 	apiRoute.HandleFunc("/cookies", getLiveHostCookie).Methods("GET")
 	apiRoute.HandleFunc("/cookies", putLiveHostCookie).Methods("PUT")
+
+	// Bilibili Login
+	apiRoute.HandleFunc("/bilibili/qrcode", getBilibiliQRCode).Methods("GET")
+	apiRoute.HandleFunc("/bilibili/qrcode/poll", pollBilibiliQRCode).Methods("GET")
+	apiRoute.HandleFunc("/bilibili/cookie/verify", verifyBilibiliCookie).Methods("POST")
 	apiRoute.HandleFunc("/sse", sseHandler).Methods("GET") // SSE 实时推送端点
 	// 远程 WebUI 路由
 	apiRoute.HandleFunc("/webui/remote/status", getRemoteWebuiStatus).Methods("GET")  // 获取远程 WebUI 状态

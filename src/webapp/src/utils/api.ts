@@ -285,6 +285,29 @@ class API {
     checkWebuiUpdate() {
         return utils.requestGet(`${BASE_URL}/webui/remote/check`);
     }
+
+    /**
+     * 获取哔哩哔哩登录二维码
+     */
+    getBilibiliQRCode() {
+        return utils.requestGet(`${BASE_URL}/bilibili/qrcode`);
+    }
+
+    /**
+     * 轮询哔哩哔哩登录状态
+     * @param key qrcode_key
+     */
+    pollBilibiliQRCode(key: string) {
+        return utils.requestGet(`${BASE_URL}/bilibili/qrcode/poll?key=${key}`);
+    }
+
+    /**
+     * 验证哔哩哔哩 Cookie
+     * @param cookie cookie 字符串
+     */
+    verifyBilibiliCookie(cookie: string) {
+        return utils.requestPost(`${BASE_URL}/bilibili/cookie/verify`, { cookie });
+    }
 }
 
 export default API;

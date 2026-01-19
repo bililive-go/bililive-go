@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/hr3lxphr6j/requests"
 	"github.com/tidwall/gjson"
 	"gopkg.in/yaml.v3"
 
@@ -1884,13 +1885,13 @@ func getLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 		if _, ok := hostCookieMap[urltmp.Host]; ok {
 			continue
 		}
-		v1, _ := v.GetInfo()
 		host := urltmp.Host
+		platformName := v.GetPlatformCNName()
 		if cookie, ok := configs.GetCurrentConfig().Cookies[host]; ok {
-			tmp := &live.InfoCookie{Platform_cn_name: v1.Live.GetPlatformCNName(), Host: host, Cookie: cookie}
+			tmp := &live.InfoCookie{Platform_cn_name: platformName, Host: host, Cookie: cookie}
 			hostCookieMap[host] = tmp
 		} else {
-			tmp := &live.InfoCookie{Platform_cn_name: v1.Live.GetPlatformCNName(), Host: host}
+			tmp := &live.InfoCookie{Platform_cn_name: platformName, Host: host}
 			hostCookieMap[host] = tmp
 		}
 		keys = append(keys, host)
@@ -1946,11 +1947,18 @@ func putLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 		}
 		live := inst.Lives[v.LiveId]
 		if live == nil {
-			writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
-				ErrNo:  http.StatusBadRequest,
-				ErrMsg: "can't find live by url: " + v.Url,
-			})
-			return
+			// fallback search by URL
+			for _, l := range inst.Lives {
+				if l.GetRawUrl() == v.Url {
+					live = l
+					break
+				}
+			}
+		}
+
+		if live == nil {
+			applog.GetLogger().Warn("can't find live by id or url: " + string(v.LiveId) + " " + v.Url)
+			continue
 		}
 		live.UpdateLiveOptionsbyConfig(ctx, &v)
 	}
@@ -2346,4 +2354,94 @@ func getMemoryStats(writer http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(writer, stats)
+}
+
+// getBilibiliQRCode 获取哔哩哔哩登录二维码
+func getBilibiliQRCode(writer http.ResponseWriter, r *http.Request) {
+	resp, err := requests.Get("https://passport.bilibili.com/x/passport-login/web/qrcode/generate")
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "获取二维码失败: " + err.Error(),
+		})
+		return
+	}
+	body, _ := resp.Bytes()
+	writer.Header().Set("Content-Type", "application/json")
+	writer.Write(body)
+}
+
+// pollBilibiliQRCode 轮询哔哩哔哩登录状态
+func pollBilibiliQRCode(writer http.ResponseWriter, r *http.Request) {
+	key := r.URL.Query().Get("key")
+	if key == "" {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{ErrNo: http.StatusBadRequest, ErrMsg: "缺少 key 参数"})
+		return
+	}
+
+	resp, err := requests.Get("https://passport.bilibili.com/x/passport-login/web/qrcode/poll", requests.Query("qrcode_key", key))
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "轮询登录状态失败: " + err.Error(),
+		})
+		return
+	}
+
+	body, _ := resp.Bytes()
+
+	// 尝试解析响应，如果是成功状态，尝试从 Cookie 中提取 sid 并附加到 URL
+	var result struct {
+		Code int `json:"code"`
+		Data struct {
+			Code int    `json:"code"`
+			Url  string `json:"url"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &result); err == nil && result.Code == 0 && result.Data.Code == 0 && result.Data.Url != "" {
+		// 登录成功，检查响应头中的 Cookie
+		u, _ := url.Parse(result.Data.Url)
+		q := u.Query()
+		foundExtra := false
+		if resp.Response != nil {
+			for _, cookie := range resp.Response.Cookies() {
+				if cookie.Name == "sid" && q.Get("sid") == "" {
+					q.Set("sid", cookie.Value)
+					foundExtra = true
+				}
+			}
+		}
+		if foundExtra {
+			u.RawQuery = q.Encode()
+			result.Data.Url = u.String()
+			body, _ = json.Marshal(result)
+		}
+	}
+
+	writer.Header().Set("Content-Type", "application/json")
+	writer.Write(body)
+}
+
+// verifyBilibiliCookie 验证哔哩哔哩 Cookie 有效性
+func verifyBilibiliCookie(writer http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Cookie string `json:"cookie"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{ErrNo: http.StatusBadRequest, ErrMsg: "无效的请求体"})
+		return
+	}
+
+	resp, err := requests.Get("https://api.bilibili.com/x/web-interface/nav", requests.Header("Cookie", req.Cookie))
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "验证 Cookie 失败: " + err.Error(),
+		})
+		return
+	}
+	body, _ := resp.Bytes()
+	writer.Header().Set("Content-Type", "application/json")
+	writer.Write(body)
 }

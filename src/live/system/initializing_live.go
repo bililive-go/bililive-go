@@ -126,5 +126,5 @@ func (l *InitializingLive) GetStreamUrls() (us []*url.URL, err error) {
 }
 
 func (l *InitializingLive) GetPlatformCNName() string {
-	return ""
+	return l.OriginalLive.GetPlatformCNName()
 }
