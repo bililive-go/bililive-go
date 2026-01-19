@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Button, Spin, Input, Badge, Alert, Divider, notification } from 'antd';
+import { Button, Spin, Input, Badge, Alert, Divider, notification, Space } from 'antd';
 import API from '../../utils/api';
 import './edit-cookie.css';
 
@@ -123,10 +123,14 @@ const BiliLoginPanel: React.FC<BiliLoginPanelProps> = ({ initialCookie, onCookie
 
     useEffect(() => {
         getBiliQRCode();
+        // 如果初始有 Cookie，自动触发一次验证
+        if (initialCookie) {
+            verifyCookie(initialCookie);
+        }
         return () => {
             if (pollTimerRef.current) clearInterval(pollTimerRef.current);
         };
-    }, [getBiliQRCode]);
+    }, [getBiliQRCode, initialCookie, verifyCookie]);
 
     return (
         <div className="bili-login-container">
@@ -184,7 +188,7 @@ const BiliLoginPanel: React.FC<BiliLoginPanelProps> = ({ initialCookie, onCookie
                             disabled={!textView}
                             onClick={() => verifyCookie(textView)}
                         >
-                            点击验证有效性
+                            重新验证
                         </Button>
                     </div>
                     <TextArea
@@ -195,7 +199,7 @@ const BiliLoginPanel: React.FC<BiliLoginPanelProps> = ({ initialCookie, onCookie
                         onChange={handleTextChange}
                     />
 
-                    {verificationInfo && (
+                    {verificationInfo ? (
                         <div className="verification-card">
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                 <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -213,6 +217,14 @@ const BiliLoginPanel: React.FC<BiliLoginPanelProps> = ({ initialCookie, onCookie
                             <div style={{ fontSize: '13px', color: '#52c41a', marginTop: '8px', fontWeight: 500 }}>
                                 状态：Cookie 验证通过，可正常抓取原画流
                             </div>
+                        </div>
+                    ) : (
+                        <div className="verification-card pending">
+                            {verifying ? (
+                                <Space><Spin size="small" /> 正在验证 Cookie 有效性...</Space>
+                            ) : (
+                                <span>{textView ? '请点击上方按钮验证 Cookie 有效性' : '请扫码或输入 Cookie 以开始验证'}</span>
+                            )}
                         </div>
                     )}
                 </div>

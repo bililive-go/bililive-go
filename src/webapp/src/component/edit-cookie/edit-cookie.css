@@ -126,7 +126,19 @@
     background: linear-gradient(135deg, #f6ffed 0%, #e6f7ff 100%);
     padding: 16px;
     box-shadow: 0 2px 8px rgba(82, 196, 26, 0.1);
+    min-height: 86px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
     animation: slideUp 0.3s ease-out;
+}
+
+.verification-card.pending {
+    border: 1px dashed #d9d9d9;
+    background: #fafafa;
+    box-shadow: none;
+    color: #8c8c8c;
+    align-items: center;
 }
 
 @keyframes slideUp {
