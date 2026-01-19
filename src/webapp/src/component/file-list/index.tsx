@@ -99,6 +99,8 @@ const FileList: React.FC = () => {
 
     // 监听 ESC 键退出播放
     useEffect(() => {
+        if (!isPlayerVisible) return;
+
         const handleEsc = (event: KeyboardEvent) => {
             if (event.key === "Escape") {
                 hidePlayer();
@@ -108,7 +110,7 @@ const FileList: React.FC = () => {
         return () => {
             window.removeEventListener("keydown", handleEsc);
         };
-    }, [hidePlayer]);
+    }, [isPlayerVisible, hidePlayer]);
 
     const handleChange = (pagination: any, filters: any, sorter: any) => {
         setSortedInfo(sorter);
