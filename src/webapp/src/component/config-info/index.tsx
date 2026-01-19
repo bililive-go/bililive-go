@@ -1008,6 +1008,7 @@ const PlatformConfigForm: React.FC<{
         >
           <Form.Item name="interval" rules={[{ type: 'number', min: 1, message: '必须大于 0' }]}>
             <InputNumber
+              min={1}
               placeholder={`继承全局: ${globalInterval}`}
               style={{ width: 200 }}
             />
@@ -1297,7 +1298,7 @@ export const RoomConfigForm: React.FC<{
         }}
         id={`rooms-live-${room.live_id}-interval`}
       >
-        <Form.Item name="interval" rules={[{ type: 'number', min: 1, message: '必须大于 0' }]}>
+        <Form.Item name="interval" rules={[{ type: 'number', min: 0, message: '不能为负数' }]}>
           <InputNumber
             min={0}
             style={{ width: 200 }}
