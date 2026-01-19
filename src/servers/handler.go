@@ -1618,29 +1618,38 @@ func updateRoomConfig(writer http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func getSafePath(base, subPath string) (string, error) {
+	absBase, err := filepath.Abs(base)
+	if err != nil {
+		return "", err
+	}
+	absTarget, err := filepath.Abs(filepath.Join(absBase, subPath))
+	if err != nil {
+		return "", err
+	}
+
+	rel, err := filepath.Rel(absBase, absTarget)
+	if err != nil {
+		return "", err
+	}
+
+	// 核心安全逻辑：如果计算出的相对路径以 ".." 开头，说明它逃逸到了 base 目录之外
+	if strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		return "", errors.New("非法路径访问：超出授权范围")
+	}
+
+	return absTarget, nil
+}
+
 func getFileInfo(writer http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	path := vars["path"]
 
 	cfg := configs.GetCurrentConfig()
-	base, err := filepath.Abs(cfg.OutPutPath)
+	absPath, err := getSafePath(cfg.OutPutPath, path)
 	if err != nil {
 		writeJSON(writer, commonResp{
-			ErrMsg: "无效输出目录",
-		})
-		return
-	}
-
-	absPath, err := filepath.Abs(filepath.Join(base, path))
-	if err != nil {
-		writeJSON(writer, commonResp{
-			ErrMsg: "无效路径",
-		})
-		return
-	}
-	if !strings.HasPrefix(absPath, base) {
-		writeJSON(writer, commonResp{
-			ErrMsg: "异常路径",
+			ErrMsg: "无效或越权路径",
 		})
 		return
 	}
@@ -1732,10 +1741,9 @@ func renameFile(writer http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := configs.GetCurrentConfig()
-	base, _ := filepath.Abs(cfg.OutPutPath)
-	oldAbsPath, err := filepath.Abs(filepath.Join(base, path))
-	if err != nil || !strings.HasPrefix(oldAbsPath, base) {
-		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "无效路径"})
+	oldAbsPath, err := getSafePath(cfg.OutPutPath, path)
+	if err != nil {
+		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "无效或越权路径"})
 		return
 	}
 
@@ -1746,11 +1754,20 @@ func renameFile(writer http.ResponseWriter, r *http.Request) {
 	}
 
 	var newAbsPath string
+	baseDir := filepath.Dir(oldAbsPath)
 	if info.IsDir() {
-		newAbsPath = filepath.Join(filepath.Dir(oldAbsPath), body.NewName)
+		newAbsPath = filepath.Join(baseDir, body.NewName)
 	} else {
 		ext := filepath.Ext(oldAbsPath)
-		newAbsPath = filepath.Join(filepath.Dir(oldAbsPath), body.NewName+ext)
+		newAbsPath = filepath.Join(baseDir, body.NewName+ext)
+	}
+
+	// 重点：必须再次校验新路径是否安全，防止 body.NewName 包含 ../ 等逃逸字符
+	base, _ := filepath.Abs(cfg.OutPutPath)
+	rel, err := filepath.Rel(base, newAbsPath)
+	if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "非法的新文件名：禁止越界路径"})
+		return
 	}
 
 	// 检查目标文件名是否已存在
@@ -1773,9 +1790,9 @@ func deleteFile(writer http.ResponseWriter, r *http.Request) {
 
 	cfg := configs.GetCurrentConfig()
 	base, _ := filepath.Abs(cfg.OutPutPath)
-	absPath, err := filepath.Abs(filepath.Join(base, path))
-	if err != nil || !strings.HasPrefix(absPath, base) || absPath == base {
-		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "禁止删除根目录或无效路径"})
+	absPath, err := getSafePath(cfg.OutPutPath, path)
+	if err != nil || absPath == base {
+		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "禁止删除根目录或无效/越权路径"})
 		return
 	}
 
@@ -1809,9 +1826,9 @@ func batchRenameFiles(writer http.ResponseWriter, r *http.Request) {
 	results := make([]Result, 0, len(body.Paths))
 
 	for _, path := range body.Paths {
-		oldAbsPath, err := filepath.Abs(filepath.Join(base, path))
-		if err != nil || !strings.HasPrefix(oldAbsPath, base) {
-			results = append(results, Result{Path: path, Success: false, Message: "无效路径"})
+		oldAbsPath, err := getSafePath(cfg.OutPutPath, path)
+		if err != nil {
+			results = append(results, Result{Path: path, Success: false, Message: "无效或越权路径"})
 			continue
 		}
 
@@ -1838,6 +1855,13 @@ func batchRenameFiles(writer http.ResponseWriter, r *http.Request) {
 		}
 
 		newAbsPath := filepath.Join(filepath.Dir(oldAbsPath), newName)
+
+		// 二次校验新路径
+		rel, err := filepath.Rel(base, newAbsPath)
+		if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+			results = append(results, Result{Path: path, Success: false, Message: "目标名越界"})
+			continue
+		}
 
 		// 检查目标文件名是否已存在
 		if _, err := os.Stat(newAbsPath); err == nil {
@@ -1875,9 +1899,9 @@ func batchDeleteFiles(writer http.ResponseWriter, r *http.Request) {
 	results := make([]Result, 0, len(body.Paths))
 
 	for _, path := range body.Paths {
-		absPath, err := filepath.Abs(filepath.Join(base, path))
-		if err != nil || !strings.HasPrefix(absPath, base) || absPath == base {
-			results = append(results, Result{Path: path, Success: false, Message: "无效路径"})
+		absPath, err := getSafePath(cfg.OutPutPath, path)
+		if err != nil || absPath == base {
+			results = append(results, Result{Path: path, Success: false, Message: "禁止操作根目录或越权路径"})
 			continue
 		}
 
