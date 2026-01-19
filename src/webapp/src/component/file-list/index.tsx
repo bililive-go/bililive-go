@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import API from "../../utils/api";
 import { Breadcrumb, Divider, Table } from "antd";
-import { FolderFilled, FileOutlined } from "@ant-design/icons";
+import { FolderOutlined, FileOutlined, CloseOutlined } from "@ant-design/icons";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import Utils from "../../utils/common";
 import './file-list.css';
@@ -27,6 +27,8 @@ const FileList: React.FC = () => {
     const [currentFolderFiles, setCurrentFolderFiles] = useState<CurrentFolderFile[]>([]);
     const [sortedInfo, setSortedInfo] = useState<any>({});
     const [isPlayerVisible, setIsPlayerVisible] = useState(false);
+    const [currentPlayingName, setCurrentPlayingName] = useState("");
+    const artRef = useRef<Artplayer | null>(null);
 
     const requestFileList = useCallback((path: string = "") => {
         api.getFileList(path)
@@ -48,9 +50,27 @@ const FileList: React.FC = () => {
         requestFileList(pathParam);
     }, [pathParam, requestFileList]);
 
-    const hidePlayer = () => {
+    const hidePlayer = useCallback(() => {
+        if (artRef.current) {
+            artRef.current.destroy(true);
+            artRef.current = null;
+        }
         setIsPlayerVisible(false);
-    };
+        setCurrentPlayingName("");
+    }, []);
+
+    // 监听 ESC 键退出播放
+    useEffect(() => {
+        const handleEsc = (event: KeyboardEvent) => {
+            if (event.key === "Escape") {
+                hidePlayer();
+            }
+        };
+        window.addEventListener("keydown", handleEsc);
+        return () => {
+            window.removeEventListener("keydown", handleEsc);
+        };
+    }, [hidePlayer]);
 
     const handleChange = (pagination: TablePaginationConfig, filters: any, sorter: any) => {
         setSortedInfo(sorter);
@@ -64,10 +84,20 @@ const FileList: React.FC = () => {
         if (record.is_folder) {
             navigate("/fileList/" + path);
         } else {
+            setCurrentPlayingName(record.name);
             setIsPlayerVisible(true);
             // 使用 setTimeout 确保 DOM 已更新
             setTimeout(() => {
+                if (artRef.current) {
+                    artRef.current.destroy(true);
+                }
+
                 const art = new Artplayer({
+                    container: '#art-container',
+                    url: `files/${path}`,
+                    title: record.name,
+                    volume: 0.7,
+                    autoplay: true,
                     pip: true,
                     setting: true,
                     playbackRate: true,
@@ -77,14 +107,12 @@ const FileList: React.FC = () => {
                     autoMini: true,
                     mutex: true,
                     miniProgressBar: true,
-                    backdrop: false,
+                    backdrop: true,
                     fullscreen: true,
                     fullscreenWeb: true,
                     lang: 'zh-cn',
-                    container: '#art-container',
-                    url: `files/${path}`,
                     customType: {
-                        flv: function (video, url) {
+                        flv: function (video, url, art) {
                             if (mpegtsjs.isSupported()) {
                                 const flvPlayer = mpegtsjs.createPlayer({
                                     type: "flv",
@@ -94,13 +122,14 @@ const FileList: React.FC = () => {
                                 }, {});
                                 flvPlayer.attachMediaElement(video);
                                 flvPlayer.load();
+                                art.on('destroy', () => {
+                                    flvPlayer.destroy();
+                                });
                             } else {
-                                if (art) {
-                                    art.notice.show = "不支持播放格式: flv";
-                                }
+                                art.notice.show = "不支持播放格式: flv";
                             }
                         },
-                        ts: function (video, url) {
+                        ts: function (video, url, art) {
                             if (mpegtsjs.isSupported()) {
                                 const tsPlayer = mpegtsjs.createPlayer({
                                     type: "mpegts",
@@ -110,14 +139,16 @@ const FileList: React.FC = () => {
                                 }, {});
                                 tsPlayer.attachMediaElement(video);
                                 tsPlayer.load();
+                                art.on('destroy', () => {
+                                    tsPlayer.destroy();
+                                });
                             } else {
-                                if (art) {
-                                    art.notice.show = "不支持播放格式: mpegts";
-                                }
+                                art.notice.show = "不支持播放格式: mpegts";
                             }
                         },
                     },
                 });
+                artRef.current = art;
             }, 0);
         }
     };
@@ -127,7 +158,6 @@ const FileList: React.FC = () => {
         let currentPath = "/fileList";
         const folders = pathParam?.split("/").filter(Boolean) || [];
 
-        // 使用 Ant Design v5 的 items API
         const breadcrumbItems = [
             {
                 key: 'root',
@@ -142,6 +172,7 @@ const FileList: React.FC = () => {
             })
         ];
 
+        // @ts-ignore
         return <Breadcrumb items={breadcrumbItems} />;
     };
 
@@ -161,7 +192,7 @@ const FileList: React.FC = () => {
             sortOrder: currentSortedInfo.columnKey === "name" && currentSortedInfo.order,
             render: (text: string, record: CurrentFolderFile) => {
                 return [
-                    record.is_folder ? <FolderFilled key="icon" style={{ color: '#1890ff' }} /> : <FileOutlined key="icon" />,
+                    record.is_folder ? <FolderOutlined key="icon" style={{ color: '#1890ff' }} /> : <FileOutlined key="icon" />,
                     <Divider key="divider" type="vertical" />,
                     <span key="name">{record.name}</span>,
                 ];
@@ -201,13 +232,29 @@ const FileList: React.FC = () => {
     };
 
     const renderArtPlayer = () => {
-        return <div id="art-container"></div>;
+        return (
+            <div className="player-wrapper">
+                <div className="player-header">
+                    <div className="playing-title" title={currentPlayingName}>
+                        正在播放: {currentPlayingName}
+                    </div>
+                    <div className="close-btn" onClick={hidePlayer} title="退出播放 (Esc)">
+                        <CloseOutlined />
+                    </div>
+                </div>
+                <div id="art-container"></div>
+            </div>
+        );
     };
 
     return (
-        <div style={{ height: "100%" }}>
-            {renderParentFolderBar()}
-            {isPlayerVisible ? renderArtPlayer() : renderCurrentFolderFileList()}
+        <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+            <div style={{ marginBottom: 12 }}>
+                {renderParentFolderBar()}
+            </div>
+            <div style={{ flex: 1, minHeight: 0 }}>
+                {isPlayerVisible ? renderArtPlayer() : renderCurrentFolderFileList()}
+            </div>
         </div>
     );
 };
