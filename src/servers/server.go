@@ -92,8 +92,17 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/lives/{id}/history", getLiveHistory).Methods("GET")          // 获取统一历史事件（支持分页筛选）
 	apiRoute.HandleFunc("/lives/{id}/{action}", parseLiveAction).Methods("GET")        // 通配符路由必须放在最后
 	apiRoute.HandleFunc("/file/{path:.*}", getFileInfo).Methods("GET")
+	apiRoute.HandleFunc("/file/{path:.*}", renameFile).Methods("PUT")
+	apiRoute.HandleFunc("/file/{path:.*}", deleteFile).Methods("DELETE")
+	apiRoute.HandleFunc("/batch/file/rename", batchRenameFiles).Methods("PUT")
+	apiRoute.HandleFunc("/batch/file/delete", batchDeleteFiles).Methods("POST")
 	apiRoute.HandleFunc("/cookies", getLiveHostCookie).Methods("GET")
 	apiRoute.HandleFunc("/cookies", putLiveHostCookie).Methods("PUT")
+
+	// Bilibili Login
+	apiRoute.HandleFunc("/bilibili/qrcode", getBilibiliQRCode).Methods("GET")
+	apiRoute.HandleFunc("/bilibili/qrcode/poll", pollBilibiliQRCode).Methods("GET")
+	apiRoute.HandleFunc("/bilibili/cookie/verify", verifyBilibiliCookie).Methods("POST")
 	apiRoute.HandleFunc("/sse", sseHandler).Methods("GET") // SSE 实时推送端点
 	// 远程 WebUI 路由
 	apiRoute.HandleFunc("/webui/remote/status", getRemoteWebuiStatus).Methods("GET")  // 获取远程 WebUI 状态

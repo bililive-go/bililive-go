@@ -111,6 +111,31 @@ class API {
     }
 
     /**
+     * 重命名文件或文件夹
+     * @param path 原路径
+     * @param newName 新名称（不含后缀）
+     */
+    renameFile(path: string, newName: string) {
+        return utils.requestPut(`${BASE_URL}/file/${path}`, { new_name: newName });
+    }
+
+    /**
+     * 删除文件或文件夹
+     * @param path 路径
+     */
+    deleteFile(path: string) {
+        return utils.requestDelete(`${BASE_URL}/file/${path}`);
+    }
+
+    batchRenameFiles(paths: string[], find: string, replace: string) {
+        return utils.requestPut(`${BASE_URL}/batch/file/rename`, { paths, find, replace });
+    }
+
+    batchDeleteFiles(paths: string[]) {
+        return utils.requestPost(`${BASE_URL}/batch/file/delete`, { paths });
+    }
+
+    /**
      * 获取Cookie列表
      */
     getCookieList() {
@@ -259,6 +284,29 @@ class API {
      */
     checkWebuiUpdate() {
         return utils.requestGet(`${BASE_URL}/webui/remote/check`);
+    }
+
+    /**
+     * 获取哔哩哔哩登录二维码
+     */
+    getBilibiliQRCode() {
+        return utils.requestGet(`${BASE_URL}/bilibili/qrcode`);
+    }
+
+    /**
+     * 轮询哔哩哔哩登录状态
+     * @param key qrcode_key
+     */
+    pollBilibiliQRCode(key: string) {
+        return utils.requestGet(`${BASE_URL}/bilibili/qrcode/poll?key=${key}`);
+    }
+
+    /**
+     * 验证哔哩哔哩 Cookie
+     * @param cookie cookie 字符串
+     */
+    verifyBilibiliCookie(cookie: string) {
+        return utils.requestPost(`${BASE_URL}/bilibili/cookie/verify`, { cookie });
     }
 }
 
