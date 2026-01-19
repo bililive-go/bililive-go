@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -1682,24 +1683,38 @@ func getFileInfo(writer http.ResponseWriter, r *http.Request) {
 	writeJSON(writer, json)
 }
 
-// translateOSError 将系统错误转换为中文
+// translateOSError 将系统错误转换为中文，兼容多平台。
 func translateOSError(err error) string {
 	if err == nil {
 		return ""
 	}
-	errStr := err.Error()
+
+	// 1. 优先使用标准库提供的语义化判断（能应对各种操作系统语言）
 	switch {
-	case strings.Contains(errStr, "Access is denied"), strings.Contains(errStr, "permission denied"):
-		return "操作被拒绝：权限不足或文件/文件夹正被占用"
-	case strings.Contains(errStr, "being used by another process"):
-		return "操作失败：文件正被另一个程序占用"
-	case strings.Contains(errStr, "cannot find the file"), strings.Contains(errStr, "no such file"):
+	case errors.Is(err, fs.ErrNotExist):
 		return "操作失败：文件或文件夹不存在"
-	case strings.Contains(errStr, "file already exists"):
+	case errors.Is(err, fs.ErrExist):
 		return "操作失败：目标文件名已存在"
-	case strings.Contains(errStr, "is not empty"):
+	case errors.Is(err, fs.ErrPermission):
+		return "操作被拒绝：权限不足或文件/文件夹正被占用"
+	}
+
+	// 2. 对于无法通过标准库语义识别、且具有平台特性的错误，保留并优化字符串匹配
+	errStr := err.Error()
+	loweredErr := strings.ToLower(errStr)
+	switch {
+	// 特别处理 Windows 常见的文件占用/共享冲突
+	case strings.Contains(loweredErr, "being used by another process"),
+		strings.Contains(loweredErr, "sharing violation"):
+		return "操作失败：文件正被另一个程序占用"
+
+	// 处理删除非空目录
+	case strings.Contains(loweredErr, "is not empty"),
+		strings.Contains(loweredErr, "directory not empty"):
 		return "操作失败：目录不为空"
+
 	default:
+		// 最后的兜底，返回原始错误
 		return errStr
 	}
 }
@@ -2366,7 +2381,14 @@ func getBilibiliQRCode(writer http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	body, _ := resp.Bytes()
+	body, err := resp.Bytes()
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "读取响应体失败: " + err.Error(),
+		})
+		return
+	}
 	writer.Header().Set("Content-Type", "application/json")
 	writer.Write(body)
 }
@@ -2388,7 +2410,14 @@ func pollBilibiliQRCode(writer http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, _ := resp.Bytes()
+	body, err := resp.Bytes()
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "读取响应体失败: " + err.Error(),
+		})
+		return
+	}
 
 	// 尝试解析响应，如果是成功状态，尝试从 Cookie 中提取 sid 并附加到 URL
 	var result struct {
@@ -2441,7 +2470,14 @@ func verifyBilibiliCookie(writer http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	body, _ := resp.Bytes()
+	body, err := resp.Bytes()
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "读取响应体失败: " + err.Error(),
+		})
+		return
+	}
 	writer.Header().Set("Content-Type", "application/json")
 	writer.Write(body)
 }
