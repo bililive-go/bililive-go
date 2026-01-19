@@ -2468,23 +2468,34 @@ func pollBilibiliQRCode(writer http.ResponseWriter, r *http.Request) {
 		} `json:"data"`
 	}
 
-	if err := json.Unmarshal(body, &result); err == nil && result.Code == 0 && result.Data.Code == 0 && result.Data.Url != "" {
+	if err := json.Unmarshal(body, &result); err != nil {
+		applog.GetLogger().Error("轮询登录状态解析 JSON 失败: " + err.Error())
+	} else if result.Code == 0 && result.Data.Code == 0 && result.Data.Url != "" {
 		// 登录成功，检查响应头中的 Cookie
-		u, _ := url.Parse(result.Data.Url)
-		q := u.Query()
-		foundExtra := false
-		if resp.Response != nil {
-			for _, cookie := range resp.Response.Cookies() {
-				if cookie.Name == "sid" && q.Get("sid") == "" {
-					q.Set("sid", cookie.Value)
-					foundExtra = true
+		u, err := url.Parse(result.Data.Url)
+		if err != nil {
+			applog.GetLogger().Error("解析登录回调 URL 失败: " + err.Error() + ", URL: " + result.Data.Url)
+		} else {
+			q := u.Query()
+			foundExtra := false
+			if resp.Response != nil {
+				for _, cookie := range resp.Response.Cookies() {
+					if cookie.Name == "sid" && q.Get("sid") == "" {
+						q.Set("sid", cookie.Value)
+						foundExtra = true
+					}
 				}
 			}
-		}
-		if foundExtra {
-			u.RawQuery = q.Encode()
-			result.Data.Url = u.String()
-			body, _ = json.Marshal(result)
+			if foundExtra {
+				u.RawQuery = q.Encode()
+				result.Data.Url = u.String()
+				newBody, err := json.Marshal(result)
+				if err != nil {
+					applog.GetLogger().Error("序列化增强后的登录结果失败: " + err.Error())
+				} else {
+					body = newBody
+				}
+			}
 		}
 	}
 
