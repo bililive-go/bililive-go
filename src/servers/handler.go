@@ -1763,7 +1763,11 @@ func renameFile(writer http.ResponseWriter, r *http.Request) {
 	}
 
 	// 重点：必须再次校验新路径是否安全，防止 body.NewName 包含 ../ 等逃逸字符
-	base, _ := filepath.Abs(cfg.OutPutPath)
+	base, err := filepath.Abs(cfg.OutPutPath)
+	if err != nil {
+		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "获取根目录绝对路径失败: " + err.Error()})
+		return
+	}
 	rel, err := filepath.Rel(base, newAbsPath)
 	if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
 		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "非法的新文件名：禁止越界路径"})
@@ -1789,7 +1793,11 @@ func deleteFile(writer http.ResponseWriter, r *http.Request) {
 	path := vars["path"]
 
 	cfg := configs.GetCurrentConfig()
-	base, _ := filepath.Abs(cfg.OutPutPath)
+	base, err := filepath.Abs(cfg.OutPutPath)
+	if err != nil {
+		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "获取根目录绝对路径失败: " + err.Error()})
+		return
+	}
 	absPath, err := getSafePath(cfg.OutPutPath, path)
 	if err != nil || absPath == base {
 		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "禁止删除根目录或无效/越权路径"})
@@ -1816,7 +1824,11 @@ func batchRenameFiles(writer http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := configs.GetCurrentConfig()
-	base, _ := filepath.Abs(cfg.OutPutPath)
+	base, err := filepath.Abs(cfg.OutPutPath)
+	if err != nil {
+		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "获取根目录绝对路径失败: " + err.Error()})
+		return
+	}
 
 	type Result struct {
 		Path    string `json:"path"`
@@ -1889,7 +1901,11 @@ func batchDeleteFiles(writer http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := configs.GetCurrentConfig()
-	base, _ := filepath.Abs(cfg.OutPutPath)
+	base, err := filepath.Abs(cfg.OutPutPath)
+	if err != nil {
+		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "获取根目录绝对路径失败: " + err.Error()})
+		return
+	}
 
 	type Result struct {
 		Path    string `json:"path"`
