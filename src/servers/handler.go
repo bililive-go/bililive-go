@@ -1618,6 +1618,10 @@ func updateRoomConfig(writer http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// getSafePath 验证并生成安全的绝对路径，防止路径遍历（Path Traversal）攻击。
+// base: 授权访问的基础根目录。
+// subPath: 待访问的相对子路径。
+// 该函数会通过计算绝对路径并检查相对关系，确保最终路径不会逃逸出基础根目录。
 func getSafePath(base, subPath string) (string, error) {
 	absBase, err := filepath.Abs(base)
 	if err != nil {
