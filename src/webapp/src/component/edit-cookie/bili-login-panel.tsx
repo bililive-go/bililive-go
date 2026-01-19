@@ -241,7 +241,7 @@ const BiliLoginPanel: React.FC<BiliLoginPanelProps> = ({ initialCookie, onCookie
                     <div style={{ fontSize: '14px' }}>
                         推荐使用扫码登录，如录制画质受限（4K）-触发风控-弹幕获取失败等。请手动获取 Cookie，步骤如下：
                         <ul className="instruction-list">
-                            <li>在浏览器打开 <b>live.bilibili.com</b> 并保持登录状态。</li>
+                            <li>在浏览器打开 <b>哔哩哔哩</b> 并保持登录状态。</li>
                             <li>按键盘上的 <b>F12</b> 或右键选择 <b>检查</b>，切换到 <b>网络 (Network)</b> 面板。</li>
                             <li>刷新页面，点开列表中的 <b>www.bilibili.com</b> 第一个请求，在 <b>标头 (Headers)</b> 中找到 <b>Cookie</b> 一栏。</li>
                             <li><b>右键选中复制值</b>，并粘贴到上方输入框内。</li>
