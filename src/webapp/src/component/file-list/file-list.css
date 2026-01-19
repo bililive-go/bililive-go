@@ -54,3 +54,58 @@
     width: 100%;
     height: 100%;
 }
+
+.file-table-row {
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.file-table-row:hover {
+    background-color: #fafafa;
+}
+
+.file-name-cell {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.file-name-cell .name-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.action-btn {
+    padding: 4px 8px;
+    height: auto;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.action-btn.danger:hover {
+    background-color: #fff1f0;
+}
+
+.action-btn:hover {
+    background-color: #f0f7ff;
+}
+
+.action-btn:focus,
+.action-btn:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+.ant-table-wrapper {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.ant-table-thead>tr>th {
+    background: #fafafa !important;
+    font-weight: 600 !important;
+}

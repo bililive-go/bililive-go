@@ -1677,6 +1677,200 @@ func getFileInfo(writer http.ResponseWriter, r *http.Request) {
 	writeJSON(writer, json)
 }
 
+// translateOSError 将系统错误转换为中文
+func translateOSError(err error) string {
+	if err == nil {
+		return ""
+	}
+	errStr := err.Error()
+	switch {
+	case strings.Contains(errStr, "Access is denied"), strings.Contains(errStr, "permission denied"):
+		return "操作被拒绝：权限不足或文件/文件夹正被占用"
+	case strings.Contains(errStr, "being used by another process"):
+		return "操作失败：文件正被另一个程序占用"
+	case strings.Contains(errStr, "cannot find the file"), strings.Contains(errStr, "no such file"):
+		return "操作失败：文件或文件夹不存在"
+	case strings.Contains(errStr, "file already exists"):
+		return "操作失败：目标文件名已存在"
+	case strings.Contains(errStr, "is not empty"):
+		return "操作失败：目录不为空"
+	default:
+		return errStr
+	}
+}
+
+func renameFile(writer http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	path := vars["path"]
+
+	var body struct {
+		NewName string `json:"new_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "无效请求"})
+		return
+	}
+
+	cfg := configs.GetCurrentConfig()
+	base, _ := filepath.Abs(cfg.OutPutPath)
+	oldAbsPath, err := filepath.Abs(filepath.Join(base, path))
+	if err != nil || !strings.HasPrefix(oldAbsPath, base) {
+		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "无效路径"})
+		return
+	}
+
+	info, err := os.Stat(oldAbsPath)
+	if err != nil {
+		writeJSON(writer, commonResp{ErrNo: 404, ErrMsg: "文件不存在"})
+		return
+	}
+
+	var newAbsPath string
+	if info.IsDir() {
+		newAbsPath = filepath.Join(filepath.Dir(oldAbsPath), body.NewName)
+	} else {
+		ext := filepath.Ext(oldAbsPath)
+		newAbsPath = filepath.Join(filepath.Dir(oldAbsPath), body.NewName+ext)
+	}
+
+	// 检查目标文件名是否已存在
+	if _, err := os.Stat(newAbsPath); err == nil {
+		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "重命名失败：目标文件名已存在"})
+		return
+	}
+
+	if err := os.Rename(oldAbsPath, newAbsPath); err != nil {
+		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "重命名失败: " + translateOSError(err)})
+		return
+	}
+
+	writeJSON(writer, commonResp{Data: "OK"})
+}
+
+func deleteFile(writer http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	path := vars["path"]
+
+	cfg := configs.GetCurrentConfig()
+	base, _ := filepath.Abs(cfg.OutPutPath)
+	absPath, err := filepath.Abs(filepath.Join(base, path))
+	if err != nil || !strings.HasPrefix(absPath, base) || absPath == base {
+		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "禁止删除根目录或无效路径"})
+		return
+	}
+
+	if err := os.RemoveAll(absPath); err != nil {
+		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "删除失败: " + translateOSError(err)})
+		return
+	}
+
+	writeJSON(writer, commonResp{Data: "OK"})
+}
+
+func batchRenameFiles(writer http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Paths   []string `json:"paths"`
+		Find    string   `json:"find"`
+		Replace string   `json:"replace"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "无效请求"})
+		return
+	}
+
+	cfg := configs.GetCurrentConfig()
+	base, _ := filepath.Abs(cfg.OutPutPath)
+
+	type Result struct {
+		Path    string `json:"path"`
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+	results := make([]Result, 0, len(body.Paths))
+
+	for _, path := range body.Paths {
+		oldAbsPath, err := filepath.Abs(filepath.Join(base, path))
+		if err != nil || !strings.HasPrefix(oldAbsPath, base) {
+			results = append(results, Result{Path: path, Success: false, Message: "无效路径"})
+			continue
+		}
+
+		info, err := os.Stat(oldAbsPath)
+		if err != nil {
+			results = append(results, Result{Path: path, Success: false, Message: "文件不存在"})
+			continue
+		}
+
+		oldName := filepath.Base(oldAbsPath)
+		var newName string
+		if info.IsDir() {
+			newName = strings.ReplaceAll(oldName, body.Find, body.Replace)
+		} else {
+			ext := filepath.Ext(oldName)
+			nameWithoutExt := strings.TrimSuffix(oldName, ext)
+			newNameWithoutExt := strings.ReplaceAll(nameWithoutExt, body.Find, body.Replace)
+			newName = newNameWithoutExt + ext
+		}
+
+		if oldName == newName {
+			results = append(results, Result{Path: path, Success: true, Message: "无需更改"})
+			continue
+		}
+
+		newAbsPath := filepath.Join(filepath.Dir(oldAbsPath), newName)
+
+		// 检查目标文件名是否已存在
+		if _, err := os.Stat(newAbsPath); err == nil {
+			results = append(results, Result{Path: path, Success: false, Message: "目标已存在"})
+			continue
+		}
+
+		if err := os.Rename(oldAbsPath, newAbsPath); err != nil {
+			results = append(results, Result{Path: path, Success: false, Message: translateOSError(err)})
+		} else {
+			results = append(results, Result{Path: path, Success: true, Message: "成功"})
+		}
+	}
+
+	writeJSON(writer, commonResp{Data: results})
+}
+
+func batchDeleteFiles(writer http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Paths []string `json:"paths"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "无效请求"})
+		return
+	}
+
+	cfg := configs.GetCurrentConfig()
+	base, _ := filepath.Abs(cfg.OutPutPath)
+
+	type Result struct {
+		Path    string `json:"path"`
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+	results := make([]Result, 0, len(body.Paths))
+
+	for _, path := range body.Paths {
+		absPath, err := filepath.Abs(filepath.Join(base, path))
+		if err != nil || !strings.HasPrefix(absPath, base) || absPath == base {
+			results = append(results, Result{Path: path, Success: false, Message: "无效路径"})
+			continue
+		}
+
+		if err := os.RemoveAll(absPath); err != nil {
+			results = append(results, Result{Path: path, Success: false, Message: translateOSError(err)})
+		} else {
+			results = append(results, Result{Path: path, Success: true, Message: "成功"})
+		}
+	}
+
+	writeJSON(writer, commonResp{Data: results})
+}
+
 func getLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 	inst := instance.GetInstance(r.Context())
 	hostCookieMap := make(map[string]*live.InfoCookie)
