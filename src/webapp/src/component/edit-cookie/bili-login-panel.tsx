@@ -67,6 +67,7 @@ const BiliLoginPanel: React.FC<BiliLoginPanelProps> = ({ initialCookie, onCookie
             // Auto verify after success
             verifyCookie(cookieStr);
         } catch (e) {
+            console.error(e);
             notification.error({ message: '解析结果失败' });
         }
     }, [verifyCookie]);
