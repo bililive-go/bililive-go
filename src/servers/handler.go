@@ -1158,7 +1158,11 @@ func updateConfig(writer http.ResponseWriter, r *http.Request) {
 
 	_, err = configs.UpdateWithRetry(func(c *configs.Config) error {
 		// 应用更新到配置
-		return applyConfigUpdates(c, updates)
+		if err := applyConfigUpdates(c, updates); err != nil {
+			return err
+		}
+		// 校验配置
+		return c.Verify()
 	}, 3, 10*time.Millisecond)
 
 	if err != nil {

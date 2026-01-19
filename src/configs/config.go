@@ -40,7 +40,7 @@ func (r *RPC) verify() error {
 		return nil
 	}
 	if _, err := net.ResolveTCPAddr("tcp", r.Bind); err != nil {
-		return err
+		return fmt.Errorf("无效的RPC绑定地址: %w", err)
 	}
 	return nil
 }
@@ -621,22 +621,22 @@ func newConfigPostProcess(c *Config) {
 // Verify will return an error when this config has problem.
 func (c *Config) Verify() error {
 	if c == nil {
-		return fmt.Errorf("config is null")
+		return fmt.Errorf("配置不存在")
 	}
 	if err := c.RPC.verify(); err != nil {
 		return err
 	}
 	if c.Interval <= 0 {
-		return fmt.Errorf("the interval can not <= 0")
+		return fmt.Errorf("检测间隔必须大于 0")
 	}
 	if _, err := os.Stat(c.OutPutPath); err != nil {
-		return fmt.Errorf(`the out put path: "%s" is not exist`, c.OutPutPath)
+		return fmt.Errorf(`输出路径 "%s" 不存在`, c.OutPutPath)
 	}
 	if maxDur := c.VideoSplitStrategies.MaxDuration; maxDur > 0 && maxDur < time.Minute {
-		return fmt.Errorf("the minimum value of max_duration is one minute")
+		return fmt.Errorf("单个视频的最大录制时长最小值为 1 分钟")
 	}
 	if !c.RPC.Enable && len(c.LiveRooms) == 0 {
-		return fmt.Errorf("the RPC is not enabled, and no live room is set. the program has nothing to do using this setting")
+		return fmt.Errorf("RPC 服务已禁用且未配置直播间，程序无任务可执行")
 	}
 
 	// 验证平台配置
