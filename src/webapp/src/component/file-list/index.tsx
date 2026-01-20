@@ -32,7 +32,8 @@ const FileList: React.FC = () => {
     const navigate = useNavigate();
     // 使用 "*" 通配符捕获的路径参数
     const params = useParams();
-    const pathParam = params["*"] || "";
+    // 确保从 URL 获取的路径参数是解码后的原始字符串
+    const pathParam = decodeURIComponent(params["*"] || "");
 
     const [currentFolderFiles, setCurrentFolderFiles] = useState<CurrentFolderFile[]>([]);
     const [sortedInfo, setSortedInfo] = useState<any>({});
@@ -69,7 +70,7 @@ const FileList: React.FC = () => {
     }, [pathParam]);
 
     const requestFileList = useCallback((path: string = "") => {
-        api.getFileList(path)
+        api.getFileList(encodePath(path))
             .then((rsp: any) => {
                 if (rsp?.files) {
                     setCurrentFolderFiles(rsp.files);
@@ -116,6 +117,24 @@ const FileList: React.FC = () => {
         setSortedInfo(sorter);
     };
 
+    /**
+     * 对路径进行 URL 编码，用于 API 请求和资源定位。
+     */
+    const encodePath = (path: string): string => {
+        if (!path) return "";
+        return path.split("/").map(p => encodeURIComponent(p)).join("/");
+    };
+
+    /**
+     * 对路径进行双重 URL 编码，专门用于 HashRouter 导航。
+     * 因为 HashRouter 会将路径中的第一个 # 视为路由分隔符，
+     * 双重编码可以将 # 转义为 %2523，避免冲突。
+     */
+    const encodePathForNav = (path: string): string => {
+        if (!path) return "";
+        return path.split("/").map(p => encodeURIComponent(encodeURIComponent(p))).join("/");
+    };
+
     const showBatchRenameModal = () => {
         setBatchFind("");
         setBatchReplace("");
@@ -144,7 +163,7 @@ const FileList: React.FC = () => {
             fullOldPath = pathParam + "/" + renameTarget.name;
         }
 
-        api.renameFile(fullOldPath, newName.trim())
+        api.renameFile(encodePath(fullOldPath), newName.trim())
             .then((rsp: any) => {
                 if (rsp.data === "OK") {
                     message.success("重命名成功");
@@ -163,7 +182,7 @@ const FileList: React.FC = () => {
             fullPath = pathParam + "/" + record.name;
         }
 
-        api.deleteFile(fullPath)
+        api.deleteFile(encodePath(fullPath))
             .then((rsp: any) => {
                 if (rsp.data === "OK") {
                     message.success("删除成功");
@@ -246,12 +265,15 @@ const FileList: React.FC = () => {
     };
 
     const onRowClick = (record: CurrentFolderFile) => {
-        let path = encodeURIComponent(record.name);
+        // 保持使用原始字符串进行拼接
+        let fullPath = record.name;
         if (pathParam) {
-            path = pathParam + "/" + path;
+            fullPath = pathParam + "/" + record.name;
         }
+
         if (record.is_folder) {
-            navigate("/fileList/" + path);
+            // 仅在跳转时进行编码
+            navigate("/fileList/" + encodePathForNav(fullPath));
         } else {
             setCurrentPlayingName(record.name);
             setIsPlayerVisible(true);
@@ -263,7 +285,7 @@ const FileList: React.FC = () => {
 
                 const art = new Artplayer({
                     container: '#art-container',
-                    url: `files/${path}`,
+                    url: `files/${encodePath(fullPath)}`,
                     title: record.name,
                     volume: 0.7,
                     autoplay: true,
@@ -333,7 +355,7 @@ const FileList: React.FC = () => {
                 title: <Link to={currentPath} onClick={hidePlayer}>{rootFolderName}</Link>
             },
             ...folders.map((v: string) => {
-                currentPath += "/" + v;
+                currentPath += "/" + encodeURIComponent(encodeURIComponent(v));
                 return {
                     key: v,
                     title: <Link to={currentPath} onClick={hidePlayer}>{v}</Link>
