@@ -23,6 +23,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/listeners"
 	"github.com/bililive-go/bililive-go/src/live"
+	"github.com/bililive-go/bililive-go/src/pkg/utils"
 	"github.com/bililive-go/bililive-go/src/recorders"
 	"github.com/bililive-go/bililive-go/src/types"
 )
@@ -40,6 +41,16 @@ func parseInfo(ctx context.Context, l live.Live) *live.Info {
 	if info.RoomName == "" {
 		info.RoomName = l.GetRawUrl()
 	}
+
+	// Compute cleaned name following the same logic as the filename template
+	// The template uses: {{ with .Live.GetOptions.NickName }}{{ . | filenameFilter }}{{ else }}{{ .HostName | filenameFilter }}{{ end }}
+	nameToClean := l.GetOptions().NickName
+	if nameToClean == "" {
+		nameToClean = info.HostName
+	}
+	// Apply the same filters as filenameFilter (UnescapeHTMLEntity + ReplaceIllegalChar)
+	info.CleanedName = utils.ParseString(nameToClean, utils.UnescapeHTMLEntity, utils.ReplaceIllegalChar)
+
 	return info
 }
 

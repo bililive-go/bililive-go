@@ -3,7 +3,6 @@ import {Button, Divider, PageHeader, Table, Tag, Tabs, Row, Col, Tooltip} from '
 import PopDialog from '../pop-dialog/index';
 import AddRoomDialog from '../add-room-dialog/index';
 import API from '../../utils/api';
-import Utils from '../../utils/common';
 import './live-list.css';
 import { RouteComponentProps } from "react-router-dom";
 import { ColumnProps } from 'antd/lib/table';
@@ -28,6 +27,7 @@ interface IState {
 interface ItemData {
     key: string,
     name: string,
+    cleanedName: string,
     room: Room,
     address: string,
     tags: string[],
@@ -147,8 +147,7 @@ class LiveList extends React.Component<Props, IState> {
                 </PopDialog>
                 <Divider type="vertical" />
                 <Button type="link" size="small" onClick={(e) => {
-                    const cleanName = Utils.replaceIllegalChar(data.name);
-                    this.props.history.push(`/fileList/${data.address}/${cleanName}`);
+                    this.props.history.push(`/fileList/${data.address}/${data.cleanedName}`);
                 }}>文件</Button>
             </span>
         ),
@@ -325,6 +324,7 @@ class LiveList extends React.Component<Props, IState> {
                     return {
                         key: index + 1,
                         name: item.nick_name || item.host_name,
+                        cleanedName: item.cleaned_name,
                         room: {
                             roomName: item.room_name,
                             url: item.live_url

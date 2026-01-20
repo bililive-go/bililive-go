@@ -119,24 +119,6 @@ class Utils {
         const sec = date.getSeconds().toString().padStart(2, "0");
         return `${year}-${month}-${day} ${hour}:${min}:${sec}`;
     }
-
-    /**
-     * Replace illegal characters in file/folder names
-     * Replicates the Go backend ReplaceIllegalChar function behavior
-     * @param str Input string
-     * @returns String with illegal characters replaced with underscores
-     */
-    static replaceIllegalChar(str: string): string {
-        // Replace illegal characters: / \ : * ? " < > |
-        // Also replace trailing dots and spaces
-        const reg = /[/\\:*?"<>|]|[.\s]+$/g;
-        let result = str;
-        while (reg.test(result)) {
-            reg.lastIndex = 0; // Reset regex lastIndex for global flag
-            result = result.replace(reg, '_');
-        }
-        return result;
-    }
 }
 
 export default Utils;

@@ -14,6 +14,7 @@ type Info struct {
 	Initializing         bool
 	CustomLiveId         string
 	AudioOnly            bool
+	CleanedName          string // Cleaned name for file paths
 }
 
 type InfoCookie struct {
@@ -37,6 +38,7 @@ func (i *Info) MarshalJSON() ([]byte, error) {
 		LastStartTimeUnix int64        `json:"last_start_time_unix,omitempty"`
 		AudioOnly         bool         `json:"audio_only"`
 		NickName          string       `json:"nick_name"`
+		CleanedName       string       `json:"cleaned_name"`
 	}{
 		Id:             i.Live.GetLiveId(),
 		LiveUrl:        i.Live.GetRawUrl(),
@@ -49,6 +51,7 @@ func (i *Info) MarshalJSON() ([]byte, error) {
 		Initializing:   i.Initializing,
 		AudioOnly:      i.AudioOnly,
 		NickName:       i.Live.GetOptions().NickName,
+		CleanedName:    i.CleanedName,
 	}
 	if !i.Live.GetLastStartTime().IsZero() {
 		t.LastStartTime = i.Live.GetLastStartTime().Format("2006-01-02 15:04:05")
