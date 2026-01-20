@@ -12,13 +12,14 @@ function customFetch(arg1: Parameters<typeof fetch>[0], ...args: any[]) {
                     return rsp.json();
                 } else {
                     // Try to parse error message from JSON or text
+                    const clonedRsp = rsp.clone();
                     let errMsg = '';
                     try {
                         const data = await rsp.json();
                         errMsg = data.err_msg || data.message || rsp.statusText;
                     } catch (e) {
                         try {
-                            errMsg = await rsp.text() || rsp.statusText;
+                            errMsg = await clonedRsp.text() || rsp.statusText;
                         } catch (e2) {
                             errMsg = rsp.statusText;
                         }
