@@ -255,6 +255,7 @@ func main() {
 		logger.WithError(err).Warn("初始化直播间状态管理器失败，状态持久化功能将不可用")
 	} else {
 		inst.LiveStateManager = liveStateManager
+		inst.LiveStateStore = liveStateManager.GetStore() // 保存 store 引用供其他模块使用
 		if err := liveStateManager.Start(); err != nil {
 			logger.WithError(err).Warn("启动直播间状态管理器失败")
 		}
@@ -358,15 +359,19 @@ func main() {
 					Platform: l.GetPlatformCNName(),
 				}
 
-				if totalSizeStr, ok := status["total_size"]; ok {
-					var n int64
-					fmt.Sscanf(totalSizeStr, "%d", &n)
-					rs.TotalSize = n
+				if totalSizeVal, ok := status["total_size"]; ok {
+					if totalSizeStr, ok := totalSizeVal.(string); ok {
+						var n int64
+						fmt.Sscanf(totalSizeStr, "%d", &n)
+						rs.TotalSize = n
+					}
 				}
-				if fileSizeStr, ok := status["file_size"]; ok {
-					var n int64
-					fmt.Sscanf(fileSizeStr, "%d", &n)
-					rs.FileSize = n
+				if fileSizeVal, ok := status["file_size"]; ok {
+					if fileSizeStr, ok := fileSizeVal.(string); ok {
+						var n int64
+						fmt.Sscanf(fileSizeStr, "%d", &n)
+						rs.FileSize = n
+					}
 				}
 
 				statuses = append(statuses, rs)

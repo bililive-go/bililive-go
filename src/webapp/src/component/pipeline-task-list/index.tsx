@@ -101,6 +101,7 @@ interface PipelineTaskListState {
 
 class PipelineTaskList extends Component<object, PipelineTaskListState> {
   private pollInterval: ReturnType<typeof setInterval> | null = null;
+  private eventSource: EventSource | null = null;
 
   constructor(props: object) {
     super(props);
@@ -115,15 +116,87 @@ class PipelineTaskList extends Component<object, PipelineTaskListState> {
 
   componentDidMount() {
     this.loadData();
-    // 每5秒刷新一次
-    this.pollInterval = setInterval(() => this.loadData(), 5000);
+    // 每30秒刷新一次（有 SSE 实时更新后可以降低轮询频率）
+    this.pollInterval = setInterval(() => this.loadData(), 30000);
+    // 订阅 SSE 事件
+    this.connectSSE();
   }
 
   componentWillUnmount() {
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
     }
+    if (this.eventSource) {
+      this.eventSource.close();
+    }
   }
+
+  // 连接 SSE 事件源
+  connectSSE = () => {
+    try {
+      this.eventSource = new EventSource('/api/sse');
+
+      // 处理 Pipeline 任务更新事件
+      this.eventSource.addEventListener('pipeline_task_update', (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.data) {
+            this.handleTaskUpdate(data.data as PipelineTask);
+          }
+        } catch (error) {
+          console.error('Failed to parse pipeline task update:', error);
+        }
+      });
+
+      this.eventSource.addEventListener('connected', () => {
+        console.log('SSE connected for pipeline tasks');
+      });
+
+      this.eventSource.onerror = () => {
+        console.warn('SSE connection error, will retry...');
+        // 关闭当前连接，依赖轮询作为备用
+        if (this.eventSource) {
+          this.eventSource.close();
+          this.eventSource = null;
+        }
+        // 5秒后重连
+        setTimeout(() => this.connectSSE(), 5000);
+      };
+    } catch (error) {
+      console.error('Failed to connect SSE:', error);
+    }
+  };
+
+  // 处理单个任务更新
+  handleTaskUpdate = (updatedTask: PipelineTask) => {
+    this.setState(prevState => {
+      const tasks = [...prevState.tasks];
+      const index = tasks.findIndex(t => t.id === updatedTask.id);
+      if (index >= 0) {
+        // 更新现有任务
+        tasks[index] = updatedTask;
+      } else {
+        // 添加新任务到顶部
+        tasks.unshift(updatedTask);
+      }
+      return { tasks };
+    });
+    // 同时刷新统计数据
+    this.loadStats();
+  };
+
+  // 仅加载统计数据
+  loadStats = async () => {
+    try {
+      const res = await fetch('/api/pipeline/tasks/stats');
+      if (res.ok) {
+        const stats = await res.json();
+        this.setState({ stats });
+      }
+    } catch (error) {
+      console.error('Failed to load stats:', error);
+    }
+  };
 
   loadData = async () => {
     try {

@@ -40,7 +40,7 @@ func (b *builder) Build(cfg map[string]string, logger *livelogger.LiveLogger) (p
 	return &Parser{
 		closeOnce:   new(sync.Once),
 		statusReq:   make(chan struct{}, 1),
-		statusResp:  make(chan map[string]string, 1),
+		statusResp:  make(chan map[string]interface{}, 1),
 		timeoutInUs: cfg["timeout_in_us"],
 		audioOnly:   audioOnly,
 		useFlvProxy: useFlvProxy,
@@ -58,7 +58,7 @@ type Parser struct {
 	useFlvProxy bool // 是否使用 FLV 代理分段
 
 	statusReq  chan struct{}
-	statusResp chan map[string]string
+	statusResp chan map[string]interface{}
 	cmdLock    sync.Mutex
 	logger     *livelogger.LiveLogger
 
@@ -92,8 +92,8 @@ func (p *Parser) scanFFmpegStatus() <-chan []byte {
 	return ch
 }
 
-func (p *Parser) decodeFFmpegStatus(b []byte) (status map[string]string) {
-	status = map[string]string{
+func (p *Parser) decodeFFmpegStatus(b []byte) (status map[string]interface{}) {
+	status = map[string]interface{}{
 		"parser": Name,
 	}
 	s := bufio.NewScanner(bytes.NewReader(b))
@@ -131,7 +131,7 @@ func (p *Parser) scheduler() {
 	}
 }
 
-func (p *Parser) Status() (map[string]string, error) {
+func (p *Parser) Status() (map[string]interface{}, error) {
 	// TODO: check parser is running
 	p.statusReq <- struct{}{}
 	return <-p.statusResp, nil

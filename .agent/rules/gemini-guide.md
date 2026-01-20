@@ -3,8 +3,9 @@
 本文档为在此项目中工作的 AI 助手（如 GitHub Copilot、Gemini、Claude、Codex、Antigravity 等）提供指导。
 
 > **注意**：本文件是 AI 指示的唯一源文件。修改后请运行 `make sync-agents` 同步到其他位置：
-> - `.github/copilot-instructions.md`
-> - `.agent/rules/gemini-guide.md`
+> - `.github/copilot-instructions.md` (GitHub Copilot)
+> - `.agent/rules/gemini-guide.md` (Gemini CLI)
+> - `.gemini/MEMORY.md` (Antigravity)
 
 ## 语言要求
 
@@ -95,6 +96,32 @@ make test
 2. **前端配置页面**: `webapp/src/component/config-info/index.tsx`
    - 在 `EffectiveConfig` 接口中添加对应的类型定义
    - 在 `GlobalSettings` 组件中添加配置项的 UI 控件
+
+3. **后端API**: `servers/handler.go`
+   - 在 `applyConfigUpdates` 函数中处理新增的配置字段
+
+### 层级配置注意事项
+
+对于支持三级覆盖的配置（全局 → 平台 → 房间），需要：
+
+1. 在所有三个层级的UI中都添加对应的配置项：
+   - `GlobalSettings` 组件 - 全局配置
+   - `PlatformConfigForm` 组件 - 平台级配置
+   - `RoomConfigForm` 组件 - 房间级配置
+
+2. 使用 `InheritanceIndicator` 组件显示继承关系
+
+3. 确保 `OverridableConfig` 结构体包含该字段（如果适用）
+
+**当前支持的层级配置**：
+- `stream` - 流选择配置（格式优先级、分辨率优先级、码率限制、编码偏好）
+- `interval` - 检测间隔
+- `out_put_path` - 输出路径
+- `ffmpeg_path` - FFmpeg路径
+- `out_put_tmpl` - 输出文件名模板
+- `video_split_strategies` - 视频分割策略
+- `on_record_finished` - 录制完成后动作
+- `timeout_in_us` - 超时设置
 
 ## 环境准备（用于 CI/CD 等自动化环境）
 

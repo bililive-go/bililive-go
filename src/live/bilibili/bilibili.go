@@ -10,6 +10,7 @@ import (
 	"github.com/hr3lxphr6j/requests"
 	"github.com/tidwall/gjson"
 
+	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/live"
 	"github.com/bililive-go/bililive-go/src/live/internal"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
@@ -141,8 +142,21 @@ func (l *Live) GetStreamInfos() (infos []*live.StreamUrlInfo, err error) {
 		cookieKVs[item.Name] = item.Value
 	}
 
+	config := configs.GetCurrentConfig()
+	if config == nil {
+		return nil, live.ErrRoomNotExist
+	}
+
+	qn := 10000
+	resolvedConfig := config.GetEffectiveConfigForRoom(l.GetRawUrl())
+	if resolvedConfig.StreamPreference.Quality != nil {
+		preferredQn := getQnFromQuality(*resolvedConfig.StreamPreference.Quality)
+		if preferredQn > 0 {
+			qn = preferredQn
+		}
+	}
 	apiUrl := liveApiUrlv2
-	query := fmt.Sprintf("?room_id=%s&protocol=0,1&format=0,1,2&codec=0,1&qn=10000&platform=web&ptype=8&dolby=5&panorama=1", l.realID)
+	query := fmt.Sprintf("?room_id=%s&protocol=0,1&format=0,1,2&codec=0,1&qn=%d&platform=web&ptype=8&dolby=5&panorama=1", l.realID, qn)
 	agent := live.CommonUserAgent
 
 	// for audio only use android api
@@ -190,13 +204,13 @@ func (l *Live) GetStreamInfos() (infos []*live.StreamUrlInfo, err error) {
 		protocolName := streamValue.Get("protocol_name").String() // "http_stream" or "http_hls"
 
 		streamValue.Get("format").ForEach(func(_, formatValue gjson.Result) bool {
-			formatName := formatValue.Get("format_name").String() // "flv" or "fmp4"
+			formatName := formatValue.Get("format_name").String() // "flv" "ts" or "fmp4"
 			_ = formatValue.Get("master_url").String()            // 可能为空（HLS没有此字段）
 
 			formatValue.Get("codec").ForEach(func(_, codecValue gjson.Result) bool {
 				codecName := codecValue.Get("codec_name").String() // "avc" or "hevc"
 				currentQn := int(codecValue.Get("current_qn").Int())
-				_ = codecValue.Get("accept_qn").Array() // 可用的其他清晰度
+				acceptQns := codecValue.Get("accept_qn").Array() // 可用的其他清晰度
 				baseURL := codecValue.Get("base_url").String()
 				urlInfos := codecValue.Get("url_info").Array()
 
@@ -211,9 +225,6 @@ func (l *Live) GetStreamInfos() (infos []*live.StreamUrlInfo, err error) {
 				} else if formatName == "flv" {
 					format = "flv"
 				}
-
-				// 确定清晰度
-				quality := getQualityName(currentQn)
 
 				// 解析编码
 				var codec string
@@ -246,27 +257,34 @@ func (l *Live) GetStreamInfos() (infos []*live.StreamUrlInfo, err error) {
 				}
 
 				// 创建StreamUrlInfo
-				for _, u := range urls {
-					info := &live.StreamUrlInfo{
-						Url:                  u,
-						Name:                 fmt.Sprintf("%s - %s", quality, format),
-						Description:          fmt.Sprintf("%s %s (%s)", quality, format, codec),
-						Quality:              quality,
-						Format:               format,
-						Codec:                codec,
-						HeadersForDownloader: l.getHeadersForDownloader(),
-					}
+				for urlIndex, u := range urls {
+					for _, acceptQnObj := range acceptQns {
+						acceptQn := int(acceptQnObj.Int())
+						// 确定清晰度
+						quality := getQualityName(acceptQn)
+						info := &live.StreamUrlInfo{
+							Url:                  u,
+							Name:                 fmt.Sprintf("%s - %s", quality, format),
+							Quality:              quality,
+							Format:               format,
+							Codec:                codec,
+							HeadersForDownloader: l.getHeadersForDownloader(),
 
-					// 尝试从清晰度获取分辨率
-					width, height := getResolutionFromQuality(quality)
-					if width > 0 {
-						info.Width = width
-						info.Height = height
-						info.Resolution = height // 兼容旧字段
-					}
+							// 填充用于前端流选择的属性
+							AttributesForStreamSelect: map[string]string{
+								"画质":          quality,
+								"协议":          protocolName,
+								"codec":       codec,
+								"format_name": formatName,
+								"index":       strconv.Itoa(urlIndex),
+							},
 
-					// 添加到结果
-					infos = append(infos, info)
+							IsPlaceHolder: acceptQn != currentQn,
+						}
+
+						// 添加到结果
+						infos = append(infos, info)
+					}
 				}
 
 				return true // 继续下一个codec
@@ -308,8 +326,9 @@ func (l *Live) GetStreamInfos() (infos []*live.StreamUrlInfo, err error) {
 // getQualityName 根据清晰度代码返回清晰度名称
 func getQualityName(qn int) string {
 	qualityMap := map[int]string{
-		30000: "4K",
-		20000: "原画",
+		30000: "杜比",
+		20000: "4K",
+		15000: "2K",
 		10000: "原画",
 		400:   "蓝光",
 		250:   "超清",
@@ -323,25 +342,22 @@ func getQualityName(qn int) string {
 	return fmt.Sprintf("qn%d", qn)
 }
 
-// getResolutionFromQuality 根据清晰度名称获取分辨率
-func getResolutionFromQuality(quality string) (width, height int) {
-	resolutionMap := map[string][2]int{
-		"4K":    {3840, 2160},
-		"原画":    {1920, 1080},
-		"蓝光":    {1920, 1080},
-		"超清":    {1280, 720},
-		"高清":    {854, 480},
-		"流畅":    {640, 360},
-		"1080p": {1920, 1080},
-		"720p":  {1280, 720},
-		"480p":  {854, 480},
-		"360p":  {640, 360},
+func getQnFromQuality(quality string) int {
+	qnMap := map[string]int{
+		"杜比": 30000,
+		"4K": 20000,
+		"2K": 15000,
+		"原画": 10000,
+		"蓝光": 400,
+		"超清": 250,
+		"高清": 150,
+		"流畅": 80,
 	}
 
-	if res, ok := resolutionMap[quality]; ok {
-		return res[0], res[1]
+	if qn, ok := qnMap[quality]; ok {
+		return qn
 	}
-	return 0, 0
+	return 0
 }
 
 func (l *Live) GetPlatformCNName() string {

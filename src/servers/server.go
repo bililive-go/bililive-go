@@ -87,10 +87,11 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/lives/{id}", getLive).Methods("GET")
 	apiRoute.HandleFunc("/lives/{id}", removeLive).Methods("DELETE")
 	apiRoute.HandleFunc("/lives/{id}/logs", getLiveLogs).Methods("GET")
-	apiRoute.HandleFunc("/lives/{id}/sessions", getLiveSessionHistory).Methods("GET")  // 获取直播会话历史
-	apiRoute.HandleFunc("/lives/{id}/name-history", getLiveNameHistory).Methods("GET") // 获取名称变更历史
-	apiRoute.HandleFunc("/lives/{id}/history", getLiveHistory).Methods("GET")          // 获取统一历史事件（支持分页筛选）
-	apiRoute.HandleFunc("/lives/{id}/{action}", parseLiveAction).Methods("GET")        // 通配符路由必须放在最后
+	apiRoute.HandleFunc("/lives/{id}/sessions", getLiveSessionHistory).Methods("GET")    // 获取直播会话历史
+	apiRoute.HandleFunc("/lives/{id}/name-history", getLiveNameHistory).Methods("GET")   // 获取名称变更历史
+	apiRoute.HandleFunc("/lives/{id}/history", getLiveHistory).Methods("GET")            // 获取统一历史事件（支持分页筛选）
+	apiRoute.HandleFunc("/lives/{id}/switchStream", switchStreamHandler).Methods("POST") // 切换流设置（需要请求体，必须在通配符之前）
+	apiRoute.HandleFunc("/lives/{id}/{action}", parseLiveAction).Methods("GET")          // 通配符路由必须放在最后
 	apiRoute.HandleFunc("/file/{path:.*}", getFileInfo).Methods("GET")
 	apiRoute.HandleFunc("/file/{path:.*}", renameFile).Methods("PUT")
 	apiRoute.HandleFunc("/file/{path:.*}", deleteFile).Methods("DELETE")
@@ -281,7 +282,7 @@ func (s *Server) Close(ctx context.Context) {
 // setupRecorderStatusBroadcast 设置录制器状态广播回调
 func setupRecorderStatusBroadcast() {
 	// 设置回调函数，让 recorders 包能够调用 SSE 广播
-	recorders.SetBroadcastRecorderStatusFunc(func(liveId types.LiveID, status map[string]string) {
+	recorders.SetBroadcastRecorderStatusFunc(func(liveId types.LiveID, status map[string]interface{}) {
 		GetSSEHub().BroadcastRecorderStatus(liveId, status)
 	})
 

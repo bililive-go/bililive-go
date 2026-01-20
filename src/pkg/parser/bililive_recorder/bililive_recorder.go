@@ -236,8 +236,8 @@ func (p *Parser) Stop() error {
 }
 
 // Status 返回下载器的当前状态
-func (p *Parser) Status() (map[string]string, error) {
-	return map[string]string{
+func (p *Parser) Status() (map[string]interface{}, error) {
+	return map[string]interface{}{
 		"parser": Name,
 	}, nil
 }

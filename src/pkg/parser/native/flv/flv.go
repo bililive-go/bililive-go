@@ -190,3 +190,10 @@ func (p *Parser) doWrite(ctx context.Context, b []byte) error {
 	}
 	return nil
 }
+
+// Status 返回下载器的当前状态
+func (p *Parser) Status() (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"parser": Name,
+	}, nil
+}

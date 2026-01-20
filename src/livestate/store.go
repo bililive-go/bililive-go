@@ -3,6 +3,7 @@ package livestate
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -47,6 +48,12 @@ type Store interface {
 	// 名称变更历史
 	RecordNameChange(ctx context.Context, liveID, nameType, oldValue, newValue string) error
 	GetNameHistory(ctx context.Context, liveID string, limit int) ([]*NameChange, error)
+
+	// 可用流信息
+	SaveAvailableStreams(ctx context.Context, liveID string, streams []*AvailableStream) error
+	GetAvailableStreams(ctx context.Context, liveID string) ([]*AvailableStream, error)
+	// SaveAvailableStreamsAny 通用接口，避免循环导入（接收 []map[string]interface{} 类型）
+	SaveAvailableStreamsAny(ctx context.Context, liveID string, streams interface{}) error
 
 	// 生命周期
 	Close() error
@@ -551,6 +558,206 @@ func (s *SQLiteStore) GetNameHistory(ctx context.Context, liveID string, limit i
 		changes = append(changes, change)
 	}
 	return changes, nil
+}
+
+// SaveAvailableStreams 保存可用流信息（先删除旧数据再插入新数据）
+func (s *SQLiteStore) SaveAvailableStreams(ctx context.Context, liveID string, streams []*AvailableStream) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// 开始事务
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 删除该直播间旧的可用流数据
+	_, err = tx.ExecContext(ctx, `DELETE FROM available_streams WHERE live_id = ?`, liveID)
+	if err != nil {
+		return err
+	}
+
+	// 插入新的可用流数据
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO available_streams 
+		(live_id, stream_index, quality, attributes, updated_at)
+		VALUES (?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	now := time.Now().Unix()
+	for i, stream := range streams {
+		// 序列化 attributes 为 JSON
+		attributesJSON := "{}"
+		if len(stream.Attributes) > 0 {
+			data, err := json.Marshal(stream.Attributes)
+			if err != nil {
+				return fmt.Errorf("序列化流属性失败: %w", err)
+			}
+			attributesJSON = string(data)
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"live_id":        liveID,
+			"stream_index":   i,
+			"quality":        stream.Quality,
+			"attr_count":     len(stream.Attributes),
+			"attributesJSON": attributesJSON,
+		}).Debug("SaveAvailableStreams: 准备保存流信息")
+
+		_, err = stmt.ExecContext(ctx, liveID, i, stream.Quality, attributesJSON, now)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+// GetAvailableStreams 获取可用流信息
+func (s *SQLiteStore) GetAvailableStreams(ctx context.Context, liveID string) ([]*AvailableStream, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, live_id, stream_index, quality, attributes, updated_at
+		FROM available_streams WHERE live_id = ? ORDER BY stream_index ASC
+	`, liveID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var streams []*AvailableStream
+	for rows.Next() {
+		stream := &AvailableStream{}
+		var updatedAt int64
+		var attributesJSON string
+		err := rows.Scan(
+			&stream.ID, &stream.LiveID, &stream.StreamIndex, &stream.Quality, &attributesJSON, &updatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// 反序列化 attributes
+		stream.Attributes = make(map[string]string)
+		if attributesJSON != "" && attributesJSON != "{}" {
+			logrus.WithFields(logrus.Fields{
+				"live_id":        liveID,
+				"stream_index":   stream.StreamIndex,
+				"attributesJSON": attributesJSON,
+			}).Debug("GetAvailableStreams: 准备反序列化 attributes")
+
+			if err := json.Unmarshal([]byte(attributesJSON), &stream.Attributes); err != nil {
+				logrus.WithError(err).Warn("反序列化流属性失败")
+			} else {
+				logrus.WithFields(logrus.Fields{
+					"live_id":      liveID,
+					"stream_index": stream.StreamIndex,
+					"attr_count":   len(stream.Attributes),
+					"attributes":   stream.Attributes,
+				}).Debug("GetAvailableStreams: attributes 反序列化成功")
+			}
+		} else {
+			logrus.WithFields(logrus.Fields{
+				"live_id":      liveID,
+				"stream_index": stream.StreamIndex,
+				"json_value":   attributesJSON,
+			}).Debug("GetAvailableStreams: attributes JSON 为空或 {}")
+		}
+
+		if updatedAt > 0 {
+			stream.UpdatedAt = time.Unix(updatedAt, 0)
+		}
+		streams = append(streams, stream)
+	}
+	return streams, nil
+}
+
+// SaveAvailableStreamsAny 通用接口实现，将 []map[string]interface{} 转换后保存
+func (s *SQLiteStore) SaveAvailableStreamsAny(ctx context.Context, liveID string, streams interface{}) error {
+	// 类型断言转换
+	streamMaps, ok := streams.([]map[string]interface{})
+	if !ok {
+		return fmt.Errorf("invalid streams type: expected []map[string]interface{}")
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"live_id":      liveID,
+		"stream_count": len(streamMaps),
+	}).Debug("SaveAvailableStreamsAny: 开始保存流信息")
+
+	// 转换为 AvailableStream 类型
+	availableStreams := make([]*AvailableStream, 0, len(streamMaps))
+	for _, m := range streamMaps {
+		quality := getStringFromMap(m, "Quality")
+		attributes := make(map[string]string)
+
+		// 提取 AttributesForStreamSelect
+		if attrMap, ok := m["AttributesForStreamSelect"].(map[string]string); ok {
+			attributes = attrMap
+		} else if attrMapInterface, ok := m["AttributesForStreamSelect"].(map[string]interface{}); ok {
+			// 处理 map[string]interface{} 类型
+			for k, v := range attrMapInterface {
+				if strVal, ok := v.(string); ok {
+					attributes[k] = strVal
+				}
+			}
+		}
+
+		stream := &AvailableStream{
+			Quality:    quality,
+			Attributes: attributes,
+		}
+		availableStreams = append(availableStreams, stream)
+	}
+
+	return s.SaveAvailableStreams(ctx, liveID, availableStreams)
+}
+
+// 辅助函数：从 map 中获取 string 值
+func getStringFromMap(m map[string]interface{}, key string) string {
+	if v, ok := m[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+// 辅助函数：从 map 中获取 int 值
+func getIntFromMap(m map[string]interface{}, key string) int {
+	if v, ok := m[key]; ok {
+		switch n := v.(type) {
+		case int:
+			return n
+		case int64:
+			return int(n)
+		case float64:
+			return int(n)
+		}
+	}
+	return 0
+}
+
+// 辅助函数：从 map 中获取 float64 值
+func getFloat64FromMap(m map[string]interface{}, key string) float64 {
+	if v, ok := m[key]; ok {
+		switch n := v.(type) {
+		case float64:
+			return n
+		case int:
+			return float64(n)
+		case int64:
+			return float64(n)
+		}
+	}
+	return 0
 }
 
 // Close 关闭存储

@@ -19,5 +19,6 @@ type Instance struct {
 	RecorderManager  interfaces.Module
 	PipelineManager  interfaces.Module // 后处理管道管理器
 	LiveStateManager interface{}       // 直播间状态持久化管理器 (*livestate.Manager)
+	LiveStateStore   interface{}       // 直播间状态存储 (livestate.Store)
 	IOStatsModule    interfaces.Module // IO 统计模块 (*iostats.Module)
 }

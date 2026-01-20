@@ -14,6 +14,7 @@ import (
 var agentFiles = []string{
 	".github/copilot-instructions.md",
 	".agent/rules/gemini-guide.md",
+	".gemini/MEMORY.md",
 }
 
 const sourceAgentFile = "AGENTS.md"

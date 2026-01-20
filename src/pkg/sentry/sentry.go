@@ -84,28 +84,43 @@ func Flush(timeout time.Duration) {
 
 // RecoverWithContext 用于 goroutine 的 panic 恢复
 // 应在 goroutine 开始时使用 defer 调用
+// 注意：必须先调用 recover()，再检查 Sentry 状态，否则 panic 不会被捕获
 func RecoverWithContext(ctx context.Context) {
-	if !IsInitialized() {
+	err := recover()
+	if err == nil {
 		return
 	}
-	if err := recover(); err != nil {
+
+	// 尝试上报给 Sentry，但即使失败也不应该再次 panic
+	if IsInitialized() {
 		hub := sentry.GetHubFromContext(ctx)
 		if hub == nil {
-			hub = sentry.CurrentHub().Clone()
+			hub = sentry.CurrentHub()
 		}
-		hub.RecoverWithContext(ctx, err)
+		if hub != nil {
+			hub.RecoverWithContext(ctx, err)
+		}
 	}
+	// 不重新 panic，让 goroutine 优雅退出
 }
 
 // Recover 用于 goroutine 的 panic 恢复（无 context 版本）
 // 应在 goroutine 开始时使用 defer 调用
+// 注意：必须先调用 recover()，再检查 Sentry 状态，否则 panic 不会被捕获
 func Recover() {
-	if !IsInitialized() {
+	err := recover()
+	if err == nil {
 		return
 	}
-	if err := recover(); err != nil {
-		sentry.CurrentHub().Recover(err)
+
+	// 尝试上报给 Sentry，但即使失败也不应该再次 panic
+	if IsInitialized() {
+		hub := sentry.CurrentHub()
+		if hub != nil {
+			hub.Recover(err)
+		}
 	}
+	// 不重新 panic，让 goroutine 优雅退出
 }
 
 // CaptureException 捕获异常

@@ -185,6 +185,18 @@ var defaultOpenListConfig = OpenListConfig{
 	DataPath: "", // 默认使用 AppDataPath/openlist
 }
 
+// StreamPreference 流偏好配置
+// 采用指针模式以区分"未设置"和"设置为零值"
+type StreamPreference struct {
+	Quality    *string            `yaml:"quality,omitempty" json:"quality,omitempty"`       // 清晰度偏好（如 "1080p", "原画"）
+	Attributes *map[string]string `yaml:"attributes,omitempty" json:"attributes,omitempty"` // 平台特定属性（如 format, codec, cdn 等）
+}
+
+type ResolvedStreamPreference struct {
+	Quality    string            `json:"quality"`
+	Attributes map[string]string `json:"attributes"`
+}
+
 // OverridableConfig 包含可以在不同层级被覆盖的设置
 type OverridableConfig struct {
 	Interval             *int                  `yaml:"interval,omitempty" json:"interval,omitempty"`                             // 检测间隔(秒)
@@ -196,6 +208,7 @@ type OverridableConfig struct {
 	VideoSplitStrategies *VideoSplitStrategies `yaml:"video_split_strategies,omitempty" json:"video_split_strategies,omitempty"` // 视频分割策略
 	OnRecordFinished     *OnRecordFinished     `yaml:"on_record_finished,omitempty" json:"on_record_finished,omitempty"`         // 录制完成后的动作
 	TimeoutInUs          *int                  `yaml:"timeout_in_us,omitempty" json:"timeout_in_us,omitempty"`                   // 超时设置(微秒)
+	StreamPreference     *StreamPreference     `yaml:"stream_preference,omitempty" json:"stream_preference,omitempty"`           // 流偏好配置
 }
 
 // PlatformConfig 包含平台特定的设置
@@ -214,29 +227,39 @@ type Ntfy struct {
 
 // Config content all config info.
 type Config struct {
-	File  string `yaml:"-" json:"-"`
-	RPC   RPC    `yaml:"rpc" json:"rpc"`
-	Debug bool   `yaml:"debug" json:"debug"`
-	// 内部版本号：不参与 YAML/JSON 序列化，仅用于乐观并发控制
-	Version              int64                `yaml:"-" json:"-"`
+	// 核心配置
+	File    string `yaml:"-" json:"-"`
+	RPC     RPC    `yaml:"rpc" json:"rpc"`
+	Debug   bool   `yaml:"debug" json:"debug"`
+	Version int64  `yaml:"-" json:"-"` // 内部版本号：不参与 YAML/JSON 序列化，仅用于乐观并发控制
+
+	// 全局默认配置（非指针，提供默认值）
 	Interval             int                  `yaml:"interval" json:"interval"`
 	OutPutPath           string               `yaml:"out_put_path" json:"out_put_path"`
 	FfmpegPath           string               `yaml:"ffmpeg_path" json:"ffmpeg_path"`
 	Log                  Log                  `yaml:"log" json:"log"`
 	Feature              Feature              `yaml:"feature" json:"feature"`
-	LiveRooms            []LiveRoom           `yaml:"live_rooms" json:"live_rooms"`
 	OutputTmpl           string               `yaml:"out_put_tmpl" json:"out_put_tmpl"`
 	VideoSplitStrategies VideoSplitStrategies `yaml:"video_split_strategies" json:"video_split_strategies"`
-	Cookies              map[string]string    `yaml:"cookies" json:"cookies"`
 	OnRecordFinished     OnRecordFinished     `yaml:"on_record_finished" json:"on_record_finished"`
 	TimeoutInUs          int                  `yaml:"timeout_in_us" json:"timeout_in_us"`
-	Notify               Notify               `yaml:"notify" json:"notify"` // 通知服务配置
-	AppDataPath          string               `yaml:"app_data_path" json:"app_data_path"`
-	// 只读工具目录：如果指定，则优先从该目录查找外部工具（适用于 Docker 镜像内预置工具）
-	ReadOnlyToolFolder string `yaml:"read_only_tool_folder" json:"read_only_tool_folder"`
-	// 可写工具目录：若指定，则外部工具将下载到该目录。
-	// 场景：当 OutPutPath/AppDataPath 位于 exfat/ntfs/cifs 等不支持可执行权限的卷上时，可以将此目录单独挂载到 ext4/xfs 卷。
-	ToolRootFolder string `yaml:"tool_root_folder" json:"tool_root_folder"`
+
+	// 流偏好配置 - 两套系统并存
+	StreamPreference StreamPreference `yaml:"stream_preference,omitempty" json:"stream_preference,omitempty"` // 新版（渐进迁移中）
+
+	// 直播间列表
+	LiveRooms []LiveRoom `yaml:"live_rooms" json:"live_rooms"`
+
+	// Cookies 配置
+	Cookies map[string]string `yaml:"cookies" json:"cookies"`
+
+	// 通知服务配置
+	Notify Notify `yaml:"notify" json:"notify"`
+
+	// 数据目录配置
+	AppDataPath        string `yaml:"app_data_path" json:"app_data_path"`
+	ReadOnlyToolFolder string `yaml:"read_only_tool_folder" json:"read_only_tool_folder"` // 只读工具目录
+	ToolRootFolder     string `yaml:"tool_root_folder" json:"tool_root_folder"`           // 可写工具目录
 
 	// 任务队列配置
 	TaskQueue TaskQueue `yaml:"task_queue" json:"task_queue"`
@@ -247,12 +270,13 @@ type Config struct {
 	// 代理配置
 	Proxy Proxy `yaml:"proxy" json:"proxy"`
 
-	// OpenList 配置（用于云盘上传）
+	// OpenList 配置
 	OpenList OpenListConfig `yaml:"openlist" json:"openlist"`
 
-	// 新的层级配置字段
-	PlatformConfigs map[string]PlatformConfig `yaml:"platform_configs,omitempty" json:"platform_configs,omitempty"` // 平台特定配置
+	// 平台特定配置（层级覆盖，使用 OverridableConfig 中的指针模式）
+	PlatformConfigs map[string]PlatformConfig `yaml:"platform_configs,omitempty" json:"platform_configs,omitempty"`
 
+	// 内部缓存
 	liveRoomIndexCache map[string]int `json:"-"`
 }
 
@@ -877,6 +901,7 @@ type ResolvedConfig struct {
 	VideoSplitStrategies VideoSplitStrategies `json:"video_split_strategies"`
 	OnRecordFinished     OnRecordFinished     `json:"on_record_finished"`
 	TimeoutInUs          int                  `json:"timeout_in_us"`
+	StreamPreference     StreamPreference     `json:"stream_preference"`
 }
 
 // applyOverrides 将可覆盖配置中的非空值应用到解析配置中
@@ -907,6 +932,9 @@ func (r *ResolvedConfig) applyOverrides(override *OverridableConfig) {
 	}
 	if override.TimeoutInUs != nil {
 		r.TimeoutInUs = *override.TimeoutInUs
+	}
+	if override.StreamPreference != nil {
+		r.StreamPreference = *MergeStreamPreference(&r.StreamPreference, override.StreamPreference)
 	}
 }
 

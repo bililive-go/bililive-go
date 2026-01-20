@@ -20,7 +20,7 @@ type Parser interface {
 
 type StatusParser interface {
 	Parser
-	Status() (map[string]string, error)
+	Status() (map[string]interface{}, error)
 }
 
 // PIDProvider 提供进程 PID 的接口

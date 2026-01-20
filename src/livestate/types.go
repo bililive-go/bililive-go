@@ -54,3 +54,13 @@ const (
 	EndReasonError    = "error"     // 录制异常中断
 	EndReasonUnknown  = "unknown"   // 未知原因
 )
+
+// AvailableStream 可用流信息记录（存储在数据库中）
+type AvailableStream struct {
+	ID          int64             `json:"id"`
+	LiveID      string            `json:"live_id"`      // 直播间ID
+	StreamIndex int               `json:"stream_index"` // 流序号
+	Quality     string            `json:"quality"`      // 清晰度标识（唯一固定字段）
+	Attributes  map[string]string `json:"attributes"`   // 流属性键值对（如 "format": "flv", "codec": "h264"）
+	UpdatedAt   time.Time         `json:"updated_at"`   // 更新时间
+}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/live"
+	"github.com/bililive-go/bililive-go/src/pipeline"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
 	"github.com/bililive-go/bililive-go/src/types"
 )
@@ -29,6 +30,8 @@ const (
 	SSEEventListChange SSEEventType = "list_change"
 	// SSEEventRateLimitUpdate 频率限制信息更新
 	SSEEventRateLimitUpdate SSEEventType = "rate_limit_update"
+	// SSEEventPipelineTaskUpdate Pipeline 任务更新
+	SSEEventPipelineTaskUpdate SSEEventType = "pipeline_task_update"
 )
 
 // SSEMessage SSE 消息结构
@@ -146,6 +149,15 @@ func (h *SSEHub) BroadcastRateLimitUpdate(roomID types.LiveID, data interface{})
 		Type:   SSEEventRateLimitUpdate,
 		RoomID: string(roomID),
 		Data:   data,
+	})
+}
+
+// BroadcastPipelineTaskUpdate 广播 Pipeline 任务更新
+func (h *SSEHub) BroadcastPipelineTaskUpdate(task *pipeline.PipelineTask) {
+	h.Broadcast(SSEMessage{
+		Type:   SSEEventPipelineTaskUpdate,
+		RoomID: string(task.RecordInfo.LiveID),
+		Data:   task,
 	})
 }
 
@@ -318,4 +330,16 @@ func RegisterSSEEventListeners(inst *instance.Instance) {
 			"timestamp":        time.Now().Unix(),
 		})
 	})
+
+	// 注册 Pipeline 任务更新事件监听器
+	pipelineHandler := events.NewEventListener(func(event *events.Event) {
+		if event == nil || event.Object == nil {
+			return
+		}
+		if task, ok := event.Object.(*pipeline.PipelineTask); ok {
+			hub := GetSSEHub()
+			hub.BroadcastPipelineTaskUpdate(task)
+		}
+	})
+	dispatcher.AddEventListener(pipeline.PipelineTaskUpdateEvent, pipelineHandler)
 }

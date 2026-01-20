@@ -73,6 +73,23 @@ func parseInfo(ctx context.Context, l live.Live) *live.Info {
 	return info
 }
 
+// extractStreamAttributeCombinations 从可用流中提取所有属性组合
+// 返回所有流的 AttributesForStreamSelect，供前端动态生成选择器
+func extractStreamAttributeCombinations(streams []*live.AvailableStreamInfo) []map[string]string {
+	if len(streams) == 0 {
+		return nil
+	}
+
+	combinations := make([]map[string]string, 0, len(streams))
+	for _, stream := range streams {
+		if stream.AttributesForStreamSelect != nil && len(stream.AttributesForStreamSelect) > 0 {
+			combinations = append(combinations, stream.AttributesForStreamSelect)
+		}
+	}
+
+	return combinations
+}
+
 func getAllLives(writer http.ResponseWriter, r *http.Request) {
 	inst := instance.GetInstance(r.Context())
 	lives := liveSlice(make([]*live.Info, 0, 4))
@@ -149,7 +166,7 @@ func getLive(writer http.ResponseWriter, r *http.Request) {
 	}
 
 	// 获取录制状态和下载速度
-	var recorderStatus map[string]string
+	var recorderStatus map[string]interface{}
 	if info.Recording {
 		// 如果正在录制，尝试获取recorder状态
 		if recorderMgr, ok := inst.RecorderManager.(recorders.Manager); ok {
@@ -234,6 +251,43 @@ func getLive(writer http.ResponseWriter, r *http.Request) {
 
 		// 原始配置信息
 		"room_config": room,
+	}
+
+	// 添加可用流信息（优先使用内存缓存，否则从数据库读取）
+	if len(info.AvailableStreams) > 0 {
+		detailedInfo["available_streams"] = info.AvailableStreams
+		detailedInfo["available_streams_updated_at"] = info.AvailableStreamsUpdatedAt
+		// 提取属性组合供前端流选择器使用
+		detailedInfo["available_stream_attributes"] = extractStreamAttributeCombinations(info.AvailableStreams)
+	} else {
+		// 尝试从数据库读取
+		if store, ok := inst.LiveStateStore.(livestate.Store); ok {
+			streams, err := store.GetAvailableStreams(r.Context(), string(info.Live.GetLiveId()))
+			if err == nil && len(streams) > 0 {
+				// 转换为 API 格式
+				apiStreams := make([]map[string]interface{}, 0, len(streams))
+				for _, s := range streams {
+					streamData := map[string]interface{}{
+						"quality":                      s.Quality,
+						"attributes_for_stream_select": s.Attributes,
+					}
+					apiStreams = append(apiStreams, streamData)
+				}
+				detailedInfo["available_streams"] = apiStreams
+				if len(streams) > 0 && !streams[0].UpdatedAt.IsZero() {
+					detailedInfo["available_streams_updated_at"] = streams[0].UpdatedAt.Unix()
+				}
+
+				// 提取属性组合供前端流选择器使用
+				attributeCombinations := make([]map[string]string, 0, len(streams))
+				for _, s := range streams {
+					if len(s.Attributes) > 0 {
+						attributeCombinations = append(attributeCombinations, s.Attributes)
+					}
+				}
+				detailedInfo["available_stream_attributes"] = attributeCombinations
+			}
+		}
 	}
 
 	writeJSON(writer, detailedInfo)
@@ -458,6 +512,112 @@ func parseLiveAction(writer http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(writer, parseInfo(r.Context(), live))
+}
+
+// switchStreamHandler 处理切换流设置的请求
+func switchStreamHandler(writer http.ResponseWriter, r *http.Request) {
+	inst := instance.GetInstance(r.Context())
+	vars := mux.Vars(r)
+	resp := commonResp{}
+
+	live, ok := inst.Lives[types.LiveID(vars["id"])]
+	if !ok {
+		resp.ErrNo = http.StatusNotFound
+		resp.ErrMsg = fmt.Sprintf("直播间 ID: %s 未找到", vars["id"])
+		writeJsonWithStatusCode(writer, http.StatusNotFound, resp)
+		return
+	}
+
+	// 读取请求体获取目标流设置
+	b, err := io.ReadAll(r.Body)
+	if err != nil {
+		resp.ErrNo = http.StatusBadRequest
+		resp.ErrMsg = err.Error()
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, resp)
+		return
+	}
+
+	var streamRequest configs.ResolvedStreamPreference
+	if err := json.Unmarshal(b, &streamRequest); err != nil {
+		resp.ErrNo = http.StatusBadRequest
+		resp.ErrMsg = "无效的请求格式: " + err.Error()
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, resp)
+		return
+	}
+
+	// 验证参数
+	// if streamRequest.Quality == "" {
+	// 	resp.ErrNo = http.StatusBadRequest
+	// 	resp.ErrMsg = "必须指定 quality"
+	// 	writeJsonWithStatusCode(writer, http.StatusBadRequest, resp)
+	// 	return
+	// }
+
+	// 更新流配置
+	_, err = configs.UpdateWithRetry(func(c *configs.Config) error {
+		liveRoom, err1 := c.GetLiveRoomByUrl(live.GetRawUrl())
+		if err1 != nil {
+			return err1
+		}
+
+		if liveRoom.StreamPreference == nil {
+			liveRoom.StreamPreference = &configs.StreamPreference{}
+		}
+
+		liveRoom.StreamPreference.Quality = &streamRequest.Quality
+		liveRoom.StreamPreference.Attributes = &streamRequest.Attributes
+
+		return nil
+	}, 3, 10*time.Millisecond)
+
+	if err != nil {
+		resp.ErrNo = http.StatusInternalServerError
+		resp.ErrMsg = "更新流配置失败: " + err.Error()
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, resp)
+		return
+	}
+
+	// 检查录制器是否存在，存在则重启
+	recorderMgr, ok := inst.RecorderManager.(recorders.Manager)
+	if !ok {
+		resp.ErrNo = http.StatusInternalServerError
+		resp.ErrMsg = "录制管理器不可用"
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, resp)
+		return
+	}
+
+	if recorderMgr.HasRecorder(r.Context(), live.GetLiveId()) {
+		// 重启录制器以应用新的流设置
+		if err := recorderMgr.RestartRecorder(r.Context(), live); err != nil {
+			resp.ErrNo = http.StatusInternalServerError
+			resp.ErrMsg = "重启录制器失败: " + err.Error()
+			writeJsonWithStatusCode(writer, http.StatusInternalServerError, resp)
+			return
+		}
+		live.GetLogger().Infof("流设置已更新并重启录制: quality=%s", streamRequest.Quality)
+
+		writeJSON(writer, map[string]interface{}{
+			"success": true,
+			"message": "流设置已更新，录制已重新启动",
+			"stream_config": map[string]interface{}{
+				"quality":    streamRequest.Quality,
+				"attributes": streamRequest.Attributes,
+			},
+		})
+	} else {
+		// 不在录制中，仅保存配置
+		live.GetLogger().Infof("流设置已更新（未在录制中）: quality=%s", streamRequest.Quality)
+
+		writeJSON(writer, map[string]interface{}{
+			"success":      true,
+			"message":      "流设置已更新（直播间未在录制中，将在下次录制时生效）",
+			"is_recording": false,
+			"stream_config": map[string]interface{}{
+				"quality":    streamRequest.Quality,
+				"attributes": streamRequest.Attributes,
+			},
+		})
+	}
 }
 
 func startListening(ctx context.Context, live live.Live) error {
@@ -1317,6 +1477,47 @@ func applyConfigUpdates(c *configs.Config, updates map[string]interface{}) error
 		}
 	}
 
+	// 处理代理配置
+	if proxy, ok := updates["proxy"].(map[string]interface{}); ok {
+		if enable, ok := proxy["enable"].(bool); ok {
+			c.Proxy.Enable = enable
+		}
+		if url, ok := proxy["url"].(string); ok {
+			c.Proxy.URL = url
+		}
+	}
+
+	// 处理全局流偏好配置
+	if streamPref, ok := updates["stream_preference"].(map[string]interface{}); ok {
+		// 处理 quality
+		if quality, ok := streamPref["quality"].(string); ok {
+			if quality == "" {
+				c.StreamPreference.Quality = nil
+			} else {
+				c.StreamPreference.Quality = &quality
+			}
+		}
+
+		// 处理 attributes
+		if attrs, ok := streamPref["attributes"].(map[string]interface{}); ok {
+			if len(attrs) == 0 {
+				c.StreamPreference.Attributes = nil
+			} else {
+				attrMap := make(map[string]string)
+				for k, v := range attrs {
+					if strVal, ok := v.(string); ok {
+						attrMap[k] = strVal
+					}
+				}
+				if len(attrMap) > 0 {
+					c.StreamPreference.Attributes = &attrMap
+				} else {
+					c.StreamPreference.Attributes = nil
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -1531,6 +1732,46 @@ func applyOverridableConfigUpdates(oc *configs.OverridableConfig, updates map[st
 			oc.Feature = &configs.Feature{}
 		}
 		oc.Feature.DownloaderType = configs.ParseDownloaderType(downloaderType)
+	}
+
+	// 处理 stream_preference 配置
+	if streamPref, ok := updates["stream_preference"].(map[string]interface{}); ok {
+		if oc.StreamPreference == nil {
+			oc.StreamPreference = &configs.StreamPreference{}
+		}
+
+		// 处理 quality
+		if quality, ok := streamPref["quality"].(string); ok {
+			if quality == "" {
+				oc.StreamPreference.Quality = nil
+			} else {
+				oc.StreamPreference.Quality = &quality
+			}
+		}
+
+		// 处理 attributes
+		if attrs, ok := streamPref["attributes"].(map[string]interface{}); ok {
+			if len(attrs) == 0 {
+				oc.StreamPreference.Attributes = nil
+			} else {
+				attrMap := make(map[string]string)
+				for k, v := range attrs {
+					if strVal, ok := v.(string); ok {
+						attrMap[k] = strVal
+					}
+				}
+				if len(attrMap) > 0 {
+					oc.StreamPreference.Attributes = &attrMap
+				} else {
+					oc.StreamPreference.Attributes = nil
+				}
+			}
+		}
+
+		// 如果 quality 和 attributes 都为空，清空整个 StreamPreference
+		if oc.StreamPreference.Quality == nil && oc.StreamPreference.Attributes == nil {
+			oc.StreamPreference = nil
+		}
 	}
 }
 

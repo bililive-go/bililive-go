@@ -20,7 +20,9 @@ import 'prismjs/themes/prism.css';
 import API from '../../utils/api';
 import './config-info.css';
 import './config-gui.css';
-import { OutputTemplatePreview, getFFmpegInheritance, getFFmpegDisplayValue } from './shared-fields';
+import {
+  OutputTemplatePreview, getFFmpegInheritance, getFFmpegDisplayValue,
+} from './shared-fields';
 import CloudUploadSettings from './CloudUploadSettings';
 
 const api = new API();
@@ -106,6 +108,11 @@ interface EffectiveConfig {
   proxy: {
     enable: boolean;
     url: string;
+  };
+  // 流偏好配置（新版）
+  stream_preference?: {
+    quality?: string;
+    attributes?: Record<string, string>;
   };
 }
 
@@ -327,12 +334,19 @@ const GlobalSettings: React.FC<{
   useEffect(() => {
     if (config) {
       // 转换单位：纳秒 -> 秒
+      // 转换 attributes: map -> array
       const displayConfig = {
         ...config,
         video_split_strategies: config.video_split_strategies ? {
           ...config.video_split_strategies,
           max_duration: config.video_split_strategies.max_duration / 1000000000
-        } : undefined
+        } : undefined,
+        stream_preference: config.stream_preference ? {
+          ...config.stream_preference,
+          attributes: config.stream_preference.attributes
+            ? Object.entries(config.stream_preference.attributes).map(([key, value]) => ({ key, value }))
+            : []
+        } : { attributes: [] }
       };
       form.setFieldsValue(displayConfig);
     }
@@ -342,11 +356,23 @@ const GlobalSettings: React.FC<{
     try {
       const values = await form.validateFields();
       // 转换单位：秒 -> 纳秒
+      // 转换 attributes: array -> map
+      const attributesArray = values.stream_preference?.attributes || [];
+      const attributesMap: Record<string, string> = {};
+      for (const item of attributesArray) {
+        if (item.key && item.value !== undefined) {
+          attributesMap[item.key] = item.value;
+        }
+      }
       const updates = {
         ...values,
         video_split_strategies: values.video_split_strategies ? {
           ...values.video_split_strategies,
           max_duration: (values.video_split_strategies.max_duration || 0) * 1000000000
+        } : undefined,
+        stream_preference: values.stream_preference ? {
+          quality: values.stream_preference.quality || undefined,
+          attributes: Object.keys(attributesMap).length > 0 ? attributesMap : undefined
         } : undefined
       };
       await onUpdate(updates);
@@ -510,6 +536,65 @@ const GlobalSettings: React.FC<{
             <Form.Item name={['feature', 'remove_symbol_other_character']} valuePropName="checked" noStyle>
               <Switch />
             </Form.Item>
+          </ConfigField>
+        </Card>
+
+        {/* 流偏好配置 */}
+        <Card title="流偏好配置" size="small" style={{ marginBottom: 16 }}>
+          <ConfigField
+            label="清晰度偏好"
+            description="偏好的清晰度名称，留空则自动选择最高画质"
+            valueDisplay={config.stream_preference?.quality || '(自动选择)'}
+          >
+            <Form.Item name={['stream_preference', 'quality']} noStyle>
+              <Input placeholder="例如: 原画、1080p、720p" style={{ width: 300 }} />
+            </Form.Item>
+          </ConfigField>
+          <ConfigField
+            label="流属性偏好"
+            description="键值对形式的流属性筛选条件，例如 format=flv, codec=h264"
+          >
+            <Form.List name={['stream_preference', 'attributes']}>
+              {(fields, { add, remove }) => (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {fields.map(({ key, name, ...restField }) => (
+                    <Space key={key} style={{ display: 'flex' }} align="baseline">
+                      <Form.Item
+                        {...restField}
+                        name={[name, 'key']}
+                        rules={[{ required: true, message: '请输入属性名' }]}
+                        noStyle
+                      >
+                        <Input placeholder="属性名 (如: format)" style={{ width: 150 }} />
+                      </Form.Item>
+                      <span>=</span>
+                      <Form.Item
+                        {...restField}
+                        name={[name, 'value']}
+                        rules={[{ required: true, message: '请输入属性值' }]}
+                        noStyle
+                      >
+                        <Input placeholder="属性值 (如: flv)" style={{ width: 150 }} />
+                      </Form.Item>
+                      <Button
+                        type="text"
+                        danger
+                        icon={<DeleteOutlined />}
+                        onClick={() => remove(name)}
+                      />
+                    </Space>
+                  ))}
+                  <Button
+                    type="dashed"
+                    onClick={() => add({ key: '', value: '' })}
+                    icon={<PlusOutlined />}
+                    style={{ width: 320 }}
+                  >
+                    添加属性
+                  </Button>
+                </div>
+              )}
+            </Form.List>
           </ConfigField>
         </Card>
 
@@ -976,18 +1061,45 @@ const PlatformConfigForm: React.FC<{
 
   useEffect(() => {
     if (platform) {
-      form.setFieldsValue(platform);
+      // 转换 attributes: map -> array
+      const displayPlatform = {
+        ...platform,
+        stream_preference: (platform as any).stream_preference ? {
+          ...(platform as any).stream_preference,
+          attributes: (platform as any).stream_preference.attributes
+            ? Object.entries((platform as any).stream_preference.attributes).map(([key, value]) => ({ key, value }))
+            : []
+        } : { attributes: [] }
+      };
+      form.setFieldsValue(displayPlatform);
     }
   }, [platform, form]);
+
 
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      onSave(values);
+      // 转换 attributes: array -> map
+      const attributesArray = values.stream_preference?.attributes || [];
+      const attributesMap: Record<string, string> = {};
+      for (const item of attributesArray) {
+        if (item.key && item.value !== undefined) {
+          attributesMap[item.key] = item.value;
+        }
+      }
+      const updatedValues = {
+        ...values,
+        stream_preference: values.stream_preference ? {
+          quality: values.stream_preference.quality || undefined,
+          attributes: Object.keys(attributesMap).length > 0 ? attributesMap : undefined
+        } : undefined
+      };
+      onSave(updatedValues);
     } catch (error) {
       // Validation failed
     }
   };
+
 
   const effectiveInterval = platform.interval ?? globalInterval;
   const actualAccessInterval = platform.listening_count > 0
@@ -1142,6 +1254,75 @@ const PlatformConfigForm: React.FC<{
             </Select>
           </Form.Item>
         </ConfigField>
+
+        {/* 流偏好配置 - 平台级 */}
+        <Divider style={{ fontSize: 12 }}>流偏好配置 (覆盖全局)</Divider>
+
+        <ConfigField
+          label="清晰度偏好"
+          description="留空则继承全局设置"
+          inheritance={{
+            source: 'global',
+            linkTo: '/configInfo?tab=global',
+            isOverridden: !!(platform as any).stream_preference?.quality,
+            inheritedValue: globalConfig?.stream_preference?.quality || '(自动选择)'
+          }}
+        >
+          <Form.Item name={['stream_preference', 'quality']} noStyle>
+            <Input
+              placeholder={globalConfig?.stream_preference?.quality || '继承全局'}
+              style={{ width: 300 }}
+              allowClear
+            />
+          </Form.Item>
+        </ConfigField>
+
+        <ConfigField
+          label="流属性偏好"
+          description="键值对形式的流属性筛选条件，留空则继承全局设置"
+        >
+          <Form.List name={['stream_preference', 'attributes']}>
+            {(fields, { add, remove }) => (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {fields.map(({ key, name, ...restField }) => (
+                  <Space key={key} style={{ display: 'flex' }} align="baseline">
+                    <Form.Item
+                      {...restField}
+                      name={[name, 'key']}
+                      rules={[{ required: true, message: '请输入属性名' }]}
+                      noStyle
+                    >
+                      <Input placeholder="属性名" style={{ width: 150 }} />
+                    </Form.Item>
+                    <span>=</span>
+                    <Form.Item
+                      {...restField}
+                      name={[name, 'value']}
+                      rules={[{ required: true, message: '请输入属性值' }]}
+                      noStyle
+                    >
+                      <Input placeholder="属性值" style={{ width: 150 }} />
+                    </Form.Item>
+                    <Button
+                      type="text"
+                      danger
+                      icon={<DeleteOutlined />}
+                      onClick={() => remove(name)}
+                    />
+                  </Space>
+                ))}
+                <Button
+                  type="dashed"
+                  onClick={() => add({ key: '', value: '' })}
+                  icon={<PlusOutlined />}
+                  style={{ width: 320 }}
+                >
+                  添加属性
+                </Button>
+              </div>
+            )}
+          </Form.List>
+        </ConfigField>
       </Form>
 
       <div className="config-actions">
@@ -1224,16 +1405,39 @@ export const RoomConfigForm: React.FC<{
 
   useEffect(() => {
     if (room) {
-      form.setFieldsValue({
+      // 转换 attributes: map -> array
+      const displayRoom = {
         ...room,
-      });
+        stream_preference: room.stream_preference ? {
+          ...room.stream_preference,
+          attributes: room.stream_preference.attributes
+            ? Object.entries(room.stream_preference.attributes).map(([key, value]) => ({ key, value }))
+            : []
+        } : { attributes: [] }
+      };
+      form.setFieldsValue(displayRoom);
     }
   }, [room, form]);
 
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      await onSave(values);
+      // 转换 attributes: array -> map
+      const attributesArray = values.stream_preference?.attributes || [];
+      const attributesMap: Record<string, string> = {};
+      for (const item of attributesArray) {
+        if (item.key && item.value !== undefined) {
+          attributesMap[item.key] = item.value;
+        }
+      }
+      const updatedValues = {
+        ...values,
+        stream_preference: values.stream_preference ? {
+          quality: values.stream_preference.quality || undefined,
+          attributes: Object.keys(attributesMap).length > 0 ? attributesMap : undefined
+        } : undefined
+      };
+      await onSave(updatedValues);
       message.success('直播间配置已更新');
       if (onRefresh) onRefresh();
     } catch (error: any) {
@@ -1246,6 +1450,7 @@ export const RoomConfigForm: React.FC<{
       }
     }
   };
+
 
   // Use platformId if provided, derived from backend using raw URL usually
   // Fallback to room.address (CN Name) only if platformId is missing, but that usually fails for config lookup
@@ -1424,7 +1629,78 @@ export const RoomConfigForm: React.FC<{
         </Form.Item>
       </ConfigField>
 
-      {/* @ts-ignore */}
+
+      {/* 流偏好配置 - 房间级 */}
+      <Divider style={{ fontSize: 12, margin: '12px 0' }}>流偏好配置 (覆盖平台/全局)</Divider>
+
+      <ConfigField
+        label="清晰度偏好"
+        description="留空则继承平台/全局设置"
+        inheritance={{
+          source: (platformConfig as any)?.stream_preference?.quality ? 'platform' : 'global',
+          linkTo: (platformConfig as any)?.stream_preference?.quality
+            ? `/configInfo?tab=platforms&platform=${platformKey}`
+            : '/configInfo?tab=global',
+          isOverridden: !!room.stream_preference?.quality,
+          inheritedValue: (platformConfig as any)?.stream_preference?.quality || globalConfig?.stream_preference?.quality || '(自动选择)'
+        }}
+      >
+        <Form.Item name={['stream_preference', 'quality']} noStyle>
+          <Input
+            placeholder={(platformConfig as any)?.stream_preference?.quality || globalConfig?.stream_preference?.quality || '继承上级'}
+            style={{ width: 300 }}
+            allowClear
+          />
+        </Form.Item>
+      </ConfigField>
+
+      <ConfigField
+        label="流属性偏好"
+        description="键值对形式的流属性筛选条件，留空则继承平台/全局设置"
+      >
+        <Form.List name={['stream_preference', 'attributes']}>
+          {(fields, { add, remove }) => (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {fields.map(({ key, name, ...restField }) => (
+                <Space key={key} style={{ display: 'flex' }} align="baseline">
+                  <Form.Item
+                    {...restField}
+                    name={[name, 'key']}
+                    rules={[{ required: true, message: '请输入属性名' }]}
+                    noStyle
+                  >
+                    <Input placeholder="属性名" style={{ width: 150 }} />
+                  </Form.Item>
+                  <span>=</span>
+                  <Form.Item
+                    {...restField}
+                    name={[name, 'value']}
+                    rules={[{ required: true, message: '请输入属性值' }]}
+                    noStyle
+                  >
+                    <Input placeholder="属性值" style={{ width: 150 }} />
+                  </Form.Item>
+                  <Button
+                    type="text"
+                    danger
+                    icon={<DeleteOutlined />}
+                    onClick={() => remove(name)}
+                  />
+                </Space>
+              ))}
+              <Button
+                type="dashed"
+                onClick={() => add({ key: '', value: '' })}
+                icon={<PlusOutlined />}
+                style={{ width: 320 }}
+              >
+                添加属性
+              </Button>
+            </div>
+          )}
+        </Form.List>
+      </ConfigField>
+
       <div className="config-actions" style={{ marginTop: 16 }}>
         <Button
           type="primary"

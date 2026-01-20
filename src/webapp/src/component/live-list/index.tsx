@@ -1,6 +1,6 @@
 import React from "react";
-import { Button, Divider, Table, Tag, Tabs, Row, Col, Tooltip, message, List, Typography, Switch, Space } from 'antd';
-import { EditOutlined, SyncOutlined, CloudSyncOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Button, Divider, Table, Tag, Tabs, Row, Col, Tooltip, message, List, Typography, Switch, Space, Modal, Popconfirm, Select } from 'antd';
+import { EditOutlined, SyncOutlined, CloudSyncOutlined, ReloadOutlined, SwapOutlined, CheckCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import PopDialog from '../pop-dialog/index';
 import AddRoomDialog from '../add-room-dialog/index';
 import LogPanel from '../log-panel/index';
@@ -13,9 +13,266 @@ import type { ColumnsType } from 'antd/es/table';
 import { useNavigate, NavigateFunction } from "react-router-dom";
 import EditCookieDialog from "../edit-cookie/index";
 import { RoomConfigForm } from "../config-info";
+import { StreamAttributes } from '../../types/stream';
 
 const api = new API();
 const { Text } = Typography;
+
+// 带过滤器的流列表组件
+interface StreamListWithFilterProps {
+    availableStreams: any[];
+    availableStreamAttributes?: any[];
+    detail: any;
+    liveId: string;
+    component: any; // LiveList 组件实例
+}
+
+const StreamListWithFilter: React.FC<StreamListWithFilterProps> = ({
+    availableStreams,
+    availableStreamAttributes,
+    detail,
+    liveId,
+    component
+}) => {
+    const [filterAttrs, setFilterAttrs] = React.useState<StreamAttributes>({});
+
+    // 提取所有属性的 key
+    const allKeys = React.useMemo(() => {
+        if (!availableStreamAttributes || availableStreamAttributes.length === 0) {
+            return [];
+        }
+        const keysSet = new Set<string>();
+        availableStreamAttributes.forEach((combo: any) => {
+            Object.keys(combo).forEach((key: string) => keysSet.add(key));
+        });
+        return Array.from(keysSet);
+    }, [availableStreamAttributes]);
+
+    // 根据当前过滤条件，计算指定属性的有效值
+    const getValidValues = (key: string): string[] => {
+        if (!availableStreamAttributes) return [];
+        const compatible = availableStreamAttributes.filter((combo: any) => {
+            return Object.entries(filterAttrs).every(([k, v]) => {
+                if (k === key) return true;
+                return combo[k] === undefined || combo[k] === v;
+            });
+        });
+        const values = new Set<string>();
+        compatible.forEach((combo: any) => {
+            if (combo[key]) values.add(combo[key]);
+        });
+        return Array.from(values);
+    };
+
+    // 处理属性变化
+    const handleAttrChange = (key: string, value: string | undefined) => {
+        setFilterAttrs((prev: StreamAttributes) => {
+            const newAttrs = { ...prev };
+            if (value === undefined) {
+                delete newAttrs[key];
+            } else {
+                newAttrs[key] = value;
+            }
+            return newAttrs;
+        });
+    };
+
+    // 根据选择的属性过滤流列表
+    const filteredStreams = React.useMemo(() => {
+        if (Object.keys(filterAttrs).length === 0) {
+            return availableStreams;
+        }
+        return availableStreams.filter((stream: any) => {
+            if (!stream.attributes_for_stream_select) return true;
+            return Object.entries(filterAttrs).every(([k, v]) => {
+                return stream.attributes_for_stream_select[k] === v;
+            });
+        });
+    }, [filterAttrs, availableStreams]);
+
+    // 渲染流列表项
+    const renderStreamItem = (stream: any, index: number) => {
+        let isCurrentStream = detail.recording && detail.recorder_status?.stream_quality === stream.quality
+            && detail.recorder_status?.stream_format === stream.format;
+
+        if (isCurrentStream && detail.recorder_status?.stream_attributes_for_stream_select) {
+            isCurrentStream = Object.entries(detail.recorder_status.stream_attributes_for_stream_select).every(([k, v]) => {
+                return stream.attributes_for_stream_select[k] === v;
+            });
+        }
+
+        const handleSwitchStream = async () => {
+            try {
+                const result = await api.switchStream(liveId, {
+                    attributes: stream.attributes_for_stream_select,
+                    quality: stream.quality
+                }) as { success?: boolean; message?: string };
+
+                if (result.success) {
+                    message.success(result.message || '流设置已更新');
+                    component.loadRoomDetail(liveId);
+                } else {
+                    message.error(result.message || '切换流设置失败');
+                }
+            } catch (error) {
+                message.error('切换流设置失败: ' + error);
+            }
+        };
+
+        return (
+            <List.Item key={index} style={{
+                padding: '6px 0',
+                borderBottom: '1px dashed #f0f0f0',
+                backgroundColor: isCurrentStream ? '#f6ffed' : undefined
+            }}>
+                <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ flexGrow: 1 }}>
+                        {/* 第一行：序号和所有从 attributes 渲染的标签 */}
+                        <Space size="small" wrap>
+                            <Tag color={isCurrentStream ? 'green' : 'default'}>
+                                {isCurrentStream ? <CheckCircleOutlined /> : null} #{index + 1}
+                            </Tag>
+                            <Tag color="purple">
+                                {stream.quality || '未知'}
+                            </Tag>
+                            {/* 从 attributes_for_stream_select 渲染所有属性 */}
+                            {stream.attributes_for_stream_select && Object.entries(stream.attributes_for_stream_select).map(([key, value]: [string, any]) => {
+                                // 跳过 quality，因为已经单独显示了
+                                if (key === '画质' && value === stream.quality) {
+                                    return null;
+                                }
+                                // 根据key类型使用不同颜色
+                                let color = 'default';
+                                if (key === 'codec') {
+                                    color = value === 'h265' ? 'orange' : 'green';
+                                } else if (key === 'format_name') {
+                                    color = 'blue';
+                                } else if (key === '协议') {
+                                    color = 'cyan';
+                                }
+                                return (
+                                    <Tag key={key} color={color}>
+                                        {key === 'codec' || key === 'format_name' ? value.toUpperCase() : `${key}: ${value}`}
+                                    </Tag>
+                                );
+                            })}
+                        </Space>
+                        {/* 第二行：如果有 description，单独显示 */}
+                        {stream.description && stream.description !== stream.quality && (
+                            <div style={{ marginTop: 4, fontSize: 12, color: '#666', paddingLeft: 8 }}>
+                                <span style={{ fontStyle: 'italic' }}>ℹ️ {stream.description}</span>
+                            </div>
+                        )}
+                    </div>
+                    {!isCurrentStream && (
+                        detail.recording ? (
+                            <Popconfirm
+                                title="切换录制流"
+                                description={
+                                    <div style={{ maxWidth: 300 }}>
+                                        <p style={{ margin: '0 0 8px 0', color: '#ff4d4f', fontWeight: 500 }}>
+                                            <ExclamationCircleOutlined /> 警告：切换流会截断当前录制！
+                                        </p>
+                                        <p style={{ margin: 0 }}>
+                                            当前录制的视频文件将被保存，然后立即开始使用新的流设置进行录制。
+                                        </p>
+                                    </div>
+                                }
+                                onConfirm={handleSwitchStream}
+                                okText="确认切换"
+                                cancelText="取消"
+                                okButtonProps={{ danger: true }}
+                                icon={<ExclamationCircleOutlined style={{ color: '#ff4d4f' }} />}
+                            >
+                                <Tooltip title="切换到此流设置并重新开始录制（会截断当前录制）">
+                                    <Button
+                                        size="small"
+                                        type="link"
+                                        icon={<SwapOutlined />}
+                                        style={{ color: '#faad14' }}
+                                    >
+                                        切换
+                                    </Button>
+                                </Tooltip>
+                            </Popconfirm>
+                        ) : (
+                            <Tooltip title="设置为此流设置（将在下次录制时生效）">
+                                <Button
+                                    size="small"
+                                    type="link"
+                                    icon={<SwapOutlined />}
+                                    onClick={handleSwitchStream}
+                                >
+                                    应用
+                                </Button>
+                            </Tooltip>
+                        )
+                    )}
+                </div>
+            </List.Item>
+        );
+    };
+
+    return (
+        <>
+            {/* 属性过滤器 */}
+            {allKeys.length > 0 && (
+                <div style={{
+                    padding: '12px',
+                    marginBottom: '12px',
+                    backgroundColor: '#fafafa',
+                    borderRadius: '4px',
+                    border: '1px solid #e8e8e8'
+                }}>
+                    <div style={{ marginBottom: '8px', fontWeight: 500, color: '#666' }}>
+                        🔍 流属性过滤器
+                    </div>
+                    <Space direction="vertical" style={{ width: '100%' }} size="small">
+                        {allKeys.map((key: string) => {
+                            const validValues = getValidValues(key);
+                            return (
+                                <Space key={key} style={{ width: '100%' }}>
+                                    <label style={{ minWidth: '80px' }}>{key}:</label>
+                                    <Select
+                                        value={filterAttrs[key]}
+                                        onChange={(v) => handleAttrChange(key, v)}
+                                        placeholder="不限制"
+                                        allowClear
+                                        style={{ flex: 1, minWidth: '150px' }}
+                                    >
+                                        {validValues.map((v: string) => (
+                                            <Select.Option key={v} value={v}>{v}</Select.Option>
+                                        ))}
+                                    </Select>
+                                    <span style={{ color: '#999', fontSize: '12px' }}>
+                                        ({validValues.length} 个选项)
+                                    </span>
+                                </Space>
+                            );
+                        })}
+                        <div style={{
+                            color: '#1890ff',
+                            fontSize: '13px',
+                            marginTop: '4px',
+                            paddingTop: '8px',
+                            borderTop: '1px dashed #d9d9d9'
+                        }}>
+                            筛选结果：{filteredStreams.length} / {availableStreams.length} 个流
+                        </div>
+                    </Space>
+                </div>
+            )}
+
+            {/* 过滤后的流列表 */}
+            <List
+                size="small"
+                dataSource={filteredStreams}
+                split={false}
+                renderItem={renderStreamItem}
+            />
+        </>
+    );
+};
 
 // 使用动态获取的刷新间隔
 const getRefreshTime = () => getPollIntervalMs();
@@ -1157,6 +1414,37 @@ class LiveList extends React.Component<Props, IState> {
                                         {detail.recording ? '录制中' : '未录制'}
                                     </Tag>
                                 </div>
+                                {/* 当前录制画质信息 */}
+                                {detail.recording && detail.recorder_status?.stream_quality && (
+                                    <div style={configRowStyle}>
+                                        <span style={configLabelStyle}>录制画质</span>
+                                        <Space size="small">
+                                            <Tag color="purple">
+                                                {detail.recorder_status.stream_quality_name || detail.recorder_status.stream_quality}
+                                                {detail.recorder_status.stream_description &&
+                                                    detail.recorder_status.stream_description !== detail.recorder_status.stream_quality &&
+                                                    ` [${detail.recorder_status.stream_description}]`}
+                                            </Tag>
+                                            {detail.recorder_status.stream_resolution && (
+                                                <Tag>{detail.recorder_status.stream_resolution}</Tag>
+                                            )}
+                                            {detail.recorder_status.stream_format && (
+                                                <Tag>{detail.recorder_status.stream_format.toUpperCase()}</Tag>
+                                            )}
+                                            {detail.recorder_status.stream_bitrate && (
+                                                <Tag color="blue">{detail.recorder_status.stream_bitrate} kbps</Tag>
+                                            )}
+                                            {detail.recorder_status.stream_fps && (
+                                                <Tag>{detail.recorder_status.stream_fps}fps</Tag>
+                                            )}
+                                            {detail.recorder_status.stream_codec && (
+                                                <Tag color={detail.recorder_status.stream_codec === 'h265' ? 'orange' : 'default'}>
+                                                    {detail.recorder_status.stream_codec.toUpperCase()}
+                                                </Tag>
+                                            )}
+                                        </Space>
+                                    </div>
+                                )}
                                 {detail.recording && detail.recorder_status?.bitrate && (
                                     <div style={configRowStyle}>
                                         <span style={configLabelStyle}>下载速度</span>
@@ -1288,6 +1576,32 @@ class LiveList extends React.Component<Props, IState> {
                                     </div>
                                 )}
                             </div>
+
+                            {/* 可用流列表 - 带过滤器 */}
+                            {detail.available_streams && detail.available_streams.length > 0 && (
+                                <>
+                                    <Divider style={{ margin: '8px 0' }}>可用流列表 ({detail.available_streams.length})</Divider>
+                                    <div style={{ padding: '0 12px 8px' }}>
+                                        <StreamListWithFilter
+                                            availableStreams={detail.available_streams}
+                                            availableStreamAttributes={detail.available_stream_attributes}
+                                            detail={detail}
+                                            liveId={liveId}
+                                            component={component}
+                                        />
+                                        {detail.available_streams_updated_at && (
+                                            <div style={{
+                                                marginTop: 8,
+                                                fontSize: 12,
+                                                color: '#999',
+                                                textAlign: 'right'
+                                            }}>
+                                                更新于: {new Date(detail.available_streams_updated_at * 1000).toLocaleString()}
+                                            </div>
+                                        )}
+                                    </div>
+                                </>
+                            )}
                         </div>
                     ) : (
                         <div style={{ padding: '20px', textAlign: 'center', color: '#999' }}>

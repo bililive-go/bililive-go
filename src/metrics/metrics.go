@@ -80,7 +80,7 @@ func (c collector) Collect(ch chan<- prometheus.Metric) {
 
 				if r, err := c.inst.RecorderManager.(recorders.Manager).GetRecorder(context.Background(), id); err == nil {
 					if status, err := r.GetStatus(); err == nil {
-						if value, err := strconv.ParseFloat(status["total_size"], 64); err == nil {
+						if value, err := strconv.ParseFloat(status["total_size"].(string), 64); err == nil {
 							ch <- prometheus.MustNewConstMetric(recorderTotalBytes, prometheus.CounterValue, value,
 								string(id), l.GetRawUrl(), info.HostName, info.RoomName)
 						}

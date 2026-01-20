@@ -308,3 +308,34 @@ export const getDownloaderInheritance = (
   };
 };
 
+// ============================================================================
+// 流偏好配置相关的类型（新版）
+// 注：旧版流选择配置（formats, qualities, max_bitrate 等）已删除
+// 新版使用动态属性方式进行流选择，详见 src/webapp/src/types/stream.ts
+// ============================================================================
+
+// 流偏好配置接口（新版）
+export interface StreamPreference {
+  quality?: string;
+  attributes?: Record<string, string>;
+}
+
+/**
+ * 获取流偏好的显示值
+ */
+export const getStreamPreferenceDisplayValue = (preference?: StreamPreference): string => {
+  if (!preference) {
+    return '(自动选择)';
+  }
+  const parts: string[] = [];
+  if (preference.quality) {
+    parts.push(`画质: ${preference.quality}`);
+  }
+  if (preference.attributes && Object.keys(preference.attributes).length > 0) {
+    const attrStr = Object.entries(preference.attributes)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(', ');
+    parts.push(attrStr);
+  }
+  return parts.length > 0 ? parts.join(', ') : '(自动选择)';
+};

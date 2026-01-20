@@ -16,7 +16,7 @@ import (
 )
 
 // BroadcastRecorderStatusFunc 是用于广播录制器状态的回调函数类型
-type BroadcastRecorderStatusFunc func(liveId types.LiveID, status map[string]string)
+type BroadcastRecorderStatusFunc func(liveId types.LiveID, status map[string]interface{})
 
 // OnRecordingEndFunc 是录制结束时的回调函数类型
 type OnRecordingEndFunc func(ctx context.Context)
@@ -59,7 +59,7 @@ type Manager interface {
 	GetAllParserPIDs() []int
 	// GetRecorderStatus 获取指定直播间录制器的状态
 	// 实现 iostats.RecorderStatusProvider 接口
-	GetRecorderStatus(ctx context.Context, liveId types.LiveID) (map[string]string, error)
+	GetRecorderStatus(ctx context.Context, liveId types.LiveID) (map[string]interface{}, error)
 }
 
 // for test
@@ -282,7 +282,7 @@ func (m *manager) GetAllParserPIDs() []int {
 
 // GetRecorderStatus 获取指定直播间录制器的状态
 // 实现 iostats.RecorderStatusProvider 接口
-func (m *manager) GetRecorderStatus(ctx context.Context, liveId types.LiveID) (map[string]string, error) {
+func (m *manager) GetRecorderStatus(ctx context.Context, liveId types.LiveID) (map[string]interface{}, error) {
 	recorder, err := m.GetRecorder(ctx, liveId)
 	if err != nil {
 		return nil, err

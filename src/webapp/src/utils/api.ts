@@ -5,6 +5,7 @@
  */
 
 import Utils from './common';
+import { StreamPreferenceV2 } from '../types/stream';
 
 const utils = new Utils();
 
@@ -307,6 +308,16 @@ class API {
      */
     verifyBilibiliCookie(cookie: string) {
         return utils.requestPost(`${BASE_URL}/bilibili/cookie/verify`, { cookie });
+    }
+
+    /**
+     * 切换直播间的流设置
+     * 更新直播间的流配置并重启录制（如果正在录制中）
+     * @param liveId 直播间ID
+     * @param streamConfig 流设置，支持新格式 { quality?: string, attributes?: {...} } 或旧格式 { format?: string, quality?: string }
+     */
+    switchStream(liveId: string, streamConfig: StreamPreferenceV2 | { format?: string; quality?: string }) {
+        return utils.requestPost(`${BASE_URL}/lives/${liveId}/switchStream`, streamConfig);
     }
 }
 

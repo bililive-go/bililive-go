@@ -172,7 +172,7 @@ func getDefaultFileNameTmpl() *template.Template {
 type Recorder interface {
 	Start(ctx context.Context) error
 	StartTime() time.Time
-	GetStatus() (map[string]string, error)
+	GetStatus() (map[string]interface{}, error)
 	Close()
 	// GetParserPID 获取当前 parser 进程的 PID
 	// 如果 parser 未启动或不支持 PID 获取，返回 0
@@ -199,6 +199,9 @@ type recorder struct {
 	// 当前录制文件信息
 	currentFileLock sync.RWMutex
 	currentFilePath string
+
+	// 当前录制的流信息
+	currentStreamInfo *live.AvailableStreamInfo
 }
 
 func NewRecorder(ctx context.Context, live live.Live) (Recorder, error) {
@@ -264,7 +267,13 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	// 使用层级配置的 OutPutPath
 	fileName := filepath.Join(resolvedConfig.OutPutPath, buf.String())
 	outputPath, _ := filepath.Split(fileName)
-	streamInfo := streamInfos[0]
+
+	// TODO 根据配置选择最佳流
+	streamInfo := r.selectPreferredStream(streamInfos)
+	r.saveCurrentStreamInfo(streamInfo)
+	// 更新可用流信息到 info（用于API展示）
+	r.updateAvailableStreams(ctx, info, streamInfos)
+
 	url := streamInfo.Url
 
 	if strings.Contains(url.Path, "m3u8") {
@@ -437,6 +446,30 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	}
 }
 
+func (r *recorder) selectPreferredStream(streamInfos []*live.StreamUrlInfo) (ret *live.StreamUrlInfo) {
+	streamPreference := configs.GetCurrentConfig().GetEffectiveConfigForRoom(r.Live.GetRawUrl()).StreamPreference
+	quality := *streamPreference.Quality
+	attrs := *streamPreference.Attributes
+
+	retMatchedCount := 0
+	for _, info := range streamInfos {
+		currMatchedCount := 0
+		if info.Quality == quality {
+			currMatchedCount += 100
+		}
+		for k, v := range attrs {
+			if info.AttributesForStreamSelect[k] == v {
+				currMatchedCount += 1
+			}
+		}
+		if currMatchedCount > retMatchedCount {
+			ret = info
+			retMatchedCount = currMatchedCount
+		}
+	}
+	return
+}
+
 func (r *recorder) run(ctx context.Context) {
 	for {
 		select {
@@ -470,7 +503,7 @@ func (r *recorder) Start(ctx context.Context) error {
 		return nil
 	}
 	bilisentry.GoWithContext(ctx, func(ctx context.Context) { r.run(ctx) })
-	r.getLogger().Info("Record Start")
+	r.getLogger().Info("Record Start ", r.Live.GetRawUrl())
 	r.ed.DispatchEvent(events.NewEvent(RecorderStart, r.Live))
 	atomic.CompareAndSwapUint32(&r.state, pending, running)
 	return nil
@@ -512,7 +545,7 @@ func (r *recorder) getCurrentFilePath() string {
 	return r.currentFilePath
 }
 
-func (r *recorder) GetStatus() (map[string]string, error) {
+func (r *recorder) GetStatus() (map[string]interface{}, error) {
 	statusP, ok := r.getParser().(parser.StatusParser)
 	if !ok {
 		return nil, ErrParserNotSupportStatus
@@ -522,7 +555,7 @@ func (r *recorder) GetStatus() (map[string]string, error) {
 		return nil, err
 	}
 	if status == nil {
-		status = make(map[string]string)
+		status = make(map[string]interface{})
 	}
 
 	// 添加文件路径和文件大小信息
@@ -533,6 +566,32 @@ func (r *recorder) GetStatus() (map[string]string, error) {
 		if fileInfo, err := os.Stat(filePath); err == nil {
 			status["file_size"] = strconv.FormatInt(fileInfo.Size(), 10)
 		}
+	}
+
+	// 添加当前录制的流信息
+	r.currentFileLock.RLock()
+	streamInfo := r.currentStreamInfo
+	r.currentFileLock.RUnlock()
+	if streamInfo != nil {
+		status["stream_format"] = streamInfo.Format
+		status["stream_quality"] = streamInfo.Quality
+		status["stream_quality_name"] = streamInfo.QualityName
+		if streamInfo.Description != "" && streamInfo.Description != streamInfo.Quality {
+			status["stream_description"] = streamInfo.Description
+		}
+		if streamInfo.Width > 0 && streamInfo.Height > 0 {
+			status["stream_resolution"] = fmt.Sprintf("%dx%d", streamInfo.Width, streamInfo.Height)
+		}
+		if streamInfo.Bitrate > 0 {
+			status["stream_bitrate"] = fmt.Sprintf("%d", streamInfo.Bitrate)
+		}
+		if streamInfo.FrameRate > 0 {
+			status["stream_fps"] = fmt.Sprintf("%.0f", streamInfo.FrameRate)
+		}
+		if streamInfo.AttributesForStreamSelect != nil {
+			status["stream_attributes_for_stream_select"] = streamInfo.AttributesForStreamSelect
+		}
+		status["stream_codec"] = streamInfo.Codec
 	}
 
 	return status, nil
@@ -620,4 +679,243 @@ func (r *recorder) renderUploadPath(tmplStr string, info *live.Info, localFile s
 	}
 
 	return buf.String()
+}
+
+// logAvailableStreams 输出所有可用流的详细信息
+func (r *recorder) logAvailableStreams(streamInfos []*live.StreamUrlInfo) {
+	r.getLogger().Infof("═══════════════════════════════════════════════════════════")
+	r.getLogger().Infof("可用流列表 (共 %d 个):", len(streamInfos))
+	r.getLogger().Infof("───────────────────────────────────────────────────────────")
+
+	for i, s := range streamInfos {
+
+		// 构建码率显示
+		bitrateStr := "未知"
+		if s.Bitrate > 0 {
+			bitrateStr = fmt.Sprintf("%d kbps", s.Bitrate)
+		} else if s.Vbitrate > 0 {
+			bitrateStr = fmt.Sprintf("%d kbps", s.Vbitrate)
+		}
+
+		// 构建帧率显示
+		fpsStr := ""
+		if s.FrameRate > 0 {
+			fpsStr = fmt.Sprintf(" %.0ffps", s.FrameRate)
+		}
+
+		// 构建编码显示
+		codecStr := s.Codec
+		if codecStr == "" {
+			codecStr = "h264" // 默认假设 h264
+		}
+
+		// 格式显示
+		formatStr := strings.ToUpper(s.Format)
+		if formatStr == "" {
+			// 从 URL 推断格式
+			if s.Url != nil {
+				urlPath := s.Url.Path
+				if strings.Contains(urlPath, ".flv") {
+					formatStr = "FLV"
+				} else if strings.Contains(urlPath, ".m3u8") || strings.Contains(urlPath, "m3u8") {
+					formatStr = "HLS"
+				}
+			}
+		}
+		if formatStr == "" {
+			formatStr = "未知"
+		}
+
+		r.getLogger().Infof("  [%d] %s | %s | %s%s",
+			i+1,
+			formatStr,
+			bitrateStr,
+			codecStr,
+			fpsStr)
+	}
+	r.getLogger().Infof("═══════════════════════════════════════════════════════════")
+}
+
+// extractRoomID 从URL提取房间ID
+func extractRoomID(urlStr, platform string) string {
+	// 简化实现：从URL路径提取
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return ""
+	}
+
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) > 0 {
+		return parts[len(parts)-1]
+	}
+	return ""
+}
+
+// saveCurrentStreamInfo 保存当前录制的流信息
+func (r *recorder) saveCurrentStreamInfo(s *live.StreamUrlInfo) {
+	if s == nil {
+		return
+	}
+
+	// 格式
+	format := strings.ToLower(s.Format)
+	if format == "" && s.Url != nil {
+		urlPath := s.Url.Path
+		if strings.Contains(urlPath, ".flv") {
+			format = "flv"
+		} else if strings.Contains(urlPath, "m3u8") {
+			format = "hls"
+		}
+	}
+
+	// 编码
+	codec := s.Codec
+	if codec == "" {
+		codec = "h264"
+	}
+
+	// 码率
+	bitrate := s.Bitrate
+	if bitrate == 0 && s.Vbitrate > 0 {
+		bitrate = s.Vbitrate
+	}
+
+	streamInfo := &live.AvailableStreamInfo{
+		Format:                    format,
+		Quality:                   s.Quality,
+		QualityName:               live.GetQualityName(s.Quality),
+		Description:               s.Description,
+		Width:                     s.Width,
+		Height:                    s.Height,
+		Bitrate:                   bitrate,
+		FrameRate:                 s.FrameRate,
+		Codec:                     codec,
+		AudioCodec:                s.AudioCodec,
+		AttributesForStreamSelect: s.AttributesForStreamSelect,
+	}
+
+	r.currentFileLock.Lock()
+	r.currentStreamInfo = streamInfo
+	r.currentFileLock.Unlock()
+}
+
+// updateAvailableStreams 更新可用流信息到 Info
+func (r *recorder) updateAvailableStreams(ctx context.Context, info *live.Info, streamInfos []*live.StreamUrlInfo) {
+	availableStreams := make([]*live.AvailableStreamInfo, 0, len(streamInfos))
+
+	for _, s := range streamInfos {
+		// 格式
+		format := strings.ToLower(s.Format)
+		if format == "" && s.Url != nil {
+			urlPath := s.Url.Path
+			if strings.Contains(urlPath, ".flv") {
+				format = "flv"
+			} else if strings.Contains(urlPath, "m3u8") {
+				format = "hls"
+			}
+		}
+
+		// 编码
+		codec := s.Codec
+		if codec == "" {
+			codec = "h264"
+		}
+
+		// 码率
+		bitrate := s.Bitrate
+		if bitrate == 0 && s.Vbitrate > 0 {
+			bitrate = s.Vbitrate
+		}
+
+		stream := &live.AvailableStreamInfo{
+			Format:                    format,
+			Quality:                   s.Quality,
+			QualityName:               live.GetQualityName(s.Quality),
+			Description:               s.Description,
+			Width:                     s.Width,
+			Height:                    s.Height,
+			Bitrate:                   bitrate,
+			FrameRate:                 s.FrameRate,
+			Codec:                     codec,
+			AudioCodec:                s.AudioCodec,
+			AttributesForStreamSelect: s.AttributesForStreamSelect,
+		}
+
+		availableStreams = append(availableStreams, stream)
+	}
+
+	info.AvailableStreams = availableStreams
+	info.AvailableStreamsUpdatedAt = time.Now().Unix()
+
+	// 更新缓存，以便 API 可以获取到最新的可用流信息
+	if r.cache != nil {
+		r.cache.Set(r.Live, info)
+	}
+
+	// 保存到数据库（使用 goroutine 避免阻塞录制流程）
+	bilisentry.GoWithContext(ctx, func(ctx context.Context) {
+		r.saveAvailableStreamsToDatabase(ctx, availableStreams)
+	})
+}
+
+// AvailableStreamData 可用流数据（用于保存到数据库的接口）
+type AvailableStreamData struct {
+	Format      string
+	Quality     string
+	QualityName string
+	Description string
+	Width       int
+	Height      int
+	Bitrate     int
+	FrameRate   float64
+	Codec       string
+	AudioCodec  string
+}
+
+// AvailableStreamSaver 定义保存可用流的接口（避免循环导入）
+type AvailableStreamSaver interface {
+	SaveAvailableStreamsGeneric(ctx context.Context, liveID string, streams []AvailableStreamData) error
+}
+
+// saveAvailableStreamsToDatabase 保存可用流信息到数据库
+func (r *recorder) saveAvailableStreamsToDatabase(ctx context.Context, streams []*live.AvailableStreamInfo) {
+	inst := instance.GetInstance(ctx)
+	if inst.LiveStateStore == nil {
+		return
+	}
+
+	// 使用类型断言检查是否有 SaveAvailableStreamsGeneric 方法
+	// 使用反射调用，避免循环导入
+	storeVal := inst.LiveStateStore
+	// 尝试获取 SaveAvailableStreams 方法
+	type streamSaver interface {
+		SaveAvailableStreamsAny(ctx context.Context, liveID string, streams interface{}) error
+	}
+
+	if saver, ok := storeVal.(streamSaver); ok {
+		// 转换为通用数据类型
+		data := make([]map[string]interface{}, 0, len(streams))
+		for _, s := range streams {
+			data = append(data, map[string]interface{}{
+				"Format":                    s.Format,
+				"Quality":                   s.Quality,
+				"QualityName":               s.QualityName,
+				"Description":               s.Description,
+				"Width":                     s.Width,
+				"Height":                    s.Height,
+				"Bitrate":                   s.Bitrate,
+				"FrameRate":                 s.FrameRate,
+				"Codec":                     s.Codec,
+				"AudioCodec":                s.AudioCodec,
+				"AttributesForStreamSelect": s.AttributesForStreamSelect,
+			})
+		}
+
+		saveCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+
+		if err := saver.SaveAvailableStreamsAny(saveCtx, string(r.Live.GetLiveId()), data); err != nil {
+			r.getLogger().Warnf("保存可用流信息到数据库失败: %v", err)
+		}
+	}
 }

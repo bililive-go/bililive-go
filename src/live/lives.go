@@ -179,7 +179,14 @@ type StreamUrlInfo struct {
 	Codec      string  `json:"codec"`       // 视频编码: "h264", "h265"
 	AudioCodec string  `json:"audio_codec"` // 音频编码: "aac"
 
+	// 用于前端流选择的属性组合
+	// 包含所有可用于选择此流的属性键值对（如 "画质": "原画", "format": "flv", "codec": "h264"）
+	// 前端会根据这些属性动态生成下拉选择器
+	AttributesForStreamSelect map[string]string `json:"attributes_for_stream_select,omitempty"`
+
 	HeadersForDownloader map[string]string
+
+	IsPlaceHolder bool `json:"is_placeholder"`
 }
 
 type Live interface {
