@@ -1,0 +1,118 @@
+/* IO 统计页面样式 */
+
+.io-stats-page {
+    padding: 16px;
+    min-height: 100%;
+}
+
+.toolbar-card {
+    margin-bottom: 16px;
+}
+
+.toolbar-card .ant-card-body {
+    padding: 12px 16px;
+}
+
+/* 图表容器 */
+.chart-container {
+    padding: 16px 0;
+}
+
+/* 空数据状态 */
+.chart-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 300px;
+    color: #999;
+    background-color: #fafafa;
+    border-radius: 8px;
+    border: 1px dashed #d9d9d9;
+}
+
+.chart-empty p {
+    margin: 8px 0;
+}
+
+/* 时间线图表 */
+.timeline-chart {
+    padding: 8px 0;
+}
+
+.timeline-legend {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+}
+
+/* 分组时间线 */
+.grouped-timeline {
+    padding: 8px 0;
+}
+
+.segment-row {
+    padding: 8px;
+    background-color: #fafafa;
+    border-radius: 8px;
+}
+
+.segment-block:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* 请求状态图表 */
+.request-status-chart {
+    min-height: 200px;
+}
+
+/* Tab 样式调整 */
+.io-stats-page .ant-tabs-tab {
+    padding: 12px 16px;
+}
+
+.io-stats-page .ant-tabs-tab .anticon {
+    margin-right: 8px;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+    .io-stats-page {
+        padding: 8px;
+    }
+
+    .toolbar-card .ant-space {
+        flex-wrap: wrap;
+    }
+
+    .toolbar-card .ant-picker-range {
+        width: 100%;
+    }
+
+    .toolbar-card .ant-select {
+        width: 100% !important;
+    }
+}
+
+/* 图表 tooltip 样式 */
+.recharts-tooltip-wrapper {
+    z-index: 1000;
+}
+
+/* 动画效果 */
+.chart-container,
+.timeline-chart,
+.grouped-timeline {
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

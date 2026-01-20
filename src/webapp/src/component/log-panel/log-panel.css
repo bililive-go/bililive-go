@@ -1,0 +1,242 @@
+.log-panel {
+  position: relative;
+  padding: 8px 12px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.log-toolbar {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  z-index: 10;
+  background: rgba(255, 255, 255, 0.95);
+  padding: 4px 8px;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+}
+
+.log-panel:hover .log-toolbar {
+  opacity: 1;
+}
+
+.log-toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #666;
+  transition: all 0.2s ease;
+}
+
+.log-toolbar-btn:hover {
+  background: #f0f0f0;
+  color: #1890ff;
+}
+
+.log-toolbar-btn.active {
+  color: #1890ff;
+  background: #e6f7ff;
+}
+
+.log-toolbar-btn.paused {
+  color: #ff4d4f;
+  background: #fff2f0;
+}
+
+.log-toolbar-btn.paused:hover {
+  color: #52c41a;
+  background: #f6ffed;
+}
+
+.log-toolbar-btn.disabled {
+  color: #ccc;
+  cursor: not-allowed;
+}
+
+.log-toolbar-btn.disabled:hover {
+  background: transparent;
+  color: #ccc;
+}
+
+.log-paused-hint {
+  font-size: 12px;
+  color: #ff4d4f;
+  margin-left: 8px;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* 虚拟滚动列表容器 */
+.log-list-container {
+  height: 240px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: #fafafa;
+  border-radius: 4px;
+  width: 0;
+  min-width: 100%;
+}
+
+/* 日志项 - 固定高度便于虚拟滚动计算 */
+.log-item {
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  box-sizing: border-box;
+}
+
+.log-item:hover {
+  z-index: 100;
+}
+
+.log-item-text {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12px;
+  line-height: 20px;
+  color: #333;
+  background: #f5f5f5;
+  padding: 2px 6px;
+  border-radius: 3px;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.log-item:hover .log-item-text {
+  white-space: normal;
+  word-break: break-all;
+  overflow: visible;
+  background: #e6f7ff;
+  position: relative;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.log-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #999;
+  font-size: 14px;
+}
+
+.log-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #f0f0f0;
+  font-size: 12px;
+  color: #999;
+}
+
+.log-limit-hint {
+  color: #faad14;
+}
+
+.log-autoscroll-hint {
+  color: #52c41a;
+  margin-left: auto;
+}
+
+/* 滚动条样式 */
+.log-list-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.log-list-container::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.log-list-container::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 3px;
+}
+
+.log-list-container::-webkit-scrollbar-thumb:hover {
+  background: #999;
+}
+
+/* 搜索框样式 */
+.log-search-box {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding-left: 8px;
+  border-left: 1px solid #e8e8e8;
+}
+
+.log-search-box .ant-input {
+  font-size: 12px;
+}
+
+.log-search-count {
+  font-size: 12px;
+  color: #666;
+  min-width: 40px;
+  text-align: center;
+  transition: all 0.3s ease;
+}
+
+.log-search-count.count-changed {
+  animation: countChange 0.6s ease;
+}
+
+@keyframes countChange {
+  0% {
+    color: #666;
+    text-shadow: none;
+  }
+
+  30% {
+    color: #1890ff;
+    text-shadow: 0 0 8px rgba(24, 144, 255, 0.6);
+  }
+
+  100% {
+    color: #666;
+    text-shadow: none;
+  }
+}
+
+.log-search-nav {
+  width: 24px;
+  height: 24px;
+}
+
+/* 搜索高亮样式 */
+.log-highlight {
+  background-color: #ffffb8;
+  padding: 0 1px;
+  border-radius: 2px;
+}
+
+.log-highlight-current {
+  background-color: #ffc53d;
+  box-shadow: 0 0 4px rgba(255, 197, 61, 0.8);
+}

@@ -5,7 +5,8 @@ import API from '../../utils/api';
 const api = new API();
 
 interface Props {
-    refresh?: any
+    refresh?: any;
+    children?: React.ReactNode;
 }
 
 class AddRoomDialog extends React.Component<Props> {
@@ -37,7 +38,7 @@ class AddRoomDialog extends React.Component<Props> {
                 this.setState({
                     visible: false,
                     confirmLoading: false,
-                    textView:''
+                    textView: ''
                 });
                 this.props.refresh();
             })
@@ -46,7 +47,7 @@ class AddRoomDialog extends React.Component<Props> {
                 this.setState({
                     visible: false,
                     confirmLoading: false,
-                    textView:''
+                    textView: ''
                 });
             })
     };
@@ -54,7 +55,7 @@ class AddRoomDialog extends React.Component<Props> {
     handleCancel = () => {
         this.setState({
             visible: false,
-            textView:''
+            textView: ''
         });
     };
 
@@ -65,12 +66,12 @@ class AddRoomDialog extends React.Component<Props> {
     }
 
     render() {
-        const { visible, confirmLoading, ModalText,textView } = this.state;
+        const { visible, confirmLoading, ModalText, textView } = this.state;
         return (
             <div>
                 <Modal
                     title="添加直播间"
-                    visible={visible}
+                    open={visible}
                     onOk={this.handleOk}
                     confirmLoading={confirmLoading}
                     onCancel={this.handleCancel}>

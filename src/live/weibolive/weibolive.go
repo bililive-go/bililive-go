@@ -1,7 +1,6 @@
 package weibolive
 
 import (
-	"fmt"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -97,7 +96,7 @@ func (l *Live) GetStreamUrls() (us []*url.URL, err error) {
 		} else {
 			streamurl = strings.ReplaceAll(streamurl, ".flv", targetQuality)
 		}
-		fmt.Println("weibo stream quality fixed: " + streamurl)
+		l.GetLogger().Info("weibo stream quality fixed: " + streamurl)
 	}
 
 	return utils.GenUrls(streamurl)

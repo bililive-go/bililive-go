@@ -14,9 +14,10 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/bililive-go/bililive-go/src/instance"
+	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/live"
-	"github.com/sirupsen/logrus"
+	blog "github.com/bililive-go/bililive-go/src/log"
+	"github.com/kira1928/remotetools"
 )
 
 func init() {
@@ -25,7 +26,10 @@ func init() {
 }
 
 func GetFFmpegPath(ctx context.Context) (string, error) {
-	path := instance.GetInstance(ctx).Config.FfmpegPath
+	var path string
+	if cfg := configs.GetCurrentConfig(); cfg != nil {
+		path = cfg.FfmpegPath
+	}
 	if path != "" {
 		_, err := os.Stat(path)
 		if err == nil {
@@ -34,12 +38,52 @@ func GetFFmpegPath(ctx context.Context) (string, error) {
 			return "", err
 		}
 	}
+
+	// try to get from remotetools
+	if toolFfmpeg, err := remotetools.Get().GetTool("ffmpeg"); err == nil {
+		if toolFfmpeg.DoesToolExist() {
+			return toolFfmpeg.GetToolPath(), nil
+		}
+	}
+
 	path, err := exec.LookPath("ffmpeg")
 	if errors.Is(err, exec.ErrDot) {
 		// put ffmpeg.exe and binary like bililive-windows-amd64.exe to the same folder is allowed
 		path, err = exec.LookPath("./ffmpeg")
 	}
 	return path, err
+}
+
+// GetFFmpegPathForLive 获取特定直播间的FFmpeg路径（使用解析后的配置）
+func GetFFmpegPathForLive(ctx context.Context, liveInstance live.Live) (string, error) {
+	cfg := configs.GetCurrentConfig()
+	if cfg == nil {
+		return GetFFmpegPath(ctx)
+	}
+
+	// 获取解析后的配置
+	room, err := cfg.GetLiveRoomByUrl(liveInstance.GetRawUrl())
+	var ffmpegPath string
+	if err == nil {
+		platformKey := configs.GetPlatformKeyFromUrl(liveInstance.GetRawUrl())
+		resolvedConfig := cfg.ResolveConfigForRoom(room, platformKey)
+		ffmpegPath = resolvedConfig.FfmpegPath
+	} else {
+		// 回退到全局配置
+		ffmpegPath = cfg.FfmpegPath
+	}
+
+	if ffmpegPath != "" {
+		_, err := os.Stat(ffmpegPath)
+		if err == nil {
+			return ffmpegPath, nil
+		} else {
+			return "", err
+		}
+	}
+
+	// 如果没有配置FFmpeg路径，尝试从环境变量或 remotetools 查找
+	return GetFFmpegPath(ctx)
 }
 
 func IsFFmpegExist(ctx context.Context) bool {
@@ -119,7 +163,7 @@ func GenUrlInfos(urls []*url.URL, headersForDownloader map[string]string) []*liv
 }
 
 func PrintStack() {
-	logrus.Debugf(string(debug.Stack()))
+	blog.GetLogger().Debugf("%s", string(debug.Stack()))
 }
 
 func ExecCommands(commands [][]string) error {
@@ -160,7 +204,7 @@ func ExecCommandInDir(args []string, dir string) error {
 	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	logrus.Info(cmd.String())
+	blog.GetLogger().Info(cmd.String())
 	return cmd.Run()
 }
 

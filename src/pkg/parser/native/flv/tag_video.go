@@ -89,3 +89,18 @@ func (p *Parser) parseVideoTag(ctx context.Context, length, timestamp uint32) (*
 
 	return tag, nil
 }
+
+// skipVideoTag 跳过视频标签数据（用于 audio_only 模式）
+// 读取并丢弃数据，不写入输出文件
+func (p *Parser) skipVideoTag(ctx context.Context, length uint32) (*VideoTagHeader, error) {
+	// 读取但不写入 tag header 数据
+	p.i.Reset()
+
+	// 跳过整个 tag body
+	if _, err := p.i.ReadN(int(length)); err != nil {
+		return nil, err
+	}
+	p.i.Reset()
+
+	return nil, nil
+}

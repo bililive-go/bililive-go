@@ -1,7 +1,6 @@
 import React from "react";
 import API from '../../utils/api';
 import {
-    PageHeader,
     Descriptions,
     Button
 } from 'antd';
@@ -10,7 +9,7 @@ import copy from 'copy-to-clipboard';
 const api = new API();
 
 interface Props {
-
+    // 不需要任何 props
 }
 
 interface IState {
@@ -21,7 +20,10 @@ interface IState {
     pid: string
     platform: string
     goVersion: string
-    isInContainer: boolean
+    isDocker: string
+    puid: string
+    pgid: string
+    umask: string
 }
 
 class LiveInfo extends React.Component<Props, IState> {
@@ -36,7 +38,10 @@ class LiveInfo extends React.Component<Props, IState> {
             pid: "",
             platform: "",
             goVersion: "",
-            isInContainer: false
+            isDocker: "",
+            puid: "",
+            pgid: "",
+            umask: ""
         };
     }
 
@@ -51,7 +56,10 @@ class LiveInfo extends React.Component<Props, IState> {
                     pid: rsp.pid,
                     platform: rsp.platform,
                     goVersion: rsp.go_version,
-                    isInContainer: rsp.is_in_container
+                    isDocker: rsp.is_docker,
+                    puid: rsp.puid,
+                    pgid: rsp.pgid,
+                    umask: rsp.umask
                 })
             })
             .catch(err => {
@@ -59,28 +67,42 @@ class LiveInfo extends React.Component<Props, IState> {
             })
     }
 
+    isInContainer(): boolean {
+        const v = (this.state.isDocker || "").toLowerCase();
+        return v === "true";
+    }
+
     getTextForCopy(): string {
+        const inContainer = this.isInContainer();
+        const extra = inContainer ? `\nPUID: ${this.state.puid}\nPGID: ${this.state.pgid}\nUMASK: ${this.state.umask}` : "";
         return `
-App Name: ${this.state.appVersion}
+App Name: ${this.state.appName}
 App Version: ${this.state.appVersion}
 Build Time: ${this.state.buildTime}
 Pid: ${this.state.pid}
 Platform: ${this.state.platform}
 Go Version: ${this.state.goVersion}
 Git Hash: ${this.state.gitHash}
-Is Container: ${this.state.isInContainer}
+Is In Container: ${inContainer ? "是" : "否"}${extra}
 `;
     }
 
     render() {
         return (
             <div>
-                <div style={{ backgroundColor: '#F5F5F5', }}>
-                    <PageHeader
-                        ghost={false}
-                        title="系统状态"
-                        subTitle="System Info">
-                    </PageHeader>
+                <div style={{
+                    padding: '16px 24px',
+                    backgroundColor: '#fff',
+                    borderBottom: '1px solid #e8e8e8',
+                    marginBottom: 16,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                }}>
+                    <div>
+                        <span style={{ fontSize: '20px', fontWeight: 600, color: 'rgba(0,0,0,0.85)', marginRight: 12 }}>系统状态</span>
+                        <span style={{ fontSize: '14px', color: 'rgba(0,0,0,0.45)' }}>System Info</span>
+                    </div>
                 </div>
                 <Descriptions bordered>
                     <Descriptions.Item label="App Name">{this.state.appName}</Descriptions.Item>
@@ -90,7 +112,10 @@ Is Container: ${this.state.isInContainer}
                     <Descriptions.Item label="Platform">{this.state.platform}</Descriptions.Item>
                     <Descriptions.Item label="Go Version">{this.state.goVersion}</Descriptions.Item>
                     <Descriptions.Item label="Git Hash">{this.state.gitHash}</Descriptions.Item>
-                    <Descriptions.Item label="Is In Container">{this.state.isInContainer ? "是" : "否"}</Descriptions.Item>
+                    <Descriptions.Item label="Is In Container">{this.isInContainer() ? "是" : "否"}</Descriptions.Item>
+                    {this.isInContainer() && <Descriptions.Item label="PUID">{this.state.puid || ""}</Descriptions.Item>}
+                    {this.isInContainer() && <Descriptions.Item label="PGID">{this.state.pgid || ""}</Descriptions.Item>}
+                    {this.isInContainer() && <Descriptions.Item label="UMASK">{this.state.umask || ""}</Descriptions.Item>}
                 </Descriptions>
                 <Button
                     type="default"

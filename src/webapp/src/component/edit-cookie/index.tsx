@@ -1,136 +1,119 @@
-import { Modal, Input,notification } from 'antd';
+import { Modal, Input, notification, Divider } from 'antd';
 import React from 'react';
 import API from '../../utils/api';
+import BiliLoginPanel from './bili-login-panel';
 import './edit-cookie.css'
 
-const api = new API();
+const { TextArea } = Input;
 
-interface Props {
-    refresh?: any
+interface IProps {
+    refresh: () => void;
 }
 
-const {TextArea} = Input
-
-class EditCookieDialog extends React.Component<Props> {
+class EditCookieDialog extends React.Component<IProps> {
     state = {
-        ModalText: '请输入Cookie',
         visible: false,
         confirmLoading: false,
         textView: '',
-        alertVisible:false,
-        errorInfo:'',
-        Host:'',
-        Platform_cn_name:''
+        Host: '',
+        Platform_cn_name: '',
+        modalKey: 0
     };
 
-    showModal = (data:any) => {
-        var tmpcookie = data.Cookie
-        if(!tmpcookie){
-            tmpcookie=""
-        }
+    api = new API();
+
+    showModal = (data: any) => {
         this.setState({
-            ModalText: '请输入Cookie',
             visible: true,
             confirmLoading: false,
-            textView:tmpcookie,
-            alertVisible:false,
-            errorInfo:'',
-            Host:data.Host,
-            Platform_cn_name:data.Platform_cn_name
+            textView: data.Cookie || '',
+            Host: data.Host,
+            Platform_cn_name: data.Platform_cn_name,
+            modalKey: Date.now()
         });
+    };
+
+    handleCookieChange = (val: string) => {
+        this.setState({ textView: val });
     };
 
     handleOk = () => {
-        this.setState({
-            ModalText: '正在保存Cookie......',
-            confirmLoading: true,
-        });
+        this.setState({ confirmLoading: true });
 
-        api.saveCookie({Host:this.state.Host,Cookie:this.state.textView})
-            .then((rsp) => {
-                // 保存设置
-                api.saveSettingsInBackground();
-                this.setState({
-                    visible: false,
-                    confirmLoading: false,
-                    textView:'',
-                    Host:'',
-                    Platform_cn_name:''
-                });
+        this.api.saveCookie({ Host: this.state.Host, Cookie: this.state.textView })
+            .then(() => {
+                this.api.saveSettingsInBackground();
+                this.setState({ visible: false, confirmLoading: false });
                 this.props.refresh();
-                notification.open({
-                    message: '保存成功',
-                });
+                notification.success({ message: '保存成功' });
             })
             .catch(err => {
-                alert(`保存Cookie失败:\n${err}`);
-                this.setState({
-                    visible: false,
-                    confirmLoading: false,
-                    textView:''
-                });
-            })
-    };
-    handleCancel = () => {
-        this.setState({
-            visible: false,
-            textView:'',
-            alertVisible:false,
-            errorInfo:'',
-            Host:'',
-            Platform_cn_name:''
-        });
+                this.setState({ confirmLoading: false });
+                notification.error({ message: '保存失败', description: String(err) });
+            });
     };
 
-    textChange = (e: any) => {
-        this.setState({
-            textView: e.target.value,
-            alertVisible:false,
-            errorInfo:''
-        })
-        let cookiearr = this.state.textView.split(";")
-        cookiearr.forEach((cookie,index)=>{
-            if(cookie.indexOf("=")===-1){
-                this.setState({alertVisible:true,errorInfo:'cookie格式错误'})
-                return
-            }
-            if(cookie.indexOf("expire")>-1){
-                //可能是cookie过期时间
-                let value = cookie.split("=")[1]
-                let tmpdate
-                if(value.indexOf("-")>-1){
-                    //可能是日期格式
-                    tmpdate = new Date(value)
-                }else if(value.length===10){
-                    tmpdate = new Date(value+"000")
-                }else if(value.length===13){
-                    tmpdate = new Date(value)
-                }
-                if(tmpdate){
-                    if(tmpdate<new Date()){
-                        this.setState({alertVisible:true,errorInfo:'cookie可能已经过期'})
-                    }
-                }
-            }
-        })
-    }
+    handleCancel = () => {
+        this.setState({ visible: false, textView: '' });
+    };
+
     render() {
-        const { visible, confirmLoading, ModalText,textView,alertVisible,errorInfo,
-        Host,Platform_cn_name} = this.state;
+        const { visible, confirmLoading, textView, Host, Platform_cn_name } = this.state;
+        const isBili = Host === 'live.bilibili.com';
+
         return (
             <div>
+                {/* @ts-ignore */}
                 <Modal
-                    title={"修改"+Platform_cn_name+"("+Host+")Cookie"}
-                    visible={visible}
+                    title={`修改 ${Platform_cn_name} (${Host}) Cookie`}
+                    open={visible}
                     onOk={this.handleOk}
                     confirmLoading={confirmLoading}
-                    onCancel={this.handleCancel}>
-                    <p>{ModalText}</p>
-                    <TextArea autoSize={{ minRows: 2, maxRows: 6 }} value={textView} placeholder="请输入Cookie" onChange={this.textChange} allowClear />
-                    <div id="errorinfo" className={alertVisible?'word-style':'word-style:hide'}>{errorInfo}</div>
+                    onCancel={this.handleCancel}
+                    width={isBili ? 720 : 520}
+                    okText="保存并生效"
+                    cancelText="取消"
+                    destroyOnClose // Important to reset BiliLoginPanel state
+                >
+                    {isBili ? (
+                        <BiliLoginPanel
+                            key={this.state.modalKey}
+                            initialCookie={textView}
+                            api={this.api}
+                            onCookieChange={this.handleCookieChange}
+                        />
+                    ) : (
+                        <div style={{ marginTop: 10, padding: '8px' }}>
+                            <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontSize: '15px', fontWeight: 600, color: '#262626' }}>
+                                    请输入有效的 Cookie 字符串：
+                                </span>
+                            </div>
+                            <TextArea
+                                className="cookie-textarea"
+                                autoSize={{ minRows: 6, maxRows: 10 }}
+                                value={textView}
+                                placeholder="格式: KEY1=VALUE1; KEY2=VALUE2; ..."
+                                onChange={(e) => this.handleCookieChange(e.target.value)}
+                            />
+
+                            {/* @ts-ignore */}
+                            <Divider orientation="left" className="divider-text">
+                                获取方式指南
+                            </Divider>
+                            <div style={{ fontSize: '14px', color: '#595959', lineHeight: '2' }}>
+                                <ol style={{ paddingLeft: '20px' }}>
+                                    <li>在浏览器登录 <b>{Platform_cn_name}</b> 官网。</li>
+                                    <li>按 <b>F12</b> 查看控制台 - <b>网络 (Network)</b>。</li>
+                                    <li>复制请求标头中的 <b>Cookie</b> 字段并粘贴到上方。</li>
+                                </ol>
+                            </div>
+                        </div>
+                    )}
                 </Modal>
             </div>
         );
     }
 }
+
 export default EditCookieDialog;
