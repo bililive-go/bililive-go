@@ -7,37 +7,31 @@
 function customFetch(arg1: Parameters<typeof fetch>[0], ...args: any[]) {
     return new Promise((resolve, reject) => {
         fetch.call(null, arg1, ...args)
-            .then(rsp => {
+            .then(async (rsp) => {
                 if (rsp.ok) {
                     return rsp.json();
                 } else {
+                    // Try to parse error message from JSON or text
                     const clonedRsp = rsp.clone();
-                    return rsp.json()
-                        .catch(err => {
-                            return clonedRsp
-                                .text()
-                                .then((err: any) => {
-                                    let message = "";
-                                    if (err) {
-                                        if (err.err_msg) {
-                                            message = err.err_msg;
-                                        } else {
-                                            message = err;
-                                        }
-                                    }
-                                    return message;
-                                })
-                                .catch(err => rsp.statusText)
-                                .then(data => {
-                                    reject(data);
-                                    throw (data);
-                                });
-                        });
+                    let errMsg = '';
+                    try {
+                        const data = await rsp.json();
+                        errMsg = data.err_msg || data.message || rsp.statusText;
+                    } catch (e) {
+                        try {
+                            errMsg = await clonedRsp.text() || rsp.statusText;
+                        } catch (e2) {
+                            errMsg = rsp.statusText;
+                        }
+                    }
+                    throw new Error(errMsg);
                 }
-            }).then(data => {
+            })
+            .then(data => {
                 resolve(data);
-            }).catch(err => {
-                Utils.alertError();
+            })
+            .catch(err => {
+                Utils.alertError(err);
                 reject(err);
             });
     });

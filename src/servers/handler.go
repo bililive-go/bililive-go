@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/hr3lxphr6j/requests"
 	"github.com/tidwall/gjson"
 	"gopkg.in/yaml.v3"
 
@@ -1158,7 +1160,11 @@ func updateConfig(writer http.ResponseWriter, r *http.Request) {
 
 	_, err = configs.UpdateWithRetry(func(c *configs.Config) error {
 		// 应用更新到配置
-		return applyConfigUpdates(c, updates)
+		if err := applyConfigUpdates(c, updates); err != nil {
+			return err
+		}
+		// 校验配置
+		return c.Verify()
 	}, 3, 10*time.Millisecond)
 
 	if err != nil {
@@ -1612,29 +1618,42 @@ func updateRoomConfig(writer http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// getSafePath 验证并生成安全的绝对路径，防止路径遍历（Path Traversal）攻击。
+// base: 授权访问的基础根目录。
+// subPath: 待访问的相对子路径。
+// 该函数会通过计算绝对路径并检查相对关系，确保最终路径不会逃逸出基础根目录。
+func getSafePath(base, subPath string) (string, error) {
+	absBase, err := filepath.Abs(base)
+	if err != nil {
+		return "", err
+	}
+	absTarget, err := filepath.Abs(filepath.Join(absBase, subPath))
+	if err != nil {
+		return "", err
+	}
+
+	rel, err := filepath.Rel(absBase, absTarget)
+	if err != nil {
+		return "", err
+	}
+
+	// 核心安全逻辑：如果计算出的相对路径以 ".." 开头，说明它逃逸到了 base 目录之外
+	if strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		return "", errors.New("非法路径访问：超出授权范围")
+	}
+
+	return absTarget, nil
+}
+
 func getFileInfo(writer http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	path := vars["path"]
 
 	cfg := configs.GetCurrentConfig()
-	base, err := filepath.Abs(cfg.OutPutPath)
+	absPath, err := getSafePath(cfg.OutPutPath, path)
 	if err != nil {
 		writeJSON(writer, commonResp{
-			ErrMsg: "无效输出目录",
-		})
-		return
-	}
-
-	absPath, err := filepath.Abs(filepath.Join(base, path))
-	if err != nil {
-		writeJSON(writer, commonResp{
-			ErrMsg: "无效路径",
-		})
-		return
-	}
-	if !strings.HasPrefix(absPath, base) {
-		writeJSON(writer, commonResp{
-			ErrMsg: "异常路径",
+			ErrMsg: "无效或越权路径",
 		})
 		return
 	}
@@ -1677,6 +1696,245 @@ func getFileInfo(writer http.ResponseWriter, r *http.Request) {
 	writeJSON(writer, json)
 }
 
+// translateOSError 将系统错误转换为中文，兼容多平台。
+func translateOSError(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	// 1. 优先使用标准库提供的语义化判断（能应对各种操作系统语言）
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return "操作失败：文件或文件夹不存在"
+	case errors.Is(err, fs.ErrExist):
+		return "操作失败：目标文件名已存在"
+	case errors.Is(err, fs.ErrPermission):
+		return "操作被拒绝：权限不足或文件/文件夹正被占用"
+	}
+
+	// 2. 对于无法通过标准库语义识别、且具有平台特性的错误，保留并优化字符串匹配
+	errStr := err.Error()
+	loweredErr := strings.ToLower(errStr)
+	switch {
+	// 特别处理 Windows 常见的文件占用/共享冲突
+	case strings.Contains(loweredErr, "being used by another process"),
+		strings.Contains(loweredErr, "sharing violation"):
+		return "操作失败：文件正被另一个程序占用"
+
+	// 处理删除非空目录
+	case strings.Contains(loweredErr, "is not empty"),
+		strings.Contains(loweredErr, "directory not empty"):
+		return "操作失败：目录不为空"
+
+	default:
+		// 最后的兜底，返回原始错误
+		return errStr
+	}
+}
+
+func renameFile(writer http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	path := vars["path"]
+
+	var body struct {
+		NewName string `json:"new_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "无效请求"})
+		return
+	}
+
+	cfg := configs.GetCurrentConfig()
+	oldAbsPath, err := getSafePath(cfg.OutPutPath, path)
+	if err != nil {
+		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "无效或越权路径"})
+		return
+	}
+
+	info, err := os.Stat(oldAbsPath)
+	if err != nil {
+		writeJSON(writer, commonResp{ErrNo: 404, ErrMsg: "文件不存在"})
+		return
+	}
+
+	var newAbsPath string
+	baseDir := filepath.Dir(oldAbsPath)
+	if info.IsDir() {
+		newAbsPath = filepath.Join(baseDir, body.NewName)
+	} else {
+		ext := filepath.Ext(oldAbsPath)
+		newAbsPath = filepath.Join(baseDir, body.NewName+ext)
+	}
+
+	// 重点：必须再次校验新路径是否安全，防止 body.NewName 包含 ../ 等逃逸字符
+	base, err := filepath.Abs(cfg.OutPutPath)
+	if err != nil {
+		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "获取根目录绝对路径失败: " + err.Error()})
+		return
+	}
+	rel, err := filepath.Rel(base, newAbsPath)
+	if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "非法的新文件名：禁止越界路径"})
+		return
+	}
+
+	// 检查目标文件名是否已存在
+	if _, err := os.Stat(newAbsPath); err == nil {
+		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "重命名失败：目标文件名已存在"})
+		return
+	}
+
+	if err := os.Rename(oldAbsPath, newAbsPath); err != nil {
+		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "重命名失败: " + translateOSError(err)})
+		return
+	}
+
+	writeJSON(writer, commonResp{Data: "OK"})
+}
+
+func deleteFile(writer http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	path := vars["path"]
+
+	cfg := configs.GetCurrentConfig()
+	base, err := filepath.Abs(cfg.OutPutPath)
+	if err != nil {
+		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "获取根目录绝对路径失败: " + err.Error()})
+		return
+	}
+	absPath, err := getSafePath(cfg.OutPutPath, path)
+	if err != nil || absPath == base {
+		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "禁止删除根目录或无效/越权路径"})
+		return
+	}
+
+	if err := os.RemoveAll(absPath); err != nil {
+		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "删除失败: " + translateOSError(err)})
+		return
+	}
+
+	writeJSON(writer, commonResp{Data: "OK"})
+}
+
+func batchRenameFiles(writer http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Paths   []string `json:"paths"`
+		Find    string   `json:"find"`
+		Replace string   `json:"replace"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "无效请求"})
+		return
+	}
+
+	cfg := configs.GetCurrentConfig()
+	base, err := filepath.Abs(cfg.OutPutPath)
+	if err != nil {
+		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "获取根目录绝对路径失败: " + err.Error()})
+		return
+	}
+
+	type Result struct {
+		Path    string `json:"path"`
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+	results := make([]Result, 0, len(body.Paths))
+
+	for _, path := range body.Paths {
+		oldAbsPath, err := getSafePath(cfg.OutPutPath, path)
+		if err != nil {
+			results = append(results, Result{Path: path, Success: false, Message: "无效或越权路径"})
+			continue
+		}
+
+		info, err := os.Stat(oldAbsPath)
+		if err != nil {
+			results = append(results, Result{Path: path, Success: false, Message: "文件不存在"})
+			continue
+		}
+
+		oldName := filepath.Base(oldAbsPath)
+		var newName string
+		if info.IsDir() {
+			newName = strings.ReplaceAll(oldName, body.Find, body.Replace)
+		} else {
+			ext := filepath.Ext(oldName)
+			nameWithoutExt := strings.TrimSuffix(oldName, ext)
+			newNameWithoutExt := strings.ReplaceAll(nameWithoutExt, body.Find, body.Replace)
+			newName = newNameWithoutExt + ext
+		}
+
+		if oldName == newName {
+			results = append(results, Result{Path: path, Success: true, Message: "无需更改"})
+			continue
+		}
+
+		newAbsPath := filepath.Join(filepath.Dir(oldAbsPath), newName)
+
+		// 二次校验新路径
+		rel, err := filepath.Rel(base, newAbsPath)
+		if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+			results = append(results, Result{Path: path, Success: false, Message: "目标名越界"})
+			continue
+		}
+
+		// 检查目标文件名是否已存在
+		if _, err := os.Stat(newAbsPath); err == nil {
+			results = append(results, Result{Path: path, Success: false, Message: "目标已存在"})
+			continue
+		}
+
+		if err := os.Rename(oldAbsPath, newAbsPath); err != nil {
+			results = append(results, Result{Path: path, Success: false, Message: translateOSError(err)})
+		} else {
+			results = append(results, Result{Path: path, Success: true, Message: "成功"})
+		}
+	}
+
+	writeJSON(writer, commonResp{Data: results})
+}
+
+func batchDeleteFiles(writer http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Paths []string `json:"paths"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "无效请求"})
+		return
+	}
+
+	cfg := configs.GetCurrentConfig()
+	base, err := filepath.Abs(cfg.OutPutPath)
+	if err != nil {
+		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "获取根目录绝对路径失败: " + err.Error()})
+		return
+	}
+
+	type Result struct {
+		Path    string `json:"path"`
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+	results := make([]Result, 0, len(body.Paths))
+
+	for _, path := range body.Paths {
+		absPath, err := getSafePath(cfg.OutPutPath, path)
+		if err != nil || absPath == base {
+			results = append(results, Result{Path: path, Success: false, Message: "禁止操作根目录或越权路径"})
+			continue
+		}
+
+		if err := os.RemoveAll(absPath); err != nil {
+			results = append(results, Result{Path: path, Success: false, Message: translateOSError(err)})
+		} else {
+			results = append(results, Result{Path: path, Success: true, Message: "成功"})
+		}
+	}
+
+	writeJSON(writer, commonResp{Data: results})
+}
+
 func getLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 	inst := instance.GetInstance(r.Context())
 	hostCookieMap := make(map[string]*live.InfoCookie)
@@ -1686,13 +1944,13 @@ func getLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 		if _, ok := hostCookieMap[urltmp.Host]; ok {
 			continue
 		}
-		v1, _ := v.GetInfo()
 		host := urltmp.Host
+		platformName := v.GetPlatformCNName()
 		if cookie, ok := configs.GetCurrentConfig().Cookies[host]; ok {
-			tmp := &live.InfoCookie{Platform_cn_name: v1.Live.GetPlatformCNName(), Host: host, Cookie: cookie}
+			tmp := &live.InfoCookie{Platform_cn_name: platformName, Host: host, Cookie: cookie}
 			hostCookieMap[host] = tmp
 		} else {
-			tmp := &live.InfoCookie{Platform_cn_name: v1.Live.GetPlatformCNName(), Host: host}
+			tmp := &live.InfoCookie{Platform_cn_name: platformName, Host: host}
 			hostCookieMap[host] = tmp
 		}
 		keys = append(keys, host)
@@ -1748,11 +2006,18 @@ func putLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 		}
 		live := inst.Lives[v.LiveId]
 		if live == nil {
-			writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{
-				ErrNo:  http.StatusBadRequest,
-				ErrMsg: "can't find live by url: " + v.Url,
-			})
-			return
+			// fallback search by URL
+			for _, l := range inst.Lives {
+				if l.GetRawUrl() == v.Url {
+					live = l
+					break
+				}
+			}
+		}
+
+		if live == nil {
+			applog.GetLogger().Warn("can't find live by id or url: " + string(v.LiveId) + " " + v.Url)
+			continue
 		}
 		live.UpdateLiveOptionsbyConfig(ctx, &v)
 	}
@@ -2148,4 +2413,126 @@ func getMemoryStats(writer http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(writer, stats)
+}
+
+// getBilibiliQRCode 获取哔哩哔哩登录二维码
+func getBilibiliQRCode(writer http.ResponseWriter, r *http.Request) {
+	resp, err := requests.Get("https://passport.bilibili.com/x/passport-login/web/qrcode/generate")
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "获取二维码失败: " + err.Error(),
+		})
+		return
+	}
+	body, err := resp.Bytes()
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "读取响应体失败: " + err.Error(),
+		})
+		return
+	}
+	writer.Header().Set("Content-Type", "application/json")
+	writer.Write(body)
+}
+
+// pollBilibiliQRCode 轮询哔哩哔哩登录状态
+func pollBilibiliQRCode(writer http.ResponseWriter, r *http.Request) {
+	key := r.URL.Query().Get("key")
+	if key == "" {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{ErrNo: http.StatusBadRequest, ErrMsg: "缺少 key 参数"})
+		return
+	}
+
+	resp, err := requests.Get("https://passport.bilibili.com/x/passport-login/web/qrcode/poll", requests.Query("qrcode_key", key))
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "轮询登录状态失败: " + err.Error(),
+		})
+		return
+	}
+
+	body, err := resp.Bytes()
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "读取响应体失败: " + err.Error(),
+		})
+		return
+	}
+
+	// 尝试解析响应，如果是成功状态，尝试从 Cookie 中提取 sid 并附加到 URL
+	var result struct {
+		Code int `json:"code"`
+		Data struct {
+			Code int    `json:"code"`
+			Url  string `json:"url"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		applog.GetLogger().Error("轮询登录状态解析 JSON 失败: " + err.Error())
+	} else if result.Code == 0 && result.Data.Code == 0 && result.Data.Url != "" {
+		// 登录成功，检查响应头中的 Cookie
+		u, err := url.Parse(result.Data.Url)
+		if err != nil {
+			applog.GetLogger().Error("解析登录回调 URL 失败: " + err.Error() + ", URL: " + result.Data.Url)
+		} else {
+			q := u.Query()
+			foundExtra := false
+			if resp.Response != nil {
+				for _, cookie := range resp.Response.Cookies() {
+					if cookie.Name == "sid" && q.Get("sid") == "" {
+						q.Set("sid", cookie.Value)
+						foundExtra = true
+					}
+				}
+			}
+			if foundExtra {
+				u.RawQuery = q.Encode()
+				result.Data.Url = u.String()
+				newBody, err := json.Marshal(result)
+				if err != nil {
+					applog.GetLogger().Error("序列化增强后的登录结果失败: " + err.Error())
+				} else {
+					body = newBody
+				}
+			}
+		}
+	}
+
+	writer.Header().Set("Content-Type", "application/json")
+	writer.Write(body)
+}
+
+// verifyBilibiliCookie 验证哔哩哔哩 Cookie 有效性
+func verifyBilibiliCookie(writer http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Cookie string `json:"cookie"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{ErrNo: http.StatusBadRequest, ErrMsg: "无效的请求体"})
+		return
+	}
+
+	resp, err := requests.Get("https://api.bilibili.com/x/web-interface/nav", requests.Header("Cookie", req.Cookie))
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "验证 Cookie 失败: " + err.Error(),
+		})
+		return
+	}
+	body, err := resp.Bytes()
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "读取响应体失败: " + err.Error(),
+		})
+		return
+	}
+	writer.Header().Set("Content-Type", "application/json")
+	writer.Write(body)
 }

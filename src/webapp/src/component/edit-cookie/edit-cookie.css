@@ -1,3 +1,212 @@
-#errorinfo{
-    background-color: #fffbe6;
+/* Core Container */
+.bili-login-container {
+  padding: 16px 8px;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+}
+
+.bili-login-layout {
+  display: flex;
+  gap: 32px;
+  align-items: flex-start;
+}
+
+@media (max-width: 640px) {
+  .bili-login-layout {
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+  }
+}
+
+/* QR Code Section */
+.bili-qr-section {
+  flex: 0 0 220px;
+  text-align: center;
+  background: #fafafa;
+  padding: 20px;
+  border-radius: 12px;
+  border: 1px solid #f0f0f0;
+}
+
+.qr-frame {
+  position: relative;
+  width: 180px;
+  height: 180px;
+  border-radius: 8px;
+  padding: 10px;
+  margin: 0 auto 16px;
+  background: #fff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.qr-image {
+  width: 160px;
+  height: 160px;
+  display: block;
+}
+
+.qr-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.95);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  backdrop-filter: blur(4px);
+  z-index: 5;
+}
+
+.qr-status-icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+}
+
+.qr-status-text {
+  font-size: 16px;
+  color: #1f1f1f;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.login-msg-text {
+  font-size: 14px;
+  color: #595959;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+/* Manual Input Section */
+.bili-manual-section {
+  flex: 1;
+  width: 100%;
+}
+
+.section-label {
+  font-size: 15px;
+  font-weight: 700;
+  color: #262626;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 8px;
+  border-left: 4px solid #1890ff;
+}
+
+.cookie-textarea {
+  border-radius: 8px !important;
+  padding: 12px !important;
+  font-family:
+    "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace !important;
+  font-size: 13px !important;
+  background-color: #fff !important;
+  border: 1px solid #d9d9d9 !important;
+  transition: all 0.3s;
+}
+
+.cookie-textarea:hover,
+.cookie-textarea:focus {
+  border-color: #40a9ff !important;
+  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1) !important;
+}
+
+/* Verification Card */
+.verification-card {
+  margin-top: 20px;
+  border-radius: 10px;
+  border: 1px solid #b7eb8f;
+  background: linear-gradient(135deg, #f6ffed 0%, #e6f7ff 100%);
+  padding: 16px;
+  box-shadow: 0 2px 8px rgba(82, 196, 26, 0.1);
+  min-height: 86px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  animation: slideUp 0.3s ease-out;
+}
+
+.verification-card.pending {
+  border: 1px dashed #d9d9d9;
+  background: #fafafa;
+  box-shadow: none;
+  color: #8c8c8c;
+  align-items: center;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.user-badge {
+  font-size: 16px;
+  font-weight: 700;
+  color: #141414;
+}
+
+.uid-text {
+  font-size: 12px;
+  color: #8c8c8c;
+  background: #f0f0f0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 8px;
+}
+
+/* Instructions & Alerts */
+.divider-text {
+  font-size: 14px !important;
+  color: #8c8c8c !important;
+  margin: 24px 0 16px !important;
+}
+
+.info-alert {
+  margin-top: 16px;
+  border-radius: 10px !important;
+  border: 1px solid #91d5ff !important;
+  background: #e6f7ff !important;
+}
+
+.instruction-list {
+  margin-top: 12px;
+  padding-left: 20px;
+  font-size: 14px;
+  color: #434343;
+  line-height: 2;
+}
+
+.instruction-list b {
+  color: #1890ff;
+}
+
+/* Global button override for consistency */
+.verify-btn {
+  border-radius: 6px !important;
+  font-weight: 600 !important;
+}
+
+.manual-tip {
+  font-size: 12px;
+  color: #fa8c16;
+  margin-top: 8px;
+  padding-left: 4px;
+  font-weight: 500;
 }
