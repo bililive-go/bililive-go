@@ -54,6 +54,12 @@ func GetQualityName(quality string) string {
 	return quality
 }
 
+// 用于文件名过滤的预编译正则表达式
+var (
+	illegalCharRegex  = regexp.MustCompile(`[\/\\\:\*\?\"\<\>\|]|[\.\s]+$`)
+	symbolOtherRegex = regexp.MustCompile(`\p{So}`)
+)
+
 type Info struct {
 	Live                 Live
 	HostName, RoomName   string
@@ -85,16 +91,14 @@ func (i *Info) MarshalJSON() ([]byte, error) {
 	// 1. HTML实体解码
 	sanitizedName := html.UnescapeString(displayName)
 	// 2. 替换非法字符
-	reg := regexp.MustCompile(`[\/\\\:\*\?\"\<\>\|]|[\.\s]+$`)
-	for reg.MatchString(sanitizedName) {
-		sanitizedName = reg.ReplaceAllString(sanitizedName, "_")
+	for illegalCharRegex.MatchString(sanitizedName) {
+		sanitizedName = illegalCharRegex.ReplaceAllString(sanitizedName, "_")
 	}
 	// 3. 如果配置了 RemoveSymbolOtherCharacter，移除符号字符
 	cfg := configs.GetCurrentConfig()
 	if cfg != nil && cfg.Feature.RemoveSymbolOtherCharacter {
-		regSymbol := regexp.MustCompile(`\p{So}`)
-		for regSymbol.MatchString(sanitizedName) {
-			sanitizedName = regSymbol.ReplaceAllString(sanitizedName, "_")
+		for symbolOtherRegex.MatchString(sanitizedName) {
+			sanitizedName = symbolOtherRegex.ReplaceAllString(sanitizedName, "_")
 		}
 	}
 
