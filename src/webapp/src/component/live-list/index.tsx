@@ -6,7 +6,6 @@ import AddRoomDialog from '../add-room-dialog/index';
 import LogPanel from '../log-panel/index';
 import HistoryPanel from '../history-panel/index';
 import API from '../../utils/api';
-import Utils from '../../utils/common';
 import { subscribeSSE, unsubscribeSSE, SSEMessage } from '../../utils/sse';
 import { isListSSEEnabled, setListSSEEnabled, getPollIntervalMs } from '../../utils/settings';
 import './live-list.css';
@@ -312,6 +311,7 @@ interface IState {
 interface ItemData {
     key: string,
     name: string,
+    sanitizedFileName: string, // 后端提供的用于文件路径的已过滤名称
     room: Room,
     address: string,
     tags: string[],
@@ -434,9 +434,8 @@ class LiveList extends React.Component<Props, IState> {
                 </PopDialog>
                 <Divider type="vertical" />
                 <Button type="link" size="small" onClick={(e) => {
-                    // 应用与后端相同的字符替换逻辑
-                    const sanitizedName = Utils.sanitizeFilename(data.name);
-                    this.props.navigate(`/fileList/${data.address}/${sanitizedName}`);
+                    // 使用后端提供的已过滤文件名
+                    this.props.navigate(`/fileList/${data.address}/${data.sanitizedFileName}`);
                 }}>文件</Button>
                 <Divider type="vertical" />
                 <a
@@ -880,6 +879,7 @@ class LiveList extends React.Component<Props, IState> {
                     return {
                         key: index + 1,
                         name: item.nick_name || item.host_name,
+                        sanitizedFileName: item.sanitized_file_name, // 使用后端提供的已过滤名称
                         room: {
                             roomName: item.room_name,
                             url: item.live_url
