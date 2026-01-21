@@ -136,10 +136,9 @@ class Utils {
      * @returns 替换后的字符串
      */
     static sanitizeFilename(str: string): string {
-        // 匹配后端的正则表达式: [\/\\\:\*\?\"\<\>\|]|[\.\s]+$
         // 替换 / \ : * ? " < > |
         let result = str.replace(/[/\\:*?"<>|]/g, '_');
-        // 替换末尾的点和空格
+        // 替换末尾的连续点和空格（与后端正则 [\.\s]+$ 行为一致）
         result = result.replace(/[.\s]+$/, '_');
         return result;
     }
