@@ -131,14 +131,14 @@ class Utils {
 
     /**
      * 替换文件名中的非法字符，匹配后端 ReplaceIllegalChar 的行为
-     * 将 / \ : * ? " < > | 以及末尾的点和空格替换为 _
+     * 将 / \ : * ? " < > | 以及末尾的连续点和空格替换为单个 _
      * @param str 原始字符串
      * @returns 替换后的字符串
      */
     static sanitizeFilename(str: string): string {
         // 替换 / \ : * ? " < > |
         let result = str.replace(/[/\\:*?"<>|]/g, '_');
-        // 替换末尾的连续点和空格（与后端正则 [\.\s]+$ 行为一致）
+        // 替换末尾的连续点和空格为单个下划线（与后端正则 [\.\s]+$ 行为一致）
         result = result.replace(/[.\s]+$/, '_');
         return result;
     }
