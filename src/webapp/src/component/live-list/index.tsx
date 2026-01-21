@@ -6,6 +6,7 @@ import AddRoomDialog from '../add-room-dialog/index';
 import LogPanel from '../log-panel/index';
 import HistoryPanel from '../history-panel/index';
 import API from '../../utils/api';
+import Utils from '../../utils/common';
 import { subscribeSSE, unsubscribeSSE, SSEMessage } from '../../utils/sse';
 import { isListSSEEnabled, setListSSEEnabled, getPollIntervalMs } from '../../utils/settings';
 import './live-list.css';
@@ -433,7 +434,9 @@ class LiveList extends React.Component<Props, IState> {
                 </PopDialog>
                 <Divider type="vertical" />
                 <Button type="link" size="small" onClick={(e) => {
-                    this.props.navigate(`/fileList/${data.address}/${data.name}`);
+                    // 应用与后端相同的字符替换逻辑
+                    const sanitizedName = Utils.sanitizeFilename(data.name);
+                    this.props.navigate(`/fileList/${data.address}/${sanitizedName}`);
                 }}>文件</Button>
                 <Divider type="vertical" />
                 <a

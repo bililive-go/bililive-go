@@ -128,6 +128,21 @@ class Utils {
         const sec = date.getSeconds().toString().padStart(2, "0");
         return `${year}-${month}-${day} ${hour}:${min}:${sec}`;
     }
+
+    /**
+     * 替换文件名中的非法字符，匹配后端 ReplaceIllegalChar 的行为
+     * 将 / \ : * ? " < > | 以及末尾的点和空格替换为 _
+     * @param str 原始字符串
+     * @returns 替换后的字符串
+     */
+    static sanitizeFilename(str: string): string {
+        // 匹配后端的正则表达式: [\/\\\:\*\?\"\<\>\|]|[\.\s]+$
+        // 替换 / \ : * ? " < > |
+        let result = str.replace(/[/\\:*?"<>|]/g, '_');
+        // 替换末尾的点和空格
+        result = result.replace(/[.\s]+$/, '_');
+        return result;
+    }
 }
 
 export default Utils;
