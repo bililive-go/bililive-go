@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"runtime"
 	"strings"
 	"time"
@@ -12,8 +13,13 @@ import (
 	"github.com/Masterminds/semver/v3"
 )
 
-// GitHubReleasesAPI GitHub Releases API 地址
-const GitHubReleasesAPI = "https://api.github.com/repos/bililive-go/bililive-go/releases"
+// API 地址常量
+const (
+	// GitHubReleasesAPI GitHub Releases API 地址
+	GitHubReleasesAPI = "https://api.github.com/repos/bililive-go/bililive-go/releases"
+	// DefaultVersionAPIURL 默认的版本检测 API 地址
+	DefaultVersionAPIURL = "https://bililive-go.com/api/versions"
+)
 
 // ReleaseInfo 包含版本发布信息
 type ReleaseInfo struct {
@@ -53,6 +59,7 @@ type Checker struct {
 	httpClient     *http.Client
 	currentVersion string
 	releaseURL     string
+	versionAPIURL  string // 版本检测 API URL（可自定义测试）
 }
 
 // NewChecker 创建新的版本检查器
@@ -63,12 +70,18 @@ func NewChecker(currentVersion string) *Checker {
 		},
 		currentVersion: currentVersion,
 		releaseURL:     GitHubReleasesAPI,
+		versionAPIURL:  DefaultVersionAPIURL,
 	}
 }
 
 // SetReleaseURL 设置自定义 Release API URL（用于测试或自托管）
 func (c *Checker) SetReleaseURL(url string) {
 	c.releaseURL = url
+}
+
+// SetVersionAPIURL 设置自定义版本检测 API URL（用于测试本地自动升级逻辑）
+func (c *Checker) SetVersionAPIURL(url string) {
+	c.versionAPIURL = url
 }
 
 // CheckForUpdate 检查是否有新版本
@@ -266,4 +279,123 @@ func CompareVersions(v1, v2 string) (int, error) {
 	}
 
 	return ver1.Compare(ver2), nil
+}
+
+// =============================================================================
+// bililive-go.com API 相关
+// =============================================================================
+
+// BililiveGoComResponse bililive-go.com 版本 API 响应
+type BililiveGoComResponse struct {
+	LatestVersion   string `json:"latest_version"`
+	ReleaseDate     string `json:"release_date"`
+	Changelog       string `json:"changelog"`
+	Prerelease      bool   `json:"prerelease"`
+	CurrentVersion  string `json:"current_version,omitempty"`
+	UpdateAvailable bool   `json:"update_available"`
+	UpdateRequired  bool   `json:"update_required"`
+	Download        *struct {
+		GitHub   string `json:"github"`
+		Proxy    string `json:"proxy"`
+		Filename string `json:"filename"`
+		SHA256   string `json:"sha256"`
+	} `json:"download,omitempty"`
+	AllAssets map[string]struct {
+		GitHub   string `json:"github"`
+		Proxy    string `json:"proxy"`
+		Filename string `json:"filename"`
+		SHA256   string `json:"sha256"`
+	} `json:"all_assets,omitempty"`
+	ReleasePage string `json:"release_page"`
+}
+
+// CheckForUpdateViaBililiveGoCom 通过版本检测 API 检查更新
+// 提供 GitHub 直连和备用的下载中转服务
+func (c *Checker) CheckForUpdateViaBililiveGoCom(includePrerelease bool) (*ReleaseInfo, error) {
+	platform := fmt.Sprintf("%s-%s", runtime.GOOS, runtime.GOARCH)
+
+	// 构建请求 URL
+	apiURL, err := url.Parse(c.versionAPIURL)
+	if err != nil {
+		return nil, fmt.Errorf("解析 API URL 失败: %w", err)
+	}
+
+	query := apiURL.Query()
+	query.Set("current", c.currentVersion)
+	query.Set("platform", platform)
+	if includePrerelease {
+		query.Set("prerelease", "true")
+	}
+	apiURL.RawQuery = query.Encode()
+
+	// 发送请求
+	req, err := http.NewRequest("GET", apiURL.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %w", err)
+	}
+	req.Header.Set("User-Agent", fmt.Sprintf("bililive-go/%s", c.currentVersion))
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("请求 bililive-go.com API 失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("bililive-go.com API 返回错误状态码: %d", resp.StatusCode)
+	}
+
+	var response BililiveGoComResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("解析响应失败: %w", err)
+	}
+
+	// 如果没有可用更新，返回 nil
+	if !response.UpdateAvailable {
+		return nil, nil
+	}
+
+	// 构建 ReleaseInfo
+	releaseDate, _ := time.Parse("2006-01-02", response.ReleaseDate)
+
+	info := &ReleaseInfo{
+		Version:     response.LatestVersion,
+		TagName:     "v" + response.LatestVersion,
+		ReleaseDate: releaseDate,
+		Changelog:   response.Changelog,
+		Prerelease:  response.Prerelease,
+	}
+
+	// 优先使用 GitHub 直连下载链接（中转链接作为备用，由下载器在失败时自动回退）
+	if response.Download != nil {
+		if response.Download.GitHub != "" {
+			info.DownloadURL = response.Download.GitHub
+		} else {
+			info.DownloadURL = response.Download.Proxy
+		}
+		info.SHA256 = response.Download.SHA256
+		info.AssetName = response.Download.Filename
+	}
+
+	return info, nil
+}
+
+// CheckForUpdateWithFallback 检查更新，带回退逻辑
+// 优先使用 bililive-go.com API，失败时回退到 GitHub API
+func (c *Checker) CheckForUpdateWithFallback(includePrerelease bool) (*ReleaseInfo, error) {
+	// 先尝试 bililive-go.com
+	info, err := c.CheckForUpdateViaBililiveGoCom(includePrerelease)
+	if err == nil {
+		return info, nil
+	}
+
+	// 回退到 GitHub API
+	return c.CheckForUpdate(includePrerelease)
+}
+
+// GetProxyDownloadURL 获取中转下载 URL
+// 将 GitHub 下载链接转换为通过 bililive-go.com 中转的链接
+func GetProxyDownloadURL(githubURL string) string {
+	return fmt.Sprintf("https://bililive-go.com/remotetools/download?downloadurl=%s",
+		url.QueryEscape(githubURL))
 }

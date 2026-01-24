@@ -33,6 +33,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/pkg/openlist"
 	"github.com/bililive-go/bililive-go/src/pkg/ratelimit"
 	bilisentryPkg "github.com/bililive-go/bililive-go/src/pkg/sentry"
+	"github.com/bililive-go/bililive-go/src/pkg/telemetry"
 	"github.com/bililive-go/bililive-go/src/pkg/update"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
 	"github.com/bililive-go/bililive-go/src/recorders"
@@ -76,8 +77,10 @@ func getConfigBesidesExecutable() (*configs.Config, error) {
 }
 
 var (
-	// SentryDSN Sentry DSN (编译时注入)
-	SentryDSN = "https://28f01efc088e5798fb9aac158f4fd327@o4510730440474624.ingest.us.sentry.io/4510730444406784"
+	// SentryDSN Sentry DSN (编译时注入，请勿在源代码中硬编码)
+	// 使用 -ldflags="-X main.SentryDSN=your_dsn" 在编译时注入
+	// 或设置环境变量 SENTRY_DSN
+	SentryDSN = ""
 	// SentryEnv Sentry Environment (编译时注入)
 	SentryEnv = "production"
 )
@@ -112,19 +115,29 @@ func main() {
 	defer metadata.Close()
 
 	// 初始化 Sentry 错误监控
-	if config.Sentry.Enable && SentryDSN != "" {
+	// DSN 来源优先级：编译时注入 > 环境变量 SENTRY_DSN
+	sentryDSN := SentryDSN
+	if sentryDSN == "" {
+		sentryDSN = os.Getenv("SENTRY_DSN")
+	}
+	if config.Sentry.Enable && sentryDSN != "" {
 		environment := SentryEnv
 		// 允许 debug 模式覆盖环境配置
 		if config.Debug {
 			environment = "development"
 		}
-		if err := bilisentryPkg.Init(SentryDSN, environment, consts.AppVersion); err != nil {
+		if err := bilisentryPkg.Init(sentryDSN, environment, consts.AppVersion); err != nil {
 			// Sentry 初始化失败不影响程序运行，仅记录警告
 			fmt.Fprintf(os.Stderr, "警告: Sentry 初始化失败: %v\n", err)
 		} else {
 			fmt.Println("Sentry 初始化成功")
 		}
 	}
+
+	// 初始化匿名遥测（用于统计各版本的使用情况）
+	// 仅发送版本号、平台和架构信息，不收集任何个人数据
+	// 默认启用，用户可通过 telemetry.GetInstance().SetEnabled(false) 禁用
+	telemetry.Init(consts.AppVersion, true)
 
 	inst := new(instance.Instance)
 	// TODO: Replace gcache with hashmap.
@@ -138,6 +151,10 @@ func main() {
 
 	logger := log.New(ctx)
 	logger.Infof("%s Version: %s Link Start", consts.AppName, consts.AppVersion)
+
+	// 发送启动统计（异步）
+	telemetry.GetInstance().SendStartup(ctx)
+
 	if config.File != "" {
 		logger.Debugf("config path: %s.", config.File)
 		logger.Debugf("other flags have been ignored.")

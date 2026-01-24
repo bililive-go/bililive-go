@@ -296,13 +296,16 @@ func (l *Live) GetStreamInfos() (infos []*live.StreamUrlInfo, err error) {
 
 	// 如果没有获取到任何流，使用旧的单流逻辑作为fallback
 	if len(infos) == 0 {
+		l.GetLogger().Warn("主解析逻辑未获取到任何流，使用 fallback 逻辑")
 		urlStrings := make([]string, 0, 4)
 		addr := ""
 
 		if l.Options.Quality == 0 && gjson.GetBytes(body, "data.playurl_info.playurl.stream.1.format.1.codec.#").Int() > 1 {
 			addr = "data.playurl_info.playurl.stream.1.format.1.codec.1" // hevc m3u8
+			l.GetLogger().Debug("fallback: 选择 HEVC M3U8 流")
 		} else {
 			addr = "data.playurl_info.playurl.stream.0.format.0.codec.0" // avc flv
+			l.GetLogger().Debug("fallback: 选择 AVC FLV 流")
 		}
 
 		baseURL := gjson.GetBytes(body, addr+".base_url").String()

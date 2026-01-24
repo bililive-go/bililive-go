@@ -35,20 +35,34 @@ func BuildGoBinary(isDev bool) {
 
 	constsPath := "github.com/bililive-go/bililive-go/src/consts"
 	now := fmt.Sprintf("%d", time.Now().Unix())
-	t := template.Must(template.New("ldFlags").Parse(
-		"{{.DebugBuildFlags}} " +
-			"-X {{.ConstsPath}}.BuildTime={{.Now}} " +
-			"-X {{.ConstsPath}}.AppVersion={{.AppVersion}} " +
-			"-X {{.ConstsPath}}.GitHash={{.GitHash}}"))
-
 	var buf bytes.Buffer
-	t.Execute(&buf, map[string]string{
+
+	// 从环境变量获取 Sentry DSN
+	sentryDSN := os.Getenv("SENTRY_DSN")
+
+	// 构建 template data map
+	data := map[string]string{
 		"DebugBuildFlags": debug_build_flags,
 		"ConstsPath":      constsPath,
 		"Now":             now,
 		"AppVersion":      getGitTagString(),
 		"GitHash":         getGitHash(),
-	})
+	}
+
+	ldFlagsTmpl := "{{.DebugBuildFlags}} " +
+		"-X {{.ConstsPath}}.BuildTime={{.Now}} " +
+		"-X {{.ConstsPath}}.AppVersion={{.AppVersion}} " +
+		"-X {{.ConstsPath}}.GitHash={{.GitHash}}"
+
+	// 如果存在 Sentry DSN，则注入
+	if sentryDSN != "" {
+		ldFlagsTmpl += " -X main.SentryDSN={{.SentryDSN}}"
+		data["SentryDSN"] = sentryDSN
+	}
+
+	t := template.Must(template.New("ldFlags").Parse(ldFlagsTmpl))
+
+	t.Execute(&buf, data)
 	ldflags := buf.String()
 
 	cmd := exec.Command(

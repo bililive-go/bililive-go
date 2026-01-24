@@ -1,4 +1,16 @@
 
+.PHONY: help
+help:
+	@echo "Available commands:"
+	@echo "  make build      - Build release version"
+	@echo "  make dev        - Build development version (with debug info)"
+	@echo "  make test       - Run tests"
+	@echo "  make build-web  - Build frontend"
+	@echo "  make generate   - Run go generate"
+	@echo "  make clean      - Clean build artifacts"
+	@echo "  make lint       - Run linter"
+	@echo "  make release    - Build release for all platforms"
+
 build: bililive
 .PHONY: build
 

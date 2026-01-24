@@ -29,6 +29,9 @@ type LauncherConfig struct {
 	AutoCheckUpdate bool `json:"auto_check_update"`
 	// 更新检查间隔（小时）
 	UpdateCheckInterval int `json:"update_check_interval_hours"`
+	// 版本检测 API URL（留空使用默认值 https://bililive-go.com/api/versions）
+	// 可设置为本地 HTTP 服务器地址用于测试自动升级逻辑
+	VersionAPIURL string `json:"version_api_url,omitempty"`
 }
 
 // DefaultConfig 返回默认配置
