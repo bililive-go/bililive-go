@@ -321,20 +321,51 @@ choco install ffmpeg
 
 ## 下一步
 
-1. **完善 osrp-stream-tester**
+1. **已完成：Playwright E2E 测试集成**
+   - ✅ 添加 Playwright 到项目
+   - ✅ 创建测试配置和基础测试用例
+   - ✅ 集成 osrp-stream-tester 作为测试流服务器
+   - ✅ 添加 GitHub Actions 工作流
+
+2. **完善 osrp-stream-tester**
    - 实现更多故障注入
    - 添加流控制 API
-
-2. **集成到 bgo CI**
-   - 每次 PR 自动运行测试
-   - 生成测试报告
 
 3. **添加更多场景**
    - 长时间录制（24小时+）
    - 极端网络条件
    - 并发录制测试
 
+## Playwright E2E 测试
+
+### 运行测试
+
+```bash
+# 安装依赖（首次）
+make install-e2e
+
+# 运行测试
+make test-e2e
+
+# 带 UI 运行测试（调试用）
+make test-e2e-ui
+```
+
+### 测试配置
+
+- 配置文件: `playwright.config.ts`
+- 测试目录: `tests/e2e/`
+- 测试配置: `tests/e2e/fixtures/test-config.yml`
+
+### 测试用例
+
+| 文件 | 描述 |
+|------|------|
+| `basic.spec.ts` | 基础 UI 功能测试 |
+| `recording.spec.ts` | 直播录制功能测试 |
+
 ---
 
 **构建标签**: `dev`  
-**最后更新**: 2026-01-12
+**最后更新**: 2026-01-25
+

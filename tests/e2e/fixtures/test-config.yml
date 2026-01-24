@@ -1,0 +1,24 @@
+# 测试配置文件
+# 用于 E2E 测试，使用 dev 直播间作为测试目标
+
+rpc:
+  enable: true
+  bind: 127.0.0.1
+  port: 8080
+
+log:
+  level: info
+  # 不输出到文件，只输出到控制台
+  file: ""
+
+# 测试输出目录
+out_put_path: ./test-output
+out_put_tmpl: "{{.RoomName}}-{{.HostName}}/{{.StartTime}}"
+
+# 较短的检查间隔，加快测试速度
+interval: 5
+
+# 使用 ffmpeg 录制
+video:
+  split_strategy:
+    on_room_name_changed: false

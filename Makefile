@@ -2,14 +2,16 @@
 .PHONY: help
 help:
 	@echo "Available commands:"
-	@echo "  make build      - Build release version"
-	@echo "  make dev        - Build development version (with debug info)"
-	@echo "  make test       - Run tests"
-	@echo "  make build-web  - Build frontend"
-	@echo "  make generate   - Run go generate"
-	@echo "  make clean      - Clean build artifacts"
-	@echo "  make lint       - Run linter"
-	@echo "  make release    - Build release for all platforms"
+	@echo "  make build       - Build release version"
+	@echo "  make dev         - Build development version (with debug info)"
+	@echo "  make test        - Run unit tests"
+	@echo "  make test-e2e    - Run E2E tests with Playwright"
+	@echo "  make install-e2e - Install E2E test dependencies"
+	@echo "  make build-web   - Build frontend"
+	@echo "  make generate    - Run go generate"
+	@echo "  make clean       - Clean build artifacts"
+	@echo "  make lint        - Run linter"
+	@echo "  make release     - Build release for all platforms"
 
 build: bililive
 .PHONY: build
@@ -67,3 +69,19 @@ sync-agents:
 .PHONY: check-agents
 check-agents:
 	@go run build.go check-agents
+
+# E2E 测试（使用 Playwright）
+.PHONY: test-e2e
+test-e2e:
+	npx playwright test
+
+# 安装 E2E 测试依赖
+.PHONY: install-e2e
+install-e2e:
+	npm ci
+	npx playwright install --with-deps chromium
+
+# 运行 E2E 测试（带 UI）
+.PHONY: test-e2e-ui
+test-e2e-ui:
+	npx playwright test --ui
