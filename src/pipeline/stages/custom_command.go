@@ -67,7 +67,7 @@ func (s *CustomCommandStage) Execute(ctx *pipeline.PipelineContext, input []pipe
 			return nil, fmt.Errorf("custom command failed: %w", err)
 		}
 
-		s.logs += fmt.Sprintf("命令执行成功\n")
+		s.logs += "命令执行成功\n"
 
 		// 如果没有指定输出模式，保留输入文件
 		output = append(output, file)

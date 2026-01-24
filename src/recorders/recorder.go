@@ -447,16 +447,36 @@ func (r *recorder) tryRecord(ctx context.Context) {
 }
 
 func (r *recorder) selectPreferredStream(streamInfos []*live.StreamUrlInfo) (ret *live.StreamUrlInfo) {
+	// 如果没有可用流，直接返回 nil
+	if len(streamInfos) == 0 {
+		return nil
+	}
+
 	streamPreference := configs.GetCurrentConfig().GetEffectiveConfigForRoom(r.Live.GetRawUrl()).StreamPreference
-	quality := *streamPreference.Quality
-	attrs := *streamPreference.Attributes
+
+	// 如果未配置流偏好（Quality 和 Attributes 均为 nil），直接返回第一个流
+	if streamPreference.Quality == nil && streamPreference.Attributes == nil {
+		return streamInfos[0]
+	}
+
+	// 安全获取 Quality 和 Attributes，处理 nil 情况
+	var quality string
+	if streamPreference.Quality != nil {
+		quality = *streamPreference.Quality
+	}
+	var attrs map[string]string
+	if streamPreference.Attributes != nil {
+		attrs = *streamPreference.Attributes
+	}
 
 	retMatchedCount := 0
 	for _, info := range streamInfos {
 		currMatchedCount := 0
-		if info.Quality == quality {
+		// 仅当配置了 Quality 时才匹配
+		if quality != "" && info.Quality == quality {
 			currMatchedCount += 100
 		}
+		// 仅当配置了 Attributes 时才匹配
 		for k, v := range attrs {
 			if info.AttributesForStreamSelect[k] == v {
 				currMatchedCount += 1
@@ -466,6 +486,12 @@ func (r *recorder) selectPreferredStream(streamInfos []*live.StreamUrlInfo) (ret
 			ret = info
 			retMatchedCount = currMatchedCount
 		}
+	}
+
+	// 如果没有任何匹配的流，回退到第一个可用流
+	if ret == nil {
+		r.getLogger().Warnf("没有流匹配配置的偏好 (quality=%s, attrs=%v)，使用第一个可用流", quality, attrs)
+		return streamInfos[0]
 	}
 	return
 }
@@ -634,121 +660,6 @@ func (r *recorder) HasFlvProxy() bool {
 		return segmentRequester.HasFlvProxy()
 	}
 	return false
-}
-
-// renderUploadPath 渲染上传路径模板
-// 支持的变量: {{ .Platform }}, {{ .HostName }}, {{ .RoomName }}, {{ .Ext }}, {{ now | date "2006-01-02" }}
-func (r *recorder) renderUploadPath(tmplStr string, info *live.Info, localFile string, cfg *configs.Config) string {
-	if tmplStr == "" {
-		return ""
-	}
-
-	// 获取文件扩展名
-	ext := filepath.Ext(localFile)
-	if len(ext) > 0 && ext[0] == '.' {
-		ext = ext[1:] // 移除前导点
-	}
-
-	// 创建模板数据
-	data := struct {
-		Platform string
-		HostName string
-		RoomName string
-		Ext      string
-		FileName string // 原始文件名（不含路径）
-	}{
-		Platform: info.Live.GetPlatformCNName(),
-		HostName: info.HostName,
-		RoomName: info.RoomName,
-		Ext:      ext,
-		FileName: filepath.Base(localFile),
-	}
-
-	// 解析模板
-	tmpl, err := template.New("upload_path").Funcs(utils.GetFuncMap(cfg)).Parse(tmplStr)
-	if err != nil {
-		r.getLogger().WithError(err).Error("failed to parse upload path template")
-		return ""
-	}
-
-	// 执行模板
-	buf := new(bytes.Buffer)
-	if err := tmpl.Execute(buf, data); err != nil {
-		r.getLogger().WithError(err).Error("failed to render upload path template")
-		return ""
-	}
-
-	return buf.String()
-}
-
-// logAvailableStreams 输出所有可用流的详细信息
-func (r *recorder) logAvailableStreams(streamInfos []*live.StreamUrlInfo) {
-	r.getLogger().Infof("═══════════════════════════════════════════════════════════")
-	r.getLogger().Infof("可用流列表 (共 %d 个):", len(streamInfos))
-	r.getLogger().Infof("───────────────────────────────────────────────────────────")
-
-	for i, s := range streamInfos {
-
-		// 构建码率显示
-		bitrateStr := "未知"
-		if s.Bitrate > 0 {
-			bitrateStr = fmt.Sprintf("%d kbps", s.Bitrate)
-		} else if s.Vbitrate > 0 {
-			bitrateStr = fmt.Sprintf("%d kbps", s.Vbitrate)
-		}
-
-		// 构建帧率显示
-		fpsStr := ""
-		if s.FrameRate > 0 {
-			fpsStr = fmt.Sprintf(" %.0ffps", s.FrameRate)
-		}
-
-		// 构建编码显示
-		codecStr := s.Codec
-		if codecStr == "" {
-			codecStr = "h264" // 默认假设 h264
-		}
-
-		// 格式显示
-		formatStr := strings.ToUpper(s.Format)
-		if formatStr == "" {
-			// 从 URL 推断格式
-			if s.Url != nil {
-				urlPath := s.Url.Path
-				if strings.Contains(urlPath, ".flv") {
-					formatStr = "FLV"
-				} else if strings.Contains(urlPath, ".m3u8") || strings.Contains(urlPath, "m3u8") {
-					formatStr = "HLS"
-				}
-			}
-		}
-		if formatStr == "" {
-			formatStr = "未知"
-		}
-
-		r.getLogger().Infof("  [%d] %s | %s | %s%s",
-			i+1,
-			formatStr,
-			bitrateStr,
-			codecStr,
-			fpsStr)
-	}
-	r.getLogger().Infof("═══════════════════════════════════════════════════════════")
-}
-
-// extractRoomID 从URL提取房间ID
-func extractRoomID(urlStr, platform string) string {
-	// 简化实现：从URL路径提取
-	u, err := url.Parse(urlStr)
-	if err != nil {
-		return ""
-	}
-
-	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if len(parts) > 0 {
-		return parts[len(parts)-1]
-	}
-	return ""
 }
 
 // saveCurrentStreamInfo 保存当前录制的流信息

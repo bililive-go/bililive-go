@@ -82,7 +82,7 @@ func extractStreamAttributeCombinations(streams []*live.AvailableStreamInfo) []m
 
 	combinations := make([]map[string]string, 0, len(streams))
 	for _, stream := range streams {
-		if stream.AttributesForStreamSelect != nil && len(stream.AttributesForStreamSelect) > 0 {
+		if len(stream.AttributesForStreamSelect) > 0 {
 			combinations = append(combinations, stream.AttributesForStreamSelect)
 		}
 	}
@@ -2724,7 +2724,7 @@ func pollBilibiliQRCode(writer http.ResponseWriter, r *http.Request) {
 			q := u.Query()
 			foundExtra := false
 			if resp.Response != nil {
-				for _, cookie := range resp.Response.Cookies() {
+				for _, cookie := range resp.Cookies() {
 					if cookie.Name == "sid" && q.Get("sid") == "" {
 						q.Set("sid", cookie.Value)
 						foundExtra = true

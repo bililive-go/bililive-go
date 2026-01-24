@@ -163,7 +163,8 @@ node_modules
 *.log
 
 #vscode
-.vscode
+.vscode/*
+!.vscode/*.example.json
 
 # AI agent 临时文件（保留 rules 目录）
 .agent/*
@@ -173,3 +174,6 @@ node_modules
 .appdata/
 coverage.txt
 .local
+
+# 本地自动升级测试配置（不提交到仓库，使用 .example.json 作为模板）
+test/launcher-config-local.json

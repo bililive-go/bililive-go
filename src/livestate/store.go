@@ -730,36 +730,6 @@ func getStringFromMap(m map[string]interface{}, key string) string {
 	return ""
 }
 
-// 辅助函数：从 map 中获取 int 值
-func getIntFromMap(m map[string]interface{}, key string) int {
-	if v, ok := m[key]; ok {
-		switch n := v.(type) {
-		case int:
-			return n
-		case int64:
-			return int(n)
-		case float64:
-			return int(n)
-		}
-	}
-	return 0
-}
-
-// 辅助函数：从 map 中获取 float64 值
-func getFloat64FromMap(m map[string]interface{}, key string) float64 {
-	if v, ok := m[key]; ok {
-		switch n := v.(type) {
-		case float64:
-			return n
-		case int:
-			return float64(n)
-		case int64:
-			return float64(n)
-		}
-	}
-	return 0
-}
-
 // Close 关闭存储
 func (s *SQLiteStore) Close() error {
 	return s.db.Close()
