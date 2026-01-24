@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { List, Tag, Select, DatePicker, Pagination, Collapse, Empty, Spin, Space, Typography } from 'antd';
-import { ClockCircleOutlined, UserOutlined, EditOutlined } from '@ant-design/icons';
+import { Tag, Select, DatePicker, Pagination, Collapse, Empty, Spin, Space, Typography } from 'antd';
+import { ClockCircleOutlined, EditOutlined } from '@ant-design/icons';
 import API from '../../utils/api';
 import dayjs, { Dayjs } from 'dayjs';
 
@@ -21,15 +21,6 @@ interface HistoryEvent {
   type: EventType;
   timestamp: string;
   data: any;
-}
-
-interface HistoryResponse {
-  live_id: string;
-  events: HistoryEvent[];
-  total: number;
-  page: number;
-  page_size: number;
-  total_pages: number;
 }
 
 interface Props {
@@ -103,7 +94,6 @@ const HistoryPanel: React.FC<Props> = ({ roomId }) => {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [totalPages, setTotalPages] = useState(0);
 
   // 筛选条件
   const [selectedTypes, setSelectedTypes] = useState<EventType[]>(['session', 'name_change']);
@@ -147,7 +137,6 @@ const HistoryPanel: React.FC<Props> = ({ roomId }) => {
       .then((response: any) => {
         setEvents(response.events || []);
         setTotal(response.total || 0);
-        setTotalPages(response.total_pages || 0);
       })
       .catch((error: any) => {
         console.error('加载历史事件失败:', error);

@@ -91,7 +91,7 @@ func (c *MemoryCollector) collect() {
 		NumGC:     selfMem.NumGC,
 	})
 
-	var totalRSS uint64 = selfMem.Sys
+	var totalRSS = selfMem.Sys
 
 	// 2. 收集 tools 管理的子进程内存（按类别聚合）
 	toolsProcesses := tools.GetAllProcessInfo()

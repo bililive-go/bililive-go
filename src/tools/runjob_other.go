@@ -4,11 +4,6 @@ package tools
 
 import "os/exec"
 
-// Non-Windows: just run as-is
-func runWithKillOnClose(cmd *exec.Cmd) error {
-	return cmd.Run()
-}
-
 // runWithKillOnCloseAndGetPID 与 runWithKillOnClose 相同，但在进程启动后通过回调传递 PID
 func runWithKillOnCloseAndGetPID(cmd *exec.Cmd, onPID func(pid int)) error {
 	// Start the process first so we can get its PID
