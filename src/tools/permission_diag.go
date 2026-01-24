@@ -3,7 +3,6 @@
 package tools
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -79,16 +78,4 @@ func logDirectoryPermissionDiagnostics(dirPath string) {
 		logger.Warnf("请检查目录权限，确保当前用户对目录有读写权限")
 		logger.Warnf("可尝试: sudo chown -R %d:%d %s", currentUID, currentGID, filepath.Dir(dirPath))
 	}
-}
-
-// checkDirectoryWritable 检查目录是否可写
-func checkDirectoryWritable(dirPath string) error {
-	testFile := filepath.Join(dirPath, ".bililive_write_test")
-	f, err := os.Create(testFile)
-	if err != nil {
-		return fmt.Errorf("目录 %s 不可写: %w", dirPath, err)
-	}
-	f.Close()
-	os.Remove(testFile)
-	return nil
 }
