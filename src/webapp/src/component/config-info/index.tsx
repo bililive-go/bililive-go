@@ -12,7 +12,7 @@ import {
   RightOutlined, PlusOutlined, WarningOutlined,
   ExclamationCircleOutlined
 } from '@ant-design/icons';
-import { useNavigate, useLocation, Link } from 'react-router-dom';
+import { useLocation, Link } from 'react-router-dom';
 import Editor from 'react-simple-code-editor';
 import { highlight, languages } from 'prismjs';
 import 'prismjs/components/prism-yaml';
@@ -842,7 +842,6 @@ const PlatformSettings: React.FC<{
   onRefresh: () => void;
 }> = ({ platformStats, globalConfig, onUpdate, onDelete, loading, onRefresh }) => {
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
-  const [addPlatformVisible, setAddPlatformVisible] = useState(false);
 
   const location = useLocation();
 
@@ -908,7 +907,6 @@ const PlatformSettings: React.FC<{
     if (!selectedNewPlatform) return;
     try {
       await onUpdate(selectedNewPlatform, { name: selectedNewPlatform });
-      setAddPlatformVisible(false);
       setSelectedNewPlatform('');
       onRefresh();
       message.success('平台配置已添加');

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { List, Tag, Select, DatePicker, Pagination, Collapse, Empty, Spin, Space, Typography } from 'antd';
-import { ClockCircleOutlined, UserOutlined, EditOutlined } from '@ant-design/icons';
+import { Tag, Select, DatePicker, Pagination, Collapse, Empty, Spin, Space, Typography } from 'antd';
+import { ClockCircleOutlined, EditOutlined } from '@ant-design/icons';
 import API from '../../utils/api';
 import dayjs, { Dayjs } from 'dayjs';
 
@@ -23,14 +23,15 @@ interface HistoryEvent {
   data: any;
 }
 
-interface HistoryResponse {
-  live_id: string;
-  events: HistoryEvent[];
-  total: number;
-  page: number;
-  page_size: number;
-  total_pages: number;
-}
+// HistoryResponse 接口用于 API 响应类型参考（当前使用 any）
+// interface HistoryResponse {
+//   live_id: string;
+//   events: HistoryEvent[];
+//   total: number;
+//   page: number;
+//   page_size: number;
+//   total_pages: number;
+// }
 
 interface Props {
   roomId: string;
@@ -103,7 +104,8 @@ const HistoryPanel: React.FC<Props> = ({ roomId }) => {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [totalPages, setTotalPages] = useState(0);
+  // totalPages 暂未使用，但保留以备后续分页信息显示
+  const [, setTotalPages] = useState(0);
 
   // 筛选条件
   const [selectedTypes, setSelectedTypes] = useState<EventType[]>(['session', 'name_change']);
