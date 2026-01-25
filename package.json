@@ -11,7 +11,11 @@
     "@playwright/test": "^1.58.0",
     "@types/node": "^25.0.10"
   },
-  "scripts": {},
+  "scripts": {
+    "report": "node scripts/report-server.js",
+    "test:e2e": "npx playwright test",
+    "test:e2e:ui": "npx playwright test --ui"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC"

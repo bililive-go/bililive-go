@@ -261,6 +261,9 @@ cp .vscode/launch.example.json .vscode/launch.json
 | 代码生成 | `go run ./build.go generate` | `make generate` |
 | 代码检查 | - | `make lint` |
 | 清理产物 | - | `make clean` |
+| E2E 测试 | - | `make test-e2e` |
+| E2E 测试 (UI) | - | `make test-e2e-ui` |
+| 查看测试报告 | - | `make show-report` |
 
 ```bash
 # 示例：开发构建
@@ -268,6 +271,22 @@ go run ./build.go dev
 # 或
 make dev
 ```
+
+### E2E 测试报告
+
+运行 E2E 测试后，可以通过以下方式查看报告：
+
+```bash
+# 方式一：使用 Playwright 内置服务器（推荐，支持源码查看）
+make show-report
+
+# 方式二：启动在线报告服务器（适合团队分享，可从 GitHub 获取源码）
+make serve-report COMMIT=0.8.0/dev
+# 然后访问 http://localhost:9323
+```
+
+> 💡 **提示**: `serve-report` 会启动一个特殊的服务器，当本地源码不存在时，
+> 会自动从 GitHub 获取对应 commit 的源码。这样可以在没有源码的机器上完整查看测试报告。
 
 ### 项目结构
 

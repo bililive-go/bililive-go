@@ -187,3 +187,6 @@ test/launcher-config-local.json
 
 # E2E 测试输出（录制文件等）
 /test-output/
+
+# npm 锁文件（项目统一使用 yarn）
+package-lock.json

@@ -46,8 +46,13 @@ export default defineConfig({
     // 仅在失败时截图
     screenshot: 'only-on-failure',
 
-    // 仅在重试时录制 trace
-    trace: 'on-first-retry',
+    // 始终录制 trace，便于调试（可在 Trace Viewer 中查看源代码和调用栈）
+    trace: {
+      mode: 'on',
+      sources: true,      // 在 trace 中包含源代码
+      snapshots: true,    // 包含 DOM 快照
+      screenshots: true,  // 包含截图用于时间线预览
+    },
 
     // 仅在失败时录制视频
     video: 'on-first-retry',
@@ -77,7 +82,7 @@ export default defineConfig({
     },
     // bililive-go 主程序（使用 dev 构建标签）
     {
-      command: 'go run -tags dev . --port 8080 --config tests/e2e/fixtures/test-config.yml',
+      command: 'go run -tags dev ./src/cmd/bililive --config tests/e2e/fixtures/test-config.yml',
       url: 'http://127.0.0.1:8080/api/info',
       reuseExistingServer: !process.env.CI,
       timeout: 60 * 1000,

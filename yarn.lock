@@ -2,3 +2,35 @@
 # yarn lockfile v1
 
 
+"@playwright/test@^1.58.0":
+  version "1.58.0"
+  resolved "https://registry.npmjs.org/@playwright/test/-/test-1.58.0.tgz"
+  integrity sha512-fWza+Lpbj6SkQKCrU6si4iu+fD2dD3gxNHFhUPxsfXBPhnv3rRSQVd0NtBUT9Z/RhF/boCBcuUaMUSTRTopjZg==
+  dependencies:
+    playwright "1.58.0"
+
+"@types/node@^25.0.10":
+  version "25.0.10"
+  resolved "https://registry.npmjs.org/@types/node/-/node-25.0.10.tgz"
+  integrity sha512-zWW5KPngR/yvakJgGOmZ5vTBemDoSqF3AcV/LrO5u5wTWyEAVVh+IT39G4gtyAkh3CtTZs8aX/yRM82OfzHJRg==
+  dependencies:
+    undici-types "~7.16.0"
+
+playwright-core@1.58.0:
+  version "1.58.0"
+  resolved "https://registry.npmjs.org/playwright-core/-/playwright-core-1.58.0.tgz"
+  integrity sha512-aaoB1RWrdNi3//rOeKuMiS65UCcgOVljU46At6eFcOFPFHWtd2weHRRow6z/n+Lec0Lvu0k9ZPKJSjPugikirw==
+
+playwright@1.58.0:
+  version "1.58.0"
+  resolved "https://registry.npmjs.org/playwright/-/playwright-1.58.0.tgz"
+  integrity sha512-2SVA0sbPktiIY/MCOPX8e86ehA/e+tDNq+e5Y8qjKYti2Z/JG7xnronT/TXTIkKbYGWlCbuucZ6dziEgkoEjQQ==
+  dependencies:
+    playwright-core "1.58.0"
+  optionalDependencies:
+    fsevents "2.3.2"
+
+undici-types@~7.16.0:
+  version "7.16.0"
+  resolved "https://registry.npmjs.org/undici-types/-/undici-types-7.16.0.tgz"
+  integrity sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw==
