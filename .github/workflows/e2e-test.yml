@@ -34,6 +34,25 @@ jobs:
           node-version-file: '.node-version'
           cache: 'yarn'
       
+      # Playwright 浏览器缓存
+      - name: Get Playwright version
+        id: playwright-version
+        run: echo "version=$(node -e "console.log(require('@playwright/test/package.json').version)")" >> $GITHUB_OUTPUT
+      
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+      
+      # bililive-tools 缓存（存储在 test-output/.appdata 下）
+      - name: Cache bililive-tools
+        uses: actions/cache@v4
+        with:
+          path: test-output/.appdata
+          key: bililive-tools-${{ runner.os }}-v1
+      
       - name: Install FFmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
       
@@ -41,7 +60,12 @@ jobs:
         run: yarn install --frozen-lockfile
       
       - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
+      
+      - name: Install Playwright deps only
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
       
       - name: Pre-download osrp-stream-tester
         run: go install github.com/kira1928/osrp-stream-tester/cmd/stream-tester@latest
@@ -56,7 +80,7 @@ jobs:
         run: mkdir -p test-output
       
       - name: Run E2E tests
-        run: npx playwright test tests/e2e/basic.spec.ts
+        run: npx playwright test
       
       # 写入报告元数据（供 Trace Viewer 使用）
       - name: Write report metadata

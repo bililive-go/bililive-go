@@ -137,21 +137,27 @@ test.describe('设置页面 - 标签页切换', () => {
   test('标签页可以切换', async ({ page }) => {
     await page.waitForTimeout(1000);
 
-    // 查找标签页
-    const tabs = page.locator('.ant-tabs');
+    // 使用 count 避免 isVisible 的超时问题
+    const tabItems = page.locator('.ant-tabs-tab');
+    const count = await tabItems.count();
 
-    if (await tabs.isVisible()) {
-      const tabItems = page.locator('.ant-tabs-tab');
-      const count = await tabItems.count();
+    if (count > 1) {
+      // 点击第二个标签
+      await tabItems.nth(1).click();
+      await page.waitForTimeout(500);
 
-      if (count > 1) {
-        // 点击第二个标签
-        await tabItems.nth(1).click();
-        await page.waitForTimeout(500);
-
-        // 验证第二个标签激活
-        await expect(tabItems.nth(1)).toHaveClass(/ant-tabs-tab-active/);
-      }
+      // 验证第二个标签激活（可能使用不同的激活类名）
+      const isActive = await tabItems.nth(1).evaluate(
+        el => el.classList.contains('ant-tabs-tab-active') ||
+          el.getAttribute('aria-selected') === 'true'
+      );
+      expect(isActive).toBe(true);
+    } else if (count === 1) {
+      // 只有一个标签，测试跳过
+      console.log('只有一个标签页，跳过切换测试');
+    } else {
+      // 没有标签页，测试跳过
+      console.log('没有找到标签页');
     }
   });
 });

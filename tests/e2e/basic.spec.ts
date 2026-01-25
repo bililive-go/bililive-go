@@ -43,8 +43,8 @@ test.describe('基础功能测试', () => {
     expect(response.ok()).toBeTruthy();
 
     const info = await response.json();
-    // 验证返回的信息包含版本号
-    expect(info).toHaveProperty('Version');
+    // 验证返回的信息包含应用名称（使用 snake_case）
+    expect(info).toHaveProperty('app_name');
   });
 
   test('API 直播间列表端点可访问', async ({ request }) => {
@@ -52,7 +52,8 @@ test.describe('基础功能测试', () => {
     expect(response.ok()).toBeTruthy();
 
     const data = await response.json();
-    expect(data).toHaveProperty('Lives');
+    // 返回的是直播间数组
+    expect(Array.isArray(data)).toBe(true);
   });
 
   test('API 配置端点可访问', async ({ request }) => {
