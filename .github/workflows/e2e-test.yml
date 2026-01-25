@@ -46,6 +46,9 @@ jobs:
       - name: Pre-download osrp-stream-tester
         run: go install github.com/kira1928/osrp-stream-tester/cmd/stream-tester@latest
       
+      - name: Build Web frontend
+        run: make build-web
+      
       - name: Build bililive-go with dev tag
         run: go build -tags dev -o bililive-go ./src/cmd/bililive
       
