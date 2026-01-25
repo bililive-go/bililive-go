@@ -8,6 +8,7 @@ import (
 
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/interfaces"
+	bilisentry "github.com/bililive-go/bililive-go/src/pkg/sentry"
 )
 
 func NewDispatcher(ctx context.Context) Dispatcher {
@@ -91,9 +92,9 @@ func (e *dispatcher) DispatchEvent(event *Event) {
 		hs = append(hs, e.Value.(*EventListener))
 	}
 	e.RUnlock()
-	go func() {
+	bilisentry.Go(func() {
 		for _, h := range hs {
 			h.Handler(event)
 		}
-	}()
+	})
 }

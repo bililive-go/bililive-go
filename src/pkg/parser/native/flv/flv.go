@@ -12,10 +12,10 @@ import (
 	"runtime/debug"
 	"sync"
 
-	applog "github.com/bililive-go/bililive-go/src/log"
-
+	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/live"
+	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 	"github.com/bililive-go/bililive-go/src/pkg/parser"
 	"github.com/bililive-go/bililive-go/src/pkg/reader"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
@@ -44,16 +44,15 @@ func init() {
 
 type builder struct{}
 
-func (b *builder) Build(cfg map[string]string) (parser.Parser, error) {
-	// timeout, err := time.ParseDuration(cfg["timeout_in_us"] + "us")
-	// if err != nil {
-	// 	timeout = time.Minute
-	// }
+func (b *builder) Build(cfg map[string]string, logger *livelogger.LiveLogger) (parser.Parser, error) {
+	audioOnly := cfg["audio_only"] == "true"
 	return &Parser{
 		Metadata:  Metadata{},
 		hc:        &http.Client{},
 		stopCh:    make(chan struct{}),
 		closeOnce: new(sync.Once),
+		audioOnly: audioOnly,
+		logger:    logger,
 	}, nil
 }
 
@@ -72,9 +71,19 @@ type Parser struct {
 	hc        *http.Client
 	stopCh    chan struct{}
 	closeOnce *sync.Once
+	audioOnly bool
+	logger    *livelogger.LiveLogger
 }
 
 func (p *Parser) ParseLiveStream(ctx context.Context, streamUrlInfo *live.StreamUrlInfo, live live.Live, file string) error {
+	// 检查是否配置了分段策略，原生 FLV 解析器不支持
+	cfg := configs.GetCurrentConfig()
+	if cfg != nil {
+		if cfg.VideoSplitStrategies.MaxDuration > 0 || cfg.VideoSplitStrategies.MaxFileSize > 0 {
+			p.logger.Warn("原生 FLV 解析器不支持 max_duration 和 max_file_size 分段功能，这些设置将被忽略。如需分段功能，请使用 FFmpeg 或 BililiveRecorder 下载器。")
+		}
+	}
+
 	url := streamUrlInfo.Url
 	// init input
 	req, err := http.NewRequest("GET", url.String(), nil)
@@ -163,7 +172,7 @@ func (p *Parser) doCopy(ctx context.Context, n uint32) error {
 
 func (p *Parser) doWrite(ctx context.Context, b []byte) error {
 	_ = instance.GetInstance(ctx) // keep context link if needed
-	logger := applog.GetLogger()
+	logger := p.logger
 	leftInputSize := len(b)
 	for retryLeft := ioRetryCount; retryLeft > 0 && leftInputSize > 0; retryLeft-- {
 		writtenCount, err := p.o.Write(b[len(b)-leftInputSize:])
@@ -180,4 +189,11 @@ func (p *Parser) doWrite(ctx context.Context, b []byte) error {
 		return fmt.Errorf("doWrite([%d]byte) tried %d times, but still has %d bytes to write", len(b), ioRetryCount, leftInputSize)
 	}
 	return nil
+}
+
+// Status 返回下载器的当前状态
+func (p *Parser) Status() (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"parser": Name,
+	}, nil
 }

@@ -1,0 +1,9 @@
+{
+  "current_version": "0.8.0",
+  "current_binary_path": "./bin/bililive",
+  "startup_timeout": 60,
+  "max_retries": 3,
+  "auto_check_update": true,
+  "update_check_interval_hours": 1,
+  "version_api_url": "http://localhost:8888/api/versions"
+}

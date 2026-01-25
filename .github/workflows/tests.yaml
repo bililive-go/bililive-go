@@ -13,11 +13,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
       - name: Set up Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v5
         with:
-          go-version: 1.24
+          go-version: '1.25'
       - name: Setup Node.js environment
-        uses: actions/setup-node@v2.4.0
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.node-version'
       - name: Build
         run: make build-web bililive
   test:
@@ -26,11 +28,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
       - name: Set up Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v5
         with:
-          go-version: 1.24
+          go-version: '1.25'
       - name: Setup Node.js environment
-        uses: actions/setup-node@v2.4.0
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.node-version'
       - name: Test
         run: make build-web test
       - name: Codecov
@@ -47,8 +51,19 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.24
+          go-version: '1.25'
       - uses: golangci/golangci-lint-action@v8
         with:
           working-directory: src/
           args: --build-tags=dev
+  check-agents:
+    name: Check AI Instruction Files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: Check AI instruction files consistency
+        run: make check-agents

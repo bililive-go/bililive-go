@@ -55,11 +55,25 @@ func (mr *MockRecorderMockRecorder) Close() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockRecorder)(nil).Close))
 }
 
+// GetParserPID mocks base method.
+func (m *MockRecorder) GetParserPID() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetParserPID")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// GetParserPID indicates an expected call of GetParserPID.
+func (mr *MockRecorderMockRecorder) GetParserPID() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetParserPID", reflect.TypeOf((*MockRecorder)(nil).GetParserPID))
+}
+
 // GetStatus mocks base method.
-func (m *MockRecorder) GetStatus() (map[string]string, error) {
+func (m *MockRecorder) GetStatus() (map[string]any, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetStatus")
-	ret0, _ := ret[0].(map[string]string)
+	ret0, _ := ret[0].(map[string]any)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -68,6 +82,34 @@ func (m *MockRecorder) GetStatus() (map[string]string, error) {
 func (mr *MockRecorderMockRecorder) GetStatus() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStatus", reflect.TypeOf((*MockRecorder)(nil).GetStatus))
+}
+
+// HasFlvProxy mocks base method.
+func (m *MockRecorder) HasFlvProxy() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HasFlvProxy")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// HasFlvProxy indicates an expected call of HasFlvProxy.
+func (mr *MockRecorderMockRecorder) HasFlvProxy() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasFlvProxy", reflect.TypeOf((*MockRecorder)(nil).HasFlvProxy))
+}
+
+// RequestSegment mocks base method.
+func (m *MockRecorder) RequestSegment() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RequestSegment")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// RequestSegment indicates an expected call of RequestSegment.
+func (mr *MockRecorderMockRecorder) RequestSegment() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestSegment", reflect.TypeOf((*MockRecorder)(nil).RequestSegment))
 }
 
 // Start mocks base method.
@@ -148,6 +190,20 @@ func (mr *MockManagerMockRecorder) Close(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockManager)(nil).Close), ctx)
 }
 
+// GetAllParserPIDs mocks base method.
+func (m *MockManager) GetAllParserPIDs() []int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllParserPIDs")
+	ret0, _ := ret[0].([]int)
+	return ret0
+}
+
+// GetAllParserPIDs indicates an expected call of GetAllParserPIDs.
+func (mr *MockManagerMockRecorder) GetAllParserPIDs() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllParserPIDs", reflect.TypeOf((*MockManager)(nil).GetAllParserPIDs))
+}
+
 // GetRecorder mocks base method.
 func (m *MockManager) GetRecorder(ctx context.Context, liveId types.LiveID) (Recorder, error) {
 	m.ctrl.T.Helper()
@@ -161,6 +217,21 @@ func (m *MockManager) GetRecorder(ctx context.Context, liveId types.LiveID) (Rec
 func (mr *MockManagerMockRecorder) GetRecorder(ctx, liveId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRecorder", reflect.TypeOf((*MockManager)(nil).GetRecorder), ctx, liveId)
+}
+
+// GetRecorderStatus mocks base method.
+func (m *MockManager) GetRecorderStatus(ctx context.Context, liveId types.LiveID) (map[string]any, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetRecorderStatus", ctx, liveId)
+	ret0, _ := ret[0].(map[string]any)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetRecorderStatus indicates an expected call of GetRecorderStatus.
+func (mr *MockManagerMockRecorder) GetRecorderStatus(ctx, liveId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRecorderStatus", reflect.TypeOf((*MockManager)(nil).GetRecorderStatus), ctx, liveId)
 }
 
 // HasRecorder mocks base method.

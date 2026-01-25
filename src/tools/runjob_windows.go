@@ -10,13 +10,16 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// runWithKillOnClose starts the command and attaches it to a Job Object
-// with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE so that when the parent process
-// exits (and the job handle is closed), the child process is terminated by OS.
-func runWithKillOnClose(cmd *exec.Cmd) error {
+// runWithKillOnCloseAndGetPID 与 runWithKillOnClose 相同，但在进程启动后通过回调传递 PID
+func runWithKillOnCloseAndGetPID(cmd *exec.Cmd, onPID func(pid int)) error {
 	// Start the process first so we can get its PID/handle
 	if err := cmd.Start(); err != nil {
 		return err
+	}
+
+	// 回调通知 PID
+	if onPID != nil && cmd.Process != nil {
+		onPID(cmd.Process.Pid)
 	}
 
 	// Open process handle from PID

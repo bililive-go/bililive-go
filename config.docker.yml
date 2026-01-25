@@ -34,3 +34,8 @@ notify:
     senderPassword: ""
     # 接收者邮箱地址 
     recipientEmail: ""
+  ntfy:
+    enable: false
+    URL: https://ntfy.sh/xxxx
+    token: tk_xxxxxxxxx
+    tag: new

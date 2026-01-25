@@ -16,12 +16,13 @@ jobs:
     env:
       SHARD_TOTAL: 10
       SHARD_INDEX: ${{ matrix.shard_index }}
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
     steps:
       - uses: actions/checkout@v4
       - run: echo "GIT_TAG=`echo $(git describe --tags --abbrev=0)`" >> $GITHUB_ENV
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: true
           cache-dependency-path: '**/go.sum'
       - run: go install github.com/golang/mock/mockgen@v1.6.0

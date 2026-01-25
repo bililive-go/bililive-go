@@ -51,3 +51,9 @@ jobs:
 
       - name: Install ffmpeg
         run: sudo apt-get install -y ffmpeg
+
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          # 只安装，不运行 lint
+          args: --help

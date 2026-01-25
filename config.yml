@@ -3,6 +3,7 @@
 rpc:
   enable: true
   bind: :8080
+  sse_list_threshold: 50
 debug: false
 interval: 20
 out_put_path: ./
@@ -13,17 +14,7 @@ log:
   save_every_log: false
   rotate_days: 7
 feature:
-  use_native_flv_parser: false
   remove_symbol_other_character: false
-live_rooms:
-  # quality参数目前仅B站启用，默认为0
-  # (B站)0代表原画PRO(HEVC)优先, 其他数值为原画(AVC)
-  # 原画PRO会保存为.ts文件, 原画为.flv
-  # HEVC相比AVC体积更小, 减少35%体积, 画质相当, 但是B站转码有时候会崩
-  - url: https://www.lang.live/room/5664344
-    is_listening: false
-  - url: https://live.bilibili.com/22603245
-    is_listening: true
 # '{{ .Live.GetPlatformCNName }}/{{ .HostName | filenameFilter }}/[{{ now | date "2006-01-02 15-04-05"}}][{{ .HostName | filenameFilter }}][{{ .RoomName | filenameFilter }}].flv'
 # ./平台名称/主播名字/[时间戳][主播名字][房间名字].flv
 # https://github.com/bililive-go/bililive-go/wiki/More-Tips
@@ -31,12 +22,11 @@ out_put_tmpl: ""
 video_split_strategies:
   on_room_name_changed: false
   max_duration: 0s
-  # 仅在 use_native_flv_parser=false 时生效
+  # 仅在使用 ffmpeg 或 bililive-recorder 下载器时生效
   # 单位为字节 (byte)
   # 有效值为正数，默认值 0 为无效
   # 负数为非法值，程序会输出 log 提醒，并无视所设定的数值
   max_file_size: 0
-cookies: {}
 on_record_finished:
   convert_to_mp4: false
   delete_flv_after_convert: false
@@ -48,7 +38,26 @@ on_record_finished:
   #  custom_commandline: '{{ .Ffmpeg }} -hide_banner -i "{{ .FileName }}" -c copy "{{ .FileName | trimSuffix (.FileName | ext)}}.mp4"'
   custom_commandline: ""
   fix_flv_at_first: true
+  save_cover: false
+  cloud_upload:
+    enable: false
+    storage_name: ""
+    upload_path_tmpl: /录播归档/{{ .Platform }}/{{ .HostName }}/{{ .RoomName }}-{{ now | date "2006-01-02" }}.{{ .Ext }}
+    delete_after_upload: false
+  upload_timing: after_process
 timeout_in_us: 60000000
+live_rooms:
+  # quality参数目前仅B站启用，默认为0
+  # (B站)0代表原画PRO(HEVC)优先, 其他数值为原画(AVC)
+  # 原画PRO会保存为.ts文件, 原画为.flv
+  # HEVC相比AVC体积更小, 减少35%体积, 画质相当, 但是B站转码有时候会崩
+  - url: https://www.lang.live/room/5664344
+    is_listening: false
+    scheme: ""
+  - url: https://live.bilibili.com/22603245
+    is_listening: true
+    scheme: ""
+cookies: {}
 # 通知服务配置
 notify:
   telegram:
@@ -73,6 +82,31 @@ notify:
     senderPassword: ""
     # 接收者邮箱地址 
     recipientEmail: ""
-app_data_path: ""
+  ntfy:
+    enable: false
+    URL: https://ntfy.sh/xxxx
+    token: tk_xxxxxxxxx
+    tag: new
+app_data_path: .appdata
 read_only_tool_folder: ""
 tool_root_folder: ""
+task_queue:
+  max_concurrent: 3
+# Sentry 错误监控配置（用于收集崩溃日志）
+sentry:
+  # 是否启用 Sentry 错误监控
+  enable: false
+# 代理配置（支持 HTTP 和 SOCKS5 代理）
+proxy:
+  # 是否启用配置的代理
+  # false: 使用系统环境变量 (HTTP_PROXY, HTTPS_PROXY, ALL_PROXY)
+  # true: 使用下方配置的代理地址
+  enable: false
+  # 代理地址，支持以下格式：
+  # HTTP 代理: http://host:port 或 http://user:pass@host:port
+  # SOCKS5 代理: socks5://host:port 或 socks5://user:pass@host:port
+  # 示例: socks5://127.0.0.1:1080 (翻墙软件常用端口)
+  url: ""
+openlist:
+  port: 5244
+  data_path: ""

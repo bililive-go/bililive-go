@@ -143,7 +143,7 @@ https://github.com/bililive-go/bililive-go/assets/2352900/6453900c-6321-417b-94f
 
 ## 新增通知服务
 
-新增了 Telegram 通知服务，用户可以在 Telegram 中收到直播开始、结束、异常等通知。
+新增了 Telegram、ntfy 通知服务，用户可以在 Telegram、ntfy 中收到直播开始、结束、异常等通知。
 
 有关通知服务的更多信息，请参阅 [通知服务文档](docs/notify.md)。
 
@@ -197,35 +197,118 @@ NAS 用户使用系统自带 GUI 创建 docker compose 的情况请参考群晖�
 ## 常见问题
 [docs/FAQ.md](docs/FAQ.md)
 
-## 开发环境搭建（linux系统）
+## 开发环境搭建
+
+支持 Windows、macOS、Linux 原生开发，无需 WSL。
+
+### 前置要求
+
+| 工具 | 版本要求 | 说明 |
+|------|----------|------|
+| [Go](https://golang.org/dl/) | 1.23+ | 后端开发语言 |
+| [Node.js](https://nodejs.org/) | 18+ | 前端构建 |
+| [Git](https://git-scm.com/) | - | 版本控制 |
+| [FFmpeg](https://ffmpeg.org/) | - | 可选，用于视频处理（程序会自动下载） |
+
+### 快速开始
+
+```bash
+# 1. 克隆代码
+git clone https://github.com/bililive-go/bililive-go.git
+cd bililive-go
+
+# 2. 安装开发工具（delve 调试器、gopls 语言服务器等）
+go generate ./tools/devtools.go
+
+# 3. 安装前端依赖并构建
+cd src/webapp && npm install && cd ../..
+go run ./build.go build-web
+
+# 4. 运行开发版本
+go run ./build.go dev
 ```
-一、环境准备
-  1. 前端环境
-    1）前往https://nodejs.org/zh-cn/下载当前版本node（18.12.1）
-    2）命令行运行 node -v 若控制台输出版本号则前端环境搭建成功
-  2.后端环境
-    1)下载golang安装 版本号1.19
-      国际: https://golang.org/dl/
-      国内: https://golang.google.cn/dl/
-    2)命令行运行 go 若控制台输出各类提示命令 则安装成功 输入 go version 确认版本
-  3.安装 ffmpeg (以centos7为例)
-    1) yum install -y epel-release rpm
-    2) rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-7
-    3) yum repolist
-    4) rpm --import http://li.nux.ro/download/nux/RPM-GPG-KEY-nux.ro
-    5) rpm -Uvh http://li.nux.ro/download/nux/dextop/el7/x86_64/nux-dextop-release-0-1.el7.nux.noarch.rpm
-    6) yum repolist
-    7) yum install -y ffmpeg
-二、克隆代码并编译(linux环境)    
-   1. git clone https://github.com/bililive-go/bililive-go.git
-   2. cd bililive-go
-   3. make build-web
-   4. make 
-三、linux编译其他环境(以windows 为例)
-   1. GOOS=windows GOARCH=amd64 CGO_ENABLED=0 UPX_ENABLE=0 TAGS=dev GCFLAGS="all=-N -l" ./src/hack/build.sh bililive
-   2.如果不需要调试，可以改成
-      GOOS=windows GOARCH=amd64 CGO_ENABLED=0 UPX_ENABLE=0 TAGS=release ./src/hack/build.sh bililive
+
+### 使用 VSCode 开发
+
+项目提供了预配置的 VSCode 调试模板，快速上手：
+
+```bash
+# 复制调试配置模板
+cp .vscode/launch.example.json .vscode/launch.json
 ```
+
+然后：
+1. 用 VSCode 打开项目
+2. 按 `F5` 或打开 **Run and Debug** 面板
+3. 选择 **Debug Main Program** 配置即可开始调试
+
+> 💡 **提示**：`launch.json` 已被 gitignore 忽略，你可以自由添加自己的调试配置而不会影响仓库。
+> 模板更新时，可对比 `launch.example.json` 的变更手动合并。
+
+详细的调试配置说明见 [test/README.md](test/README.md)。
+
+### 构建命令
+
+项目支持两种构建方式：`go run ./build.go` 和 `make`。
+
+| 功能 | go run 方式 | make 方式 |
+|------|-------------|-----------|
+| 查看帮助 | `go run ./build.go help` | `make help` |
+| 开发构建 | `go run ./build.go dev` | `make dev` |
+| 发布构建 | `go run ./build.go release` | `make build` |
+| 构建前端 | `go run ./build.go build-web` | `make build-web` |
+| 运行测试 | `go run ./build.go test` | `make test` |
+| 代码生成 | `go run ./build.go generate` | `make generate` |
+| 代码检查 | - | `make lint` |
+| 清理产物 | - | `make clean` |
+| E2E 测试 | - | `make test-e2e` |
+| E2E 测试 (UI) | - | `make test-e2e-ui` |
+| 查看测试报告 | - | `make show-report` |
+
+```bash
+# 示例：开发构建
+go run ./build.go dev
+# 或
+make dev
+```
+
+### E2E 测试报告
+
+运行 E2E 测试后，可以通过以下方式查看报告：
+
+```bash
+# 方式一：使用 Playwright 内置服务器（推荐，支持源码查看）
+make show-report
+
+# 方式二：启动在线报告服务器（适合团队分享，可从 GitHub 获取源码）
+make serve-report COMMIT=0.8.0/dev
+# 然后访问 http://localhost:9323
+```
+
+> 💡 **提示**: `serve-report` 会启动一个特殊的服务器，当本地源码不存在时，
+> 会自动从 GitHub 获取对应 commit 的源码。这样可以在没有源码的机器上完整查看测试报告。
+
+### 项目结构
+
+```
+bililive-go/
+├── src/
+│   ├── cmd/           # 主程序入口
+│   │   ├── bililive/  # 主程序
+│   │   └── launcher/  # 启动器（自动更新）
+│   ├── configs/       # 配置管理
+│   ├── live/          # 各平台直播解析
+│   ├── pkg/           # 通用包
+│   │   └── update/    # 自动更新模块
+│   ├── recorders/     # 录制器实现
+│   ├── servers/       # HTTP API
+│   └── webapp/        # React 前端
+├── test/              # 测试工具
+├── tools/             # 开发工具依赖
+├── config.yml         # 配置文件（用户创建）
+└── build.go           # 构建脚本入口
+```
+
 
 ## Wiki
 [Wiki](https://github.com/bililive-go/bililive-go/wiki)

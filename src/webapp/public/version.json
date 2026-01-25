@@ -1,0 +1,16 @@
+{
+  "uiVersion": "1.0.0",
+  "buildDate": "2026-01-05",
+  "minBackendVersion": "0.7.39",
+  "maxBackendVersion": null,
+  "changelog": [
+    "初始版本",
+    "支持下载器类型选择 (FFmpeg/Native/BililiveRecorder)",
+    "支持层级配置 (全局/平台/房间)"
+  ],
+  "features": [
+    "downloader_type_selection",
+    "hierarchical_config",
+    "remote_webui_support"
+  ]
+}

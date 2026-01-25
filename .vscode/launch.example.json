@@ -1,0 +1,102 @@
+// VS Code 调试配置模板
+// 使用方法：复制此文件为 launch.json（即去掉 .example 后缀）
+// 你可以在 launch.json 中自由添加或修改配置，不会影响仓库
+{
+  "version": "0.1.0",
+  "configurations": [
+    // ========== 主程序调试配置 ==========
+    // 调试主程序（最常用）
+    {
+      "name": "Debug Main Program",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/src/cmd/bililive",
+      "args": [
+        "-c",
+        "${workspaceFolder}/config.yml"
+      ],
+      "cwd": "${workspaceFolder}"
+    },
+    // 使用 build.go dev 构建并运行（包含前端）
+    {
+      "name": "Run build.go dev",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/build.go",
+      "args": [
+        "dev"
+      ]
+    },
+    // 附加到正在运行的进程
+    {
+      "name": "Attach to Process",
+      "type": "go",
+      "request": "attach",
+      "mode": "local",
+      "processId": "${command:pickProcess}"
+    },
+    // ========== 本地自动升级测试配置 ==========
+    // 启动 Mock 版本 API 服务器
+    {
+      "name": "Mock Version API Server",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/test/update-mock-server",
+      "args": [
+        "-port",
+        "8888",
+        "-version",
+        "99.0.0"
+      ],
+      "env": {
+        "MOCK_CHANGELOG": "这是一个测试版本更新"
+      }
+    },
+    // 调试 Launcher（使用本地 Mock API）
+    // 注意：需要先创建 test/launcher-config-local.json，可参考 test/launcher-config-local.example.json
+    {
+      "name": "Debug Launcher (Local Update)",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/src/cmd/launcher",
+      "args": [
+        "-config",
+        "${workspaceFolder}/test/launcher-config-local.json",
+        "-verbose"
+      ],
+      "cwd": "${workspaceFolder}"
+    },
+    // 调试主程序（模拟由 Launcher 启动）
+    {
+      "name": "Debug Main Program (with Launcher)",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/src/cmd/bililive",
+      "args": [
+        "-c",
+        "${workspaceFolder}/config.yml"
+      ],
+      "env": {
+        "BILILIVE_LAUNCHER": "1",
+        "BILILIVE_INSTANCE_ID": "debug"
+      },
+      "cwd": "${workspaceFolder}"
+    }
+  ],
+  "compounds": [
+    // 一键启动本地升级测试环境（Mock API + Launcher）
+    {
+      "name": "🚀 本地升级测试 (Mock API + Launcher)",
+      "configurations": [
+        "Mock Version API Server",
+        "Debug Launcher (Local Update)"
+      ],
+      "stopAll": true
+    }
+  ]
+}

@@ -13,8 +13,8 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/bililive-go/bililive-go/src/configs"
-	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/interfaces"
+	bilisentry "github.com/bililive-go/bililive-go/src/pkg/sentry"
 )
 
 var (
@@ -23,7 +23,6 @@ var (
 )
 
 func New(ctx context.Context) *interfaces.Logger {
-	_ = instance.GetInstance(ctx)
 	cfg := configs.GetCurrentConfig()
 	logLevel := logrus.InfoLevel
 	if cfg != nil && cfg.Debug {
@@ -68,8 +67,7 @@ func New(ctx context.Context) *interfaces.Logger {
 		logrus.SetReportCaller(true)
 	}
 
-	// logrus.AddHook(make(logrus.LevelHooks)) // 添加自定义 hook
-	// 全局唯一 logger 使用 logrus 标准 logger；无需再写回 instance
+	// 全局唯一 logger 使用 logrus 标准 logger
 	logrus.SetLevel(logLevel)
 
 	// 动态监听 Debug 变化，实时调整日志级别与是否打印调用方
@@ -81,13 +79,13 @@ func New(ctx context.Context) *interfaces.Logger {
 	stopDebugWatcher = cancel
 	watcherMu.Unlock()
 
-	go func() {
+	bilisentry.GoWithContext(watcherCtx, func(ctx context.Context) {
 		ticker := time.NewTicker(500 * time.Millisecond)
 		defer ticker.Stop()
 		prev := config.Debug
 		for {
 			select {
-			case <-watcherCtx.Done():
+			case <-ctx.Done():
 				return
 			case <-ticker.C:
 				now := configs.IsDebug()
@@ -104,7 +102,7 @@ func New(ctx context.Context) *interfaces.Logger {
 				prev = now
 			}
 		}
-	}()
+	})
 
 	return &interfaces.Logger{Logger: logrus.StandardLogger()}
 }

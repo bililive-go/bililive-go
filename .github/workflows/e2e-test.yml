@@ -1,0 +1,125 @@
+name: E2E Tests
+
+on:
+  push:
+    branches:
+      - '*'
+  pull_request:
+    branches:
+      - '*'
+
+# 取消之前排队/进行中的运行（同一 PR）
+concurrency:
+  group: e2e-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Playwright E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.node-version'
+          cache: 'yarn'
+      
+      # Playwright 浏览器缓存
+      - name: Get Playwright version
+        id: playwright-version
+        run: echo "version=$(node -e "console.log(require('@playwright/test/package.json').version)")" >> $GITHUB_OUTPUT
+      
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+      
+      # bililive-tools 缓存（存储在 test-output/.appdata 下）
+      - name: Cache bililive-tools
+        uses: actions/cache@v4
+        with:
+          path: test-output/.appdata
+          key: bililive-tools-${{ runner.os }}-v1
+      
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      
+      - name: Install Node dependencies
+        run: yarn install --frozen-lockfile
+      
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      
+      - name: Install Playwright deps only
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+      
+      - name: Pre-download osrp-stream-tester
+        run: go install github.com/kira1928/osrp-stream-tester/cmd/stream-tester@latest
+      
+      - name: Build Web frontend
+        run: make build-web
+      
+      - name: Build bililive-go with dev tag
+        run: go build -tags dev -o bililive-go ./src/cmd/bililive
+      
+      - name: Create test output directory
+        run: mkdir -p test-output
+      
+      - name: Run E2E tests
+        run: npx playwright test
+      
+      # 写入报告元数据（供 Trace Viewer 使用）
+      - name: Write report metadata
+        if: always()
+        run: |
+          cat > playwright-report/.report-meta.json << EOF
+          {
+            "commit": "${{ github.sha }}",
+            "branch": "${{ github.ref_name }}",
+            "repo": "${{ github.repository }}",
+            "run_id": "${{ github.run_id }}",
+            "run_number": "${{ github.run_number }}",
+            "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+      
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+      
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-results
+          path: test-results/
+          retention-days: 7
+      
+      # 输出在线报告查看链接
+      - name: Print report viewer link
+        if: always()
+        run: |
+          echo ""
+          echo "=============================================="
+          echo "📊 查看测试报告："
+          echo "https://bililive-go.com/dev/playwright/open?run=${{ github.run_id }}"
+          echo "=============================================="
+          echo ""

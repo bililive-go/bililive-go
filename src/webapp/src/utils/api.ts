@@ -5,6 +5,7 @@
  */
 
 import Utils from './common';
+import { StreamPreferenceV2 } from '../types/stream';
 
 const utils = new Utils();
 
@@ -111,6 +112,31 @@ class API {
     }
 
     /**
+     * 重命名文件或文件夹
+     * @param path 原路径
+     * @param newName 新名称（不含后缀）
+     */
+    renameFile(path: string, newName: string) {
+        return utils.requestPut(`${BASE_URL}/file/${path}`, { new_name: newName });
+    }
+
+    /**
+     * 删除文件或文件夹
+     * @param path 路径
+     */
+    deleteFile(path: string) {
+        return utils.requestDelete(`${BASE_URL}/file/${path}`);
+    }
+
+    batchRenameFiles(paths: string[], find: string, replace: string) {
+        return utils.requestPut(`${BASE_URL}/batch/file/rename`, { paths, find, replace });
+    }
+
+    batchDeleteFiles(paths: string[]) {
+        return utils.requestPost(`${BASE_URL}/batch/file/delete`, { paths });
+    }
+
+    /**
      * 获取Cookie列表
      */
     getCookieList() {
@@ -121,9 +147,179 @@ class API {
      * 保存Cookie
      * @param json {"Host":"","Cookie":""}
      */
-    saveCookie(json:any){
-        return utils.requestPut(`${BASE_URL}/cookies`,json);
+    saveCookie(json: any) {
+        return utils.requestPut(`${BASE_URL}/cookies`, json);
+    }
+
+    /**
+     * 获取直播间详细信息和有效配置
+     * @param id 直播间id
+     */
+    getLiveDetail(id: string) {
+        return utils.requestGet(`${BASE_URL}/lives/${id}`);
+    }
+
+    /**
+     * 获取直播间最近日志
+     * @param id 直播间id
+     * @param lines 日志行数，默认100行
+     */
+    getLiveLogs(id: string, lines: number = 100) {
+        return utils.requestGet(`${BASE_URL}/lives/${id}/logs?lines=${lines}`);
+    }
+
+    /**
+     * 获取实际生效的配置值（用于GUI模式显示）
+     */
+    getEffectiveConfig() {
+        return utils.requestGet(`${BASE_URL}/config/effective`);
+    }
+
+    /**
+     * 获取平台统计信息
+     */
+    getPlatformStats() {
+        return utils.requestGet(`${BASE_URL}/config/platforms`);
+    }
+
+    /**
+     * 更新全局配置（部分更新）
+     * @param updates 要更新的配置项
+     */
+    updateConfig(updates: any) {
+        return utils.requestPatch(`${BASE_URL}/config`, updates);
+    }
+
+    /**
+     * 更新平台配置
+     * @param platformKey 平台标识
+     * @param updates 要更新的配置项
+     */
+    updatePlatformConfig(platformKey: string, updates: any) {
+        return utils.requestPatch(`${BASE_URL}/config/platforms/${platformKey}`, updates);
+    }
+
+    /**
+     * 删除平台配置
+     * @param platformKey 平台标识
+     */
+    deletePlatformConfig(platformKey: string) {
+        return utils.requestDelete(`${BASE_URL}/config/platforms/${platformKey}`);
+    }
+
+    /**
+     * 更新直播间配置
+     * @param roomUrl 直播间URL
+     * @param updates 要更新的配置项
+     */
+    updateRoomConfig(roomUrl: string, updates: any) {
+        return utils.requestPatch(`${BASE_URL}/config/rooms/${encodeURIComponent(roomUrl)}`, updates);
+    }
+
+    /**
+     * 通过 ID 更新直播间配置
+     * @param liveId 直播间ID
+     * @param updates 要更新的配置项
+     */
+    updateRoomConfigById(liveId: string, updates: any) {
+        return utils.requestPatch(`${BASE_URL}/config/rooms/id/${liveId}`, updates);
+    }
+
+    /**
+     * 预览输出模板生成的路径
+     * @param template 模板字符串
+     * @param outPutPath 输出路径
+     */
+    previewOutputTemplate(template: string, outPutPath: string) {
+        return utils.requestPost(`${BASE_URL}/config/preview-template`, {
+            template,
+            out_put_path: outPutPath
+        });
+    }
+
+    /**
+     * 强制刷新直播间信息
+     * 忽略平台访问频率限制，立即获取最新信息
+     * @param liveId 直播间ID
+     */
+    forceRefreshLive(liveId: string) {
+        return utils.requestGet(`${BASE_URL}/lives/${liveId}/forceRefresh`);
+    }
+
+    /**
+     * 获取直播间历史事件（统一接口，支持分页和筛选）
+     * @param liveId 直播间ID
+     * @param options 查询选项
+     */
+    getLiveHistory(liveId: string, options?: {
+        page?: number;
+        pageSize?: number;
+        startTime?: number; // Unix timestamp
+        endTime?: number;   // Unix timestamp
+        types?: string[];   // 事件类型: 'session', 'name_change'
+    }) {
+        const params = new URLSearchParams();
+        if (options?.page) params.append('page', String(options.page));
+        if (options?.pageSize) params.append('page_size', String(options.pageSize));
+        if (options?.startTime) params.append('start_time', String(options.startTime));
+        if (options?.endTime) params.append('end_time', String(options.endTime));
+        if (options?.types) {
+            options.types.forEach(t => params.append('type', t));
+        }
+        const queryString = params.toString();
+        const url = `${BASE_URL}/lives/${liveId}/history${queryString ? '?' + queryString : ''}`;
+        return utils.requestGet(url);
+    }
+
+    /**
+     * 获取远程 WebUI 状态
+     * 返回当前程序版本对应的云端 WebUI 信息
+     */
+    getRemoteWebuiStatus() {
+        return utils.requestGet(`${BASE_URL}/webui/remote/status`);
+    }
+
+    /**
+     * 检查是否有更新的云端 WebUI 可用
+     * 比较本地 WebUI 版本和云端可用版本
+     */
+    checkWebuiUpdate() {
+        return utils.requestGet(`${BASE_URL}/webui/remote/check`);
+    }
+
+    /**
+     * 获取哔哩哔哩登录二维码
+     */
+    getBilibiliQRCode() {
+        return utils.requestGet(`${BASE_URL}/bilibili/qrcode`);
+    }
+
+    /**
+     * 轮询哔哩哔哩登录状态
+     * @param key qrcode_key
+     */
+    pollBilibiliQRCode(key: string) {
+        return utils.requestGet(`${BASE_URL}/bilibili/qrcode/poll?key=${key}`);
+    }
+
+    /**
+     * 验证哔哩哔哩 Cookie
+     * @param cookie cookie 字符串
+     */
+    verifyBilibiliCookie(cookie: string) {
+        return utils.requestPost(`${BASE_URL}/bilibili/cookie/verify`, { cookie });
+    }
+
+    /**
+     * 切换直播间的流设置
+     * 更新直播间的流配置并重启录制（如果正在录制中）
+     * @param liveId 直播间ID
+     * @param streamConfig 流设置，支持新格式 { quality?: string, attributes?: {...} } 或旧格式 { format?: string, quality?: string }
+     */
+    switchStream(liveId: string, streamConfig: StreamPreferenceV2 | { format?: string; quality?: string }) {
+        return utils.requestPost(`${BASE_URL}/lives/${liveId}/switchStream`, streamConfig);
     }
 }
 
 export default API;
+
