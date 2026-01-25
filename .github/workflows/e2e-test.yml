@@ -1,10 +1,17 @@
 name: E2E Tests
 
 on:
+  # 只在直接 push 到 master/dev 时运行（不是通过 PR merge）
   push:
     branches: [master, 0.8.0/dev]
+  # PR 时运行（包括 PR 内的后续 push）
   pull_request:
     branches: [master]
+
+# 取消之前排队/进行中的运行（同一 PR/分支）
+concurrency:
+  group: e2e-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   e2e:
@@ -41,6 +48,9 @@ jobs:
       
       - name: Build bililive-go with dev tag
         run: go build -tags dev -o bililive-go ./src/cmd/bililive
+      
+      - name: Create test output directory
+        run: mkdir -p test-output
       
       - name: Run E2E tests
         run: npx playwright test
@@ -83,6 +93,6 @@ jobs:
           echo ""
           echo "=============================================="
           echo "📊 查看测试报告："
-          echo "https://bililive-go.com/dev/trace/?run=${{ github.run_id }}"
+          echo "https://bililive-go.com/dev/playwright/open?run=${{ github.run_id }}"
           echo "=============================================="
           echo ""
