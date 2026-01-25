@@ -12,12 +12,12 @@ export default defineConfig({
   // 测试输出目录（被 .gitignore 忽略）
   outputDir: 'test-results',
 
-  // 全局超时：2 分钟（录制测试可能需要一些时间）
-  timeout: 120 * 1000,
+  // 全局超时：30 秒（快速失败，节省 CI 时间）
+  timeout: 30 * 1000,
 
   // 期望超时
   expect: {
-    timeout: 10 * 1000,
+    timeout: 5 * 1000,
   },
 
   // 由于需要共享服务器，不使用完全并行
@@ -26,8 +26,8 @@ export default defineConfig({
   // CI 环境检测
   forbidOnly: !!process.env.CI,
 
-  // 重试策略
-  retries: process.env.CI ? 2 : 0,
+  // 重试策略（CI 中只重试 1 次）
+  retries: process.env.CI ? 1 : 0,
 
   // 并发控制：由于需要共享服务器，使用单线程
   workers: 1,
@@ -73,7 +73,10 @@ export default defineConfig({
   webServer: [
     // osrp-stream-tester 测试流服务器
     {
-      command: 'go run github.com/kira1928/osrp-stream-tester/cmd/stream-tester@latest serve --port 8888',
+      // 在 CI 中使用预安装的二进制，本地使用 go run
+      command: process.env.CI
+        ? 'stream-tester serve --port 8888'
+        : 'go run github.com/kira1928/osrp-stream-tester/cmd/stream-tester@latest serve --port 8888',
       url: 'http://127.0.0.1:8888/health',
       reuseExistingServer: !process.env.CI,
       timeout: 30 * 1000,
@@ -82,7 +85,10 @@ export default defineConfig({
     },
     // bililive-go 主程序（使用 dev 构建标签）
     {
-      command: 'go run -tags dev ./src/cmd/bililive --config tests/e2e/fixtures/test-config.yml',
+      // 在 CI 中使用预构建的二进制，本地使用 go run
+      command: process.env.CI
+        ? './bililive-go --config tests/e2e/fixtures/test-config.yml'
+        : 'go run -tags dev ./src/cmd/bililive --config tests/e2e/fixtures/test-config.yml',
       url: 'http://127.0.0.1:8080/api/info',
       reuseExistingServer: !process.env.CI,
       timeout: 60 * 1000,

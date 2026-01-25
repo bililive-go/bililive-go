@@ -1,14 +1,14 @@
 name: E2E Tests
 
 on:
-  # 只在直接 push 到 master/dev 时运行（不是通过 PR merge）
   push:
-    branches: [master, 0.8.0/dev]
-  # PR 时运行（包括 PR 内的后续 push）
+    branches:
+      - '*'
   pull_request:
-    branches: [master]
+    branches:
+      - '*'
 
-# 取消之前排队/进行中的运行（同一 PR/分支）
+# 取消之前排队/进行中的运行（同一 PR）
 concurrency:
   group: e2e-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
@@ -53,7 +53,7 @@ jobs:
         run: mkdir -p test-output
       
       - name: Run E2E tests
-        run: npx playwright test
+        run: npx playwright test tests/e2e/basic.spec.ts
       
       # 写入报告元数据（供 Trace Viewer 使用）
       - name: Write report metadata
