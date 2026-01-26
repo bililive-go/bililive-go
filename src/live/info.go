@@ -2,7 +2,10 @@ package live
 
 import (
 	"encoding/json"
+	"html"
+	"regexp"
 
+	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/types"
 )
 
@@ -51,6 +54,12 @@ func GetQualityName(quality string) string {
 	return quality
 }
 
+// 用于文件名过滤的预编译正则表达式
+var (
+	illegalCharRegex  = regexp.MustCompile(`[\/\\\:\*\?\"\<\>\|]|[\.\s]+$`)
+	symbolOtherRegex = regexp.MustCompile(`\p{So}`)
+)
+
 type Info struct {
 	Live                 Live
 	HostName, RoomName   string
@@ -72,6 +81,27 @@ type InfoCookie struct {
 }
 
 func (i *Info) MarshalJSON() ([]byte, error) {
+	// 获取用于文件名的名称（NickName 优先，否则使用 HostName）
+	displayName := i.Live.GetOptions().NickName
+	if displayName == "" {
+		displayName = i.HostName
+	}
+
+	// 应用文件名过滤器（与 utils.ReplaceIllegalChar 和 utils.UnescapeHTMLEntity 一致）
+	// 1. HTML实体解码
+	sanitizedName := html.UnescapeString(displayName)
+	// 2. 替换非法字符
+	for illegalCharRegex.MatchString(sanitizedName) {
+		sanitizedName = illegalCharRegex.ReplaceAllString(sanitizedName, "_")
+	}
+	// 3. 如果配置了 RemoveSymbolOtherCharacter，移除符号字符
+	cfg := configs.GetCurrentConfig()
+	if cfg != nil && cfg.Feature.RemoveSymbolOtherCharacter {
+		for symbolOtherRegex.MatchString(sanitizedName) {
+			sanitizedName = symbolOtherRegex.ReplaceAllString(sanitizedName, "_")
+		}
+	}
+
 	t := struct {
 		Id                        types.LiveID           `json:"id"`
 		LiveUrl                   string                 `json:"live_url"`
@@ -86,6 +116,7 @@ func (i *Info) MarshalJSON() ([]byte, error) {
 		LastStartTimeUnix         int64                  `json:"last_start_time_unix,omitempty"`
 		AudioOnly                 bool                   `json:"audio_only"`
 		NickName                  string                 `json:"nick_name"`
+		SanitizedFileName         string                 `json:"sanitized_file_name"` // 用于文件路径的经过过滤的名称
 		AvailableStreams          []*AvailableStreamInfo `json:"available_streams,omitempty"`
 		AvailableStreamsUpdatedAt int64                  `json:"available_streams_updated_at,omitempty"`
 	}{
@@ -100,6 +131,7 @@ func (i *Info) MarshalJSON() ([]byte, error) {
 		Initializing:              i.Initializing,
 		AudioOnly:                 i.AudioOnly,
 		NickName:                  i.Live.GetOptions().NickName,
+		SanitizedFileName:         sanitizedName,
 		AvailableStreams:          i.AvailableStreams,
 		AvailableStreamsUpdatedAt: i.AvailableStreamsUpdatedAt,
 	}

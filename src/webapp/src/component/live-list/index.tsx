@@ -311,6 +311,7 @@ interface IState {
 interface ItemData {
     key: string,
     name: string,
+    sanitizedFileName: string, // 后端提供的用于文件路径的已过滤名称
     room: Room,
     address: string,
     tags: string[],
@@ -433,7 +434,8 @@ class LiveList extends React.Component<Props, IState> {
                 </PopDialog>
                 <Divider type="vertical" />
                 <Button type="link" size="small" onClick={(e) => {
-                    this.props.navigate(`/fileList/${data.address}/${data.name}`);
+                    // 使用后端提供的已过滤文件名
+                    this.props.navigate(`/fileList/${data.address}/${data.sanitizedFileName}`);
                 }}>文件</Button>
                 <Divider type="vertical" />
                 <a
@@ -877,6 +879,7 @@ class LiveList extends React.Component<Props, IState> {
                     return {
                         key: index + 1,
                         name: item.nick_name || item.host_name,
+                        sanitizedFileName: item.sanitized_file_name, // 使用后端提供的已过滤名称
                         room: {
                             roomName: item.room_name,
                             url: item.live_url
