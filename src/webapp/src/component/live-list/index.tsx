@@ -146,7 +146,7 @@ class LiveList extends React.Component<Props, IState> {
                 </PopDialog>
                 <Divider type="vertical" />
                 <Button type="link" size="small" onClick={(e) => {
-                    this.props.history.push(`/fileList/${data.address}/${data.name}`);
+                    this.props.history.push(`/fileList/${data.address}/${data.name.replace(/\//g, '_')}`);
                 }}>文件</Button>
             </span>
         ),
