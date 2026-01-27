@@ -32,34 +32,34 @@
 
 ```mermaid
 graph TB
-    subgraph Frontend [前端 (React/Webapp)]
+    subgraph Frontend ["前端 (React/Webapp)"]
         UI[Web UI]
         APIClient[API Client]
         SSEClient[SSE Client]
     end
 
-    subgraph Backend [后端 (Go)]
+    subgraph Backend ["后端 (Go)"]
         Main[Main Entry]
 
-        subgraph Core [核心模块]
-            Config[配置模块 (Config)]
-            DB[数据库 (SQLite)]
-            LiveLib[直播源库 (src/live)]
+        subgraph Core ["核心模块"]
+            Config["配置模块 (Config)"]
+            DB["数据库 (SQLite)"]
+            LiveLib["直播源库 (src/live)"]
         end
 
-        subgraph Managers [管理模块]
-            LM[Listener Manager (监听管理器)]
-            RM[Recorder Manager (录制管理器)]
-            PM[Pipeline Manager (流水线管理器)]
+        subgraph Managers ["管理模块"]
+            LM["Listener Manager (监听管理器)"]
+            RM["Recorder Manager (录制管理器)"]
+            PM["Pipeline Manager (流水线管理器)"]
         end
 
-        subgraph Server [网络服务]
-            WebServer[HTTP Server (Gorilla Mux)]
-            SSEHub[SSE Hub (实时推送)]
+        subgraph Server ["网络服务"]
+            WebServer["HTTP Server (Gorilla Mux)"]
+            SSEHub["SSE Hub (实时推送)"]
         end
 
-        subgraph External [外部依赖]
-            FFmpeg[FFmpeg 进程]
+        subgraph External ["外部依赖"]
+            FFmpeg["FFmpeg 进程"]
         end
     end
 
