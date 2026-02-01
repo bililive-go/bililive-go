@@ -417,7 +417,7 @@ const GlobalSettings: React.FC<{
             </Form.Item>
           </ConfigField>
           
-          <Divider orientation="left" style={{ fontSize: 14 }}>身份验证设置</Divider>
+          <Divider style={{ fontSize: 14 }}>身份验证设置</Divider>
           <ConfigField label="启用身份验证" description="启用后需要用户名密码访问Web界面，API需要密钥">
             <Form.Item name={['rpc', 'authentication', 'enable']} valuePropName="checked" noStyle>
               <Switch />
