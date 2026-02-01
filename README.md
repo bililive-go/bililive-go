@@ -126,6 +126,41 @@ cookies:
 这里 name 和 value 只是随便举的例子，用来说明当添加超过一条 cookie 的键值对时应该用分号隔开。
 至于具体应该添加哪些键，就需要用户针对不同网站自己获取了。
 
+## 身份验证
+
+为了保护 Web 界面和 API 接口，可以启用身份验证功能。在 `config.yml` 中配置如下：
+
+```yaml
+rpc:
+  enable: true
+  bind: :8080
+  authentication:
+    # 是否启用身份验证
+    enable: true
+    # Web界面登录用户名
+    web_username: admin
+    # Web界面登录密码
+    web_password: password123
+    # API访问密钥（通过请求头 X-API-Key 或 Authorization: Bearer <key> 传递）
+    api_key: your-secret-api-key
+```
+
+### Web 界面认证
+
+启用后，访问 Web 界面时会弹出 HTTP Basic 认证对话框，需要输入配置的用户名和密码。
+
+### API 认证
+
+启用后，调用 API 时需要在请求头中传递 API 密钥：
+
+```bash
+# 使用 X-API-Key 头
+curl -H "X-API-Key: your-secret-api-key" http://localhost:8080/api/lives
+
+# 或使用 Authorization Bearer 格式
+curl -H "Authorization: Bearer your-secret-api-key" http://localhost:8080/api/lives
+```
+
 ## 在网页中修改设置
 
 点击网页左边的 `设置` 可以在线修改项目的配置文件，之后点击页面下面的 `保存设置` 按钮保存设置。
