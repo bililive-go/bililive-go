@@ -3,11 +3,15 @@ package update
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
+	"runtime"
 	"sync"
+
+	rtconfig "github.com/kira1928/remotetools/pkg/config"
+	remotetools "github.com/kira1928/remotetools/pkg/tools"
 
 	"github.com/bililive-go/bililive-go/src/pkg/ipc"
 )
@@ -25,12 +29,21 @@ const (
 	UpdateStateFailed      UpdateState = "failed"
 )
 
+// DownloadProgress 下载进度信息
+// 注意：当前下载由 remotetools 管理，此结构体仅用于 API 兼容
+type DownloadProgress struct {
+	TotalBytes      int64   `json:"total_bytes"`
+	DownloadedBytes int64   `json:"downloaded_bytes"`
+	Percentage      float64 `json:"percentage"`
+	Speed           float64 `json:"speed_bytes_per_second"`
+	ETA             int     `json:"eta_seconds"`
+}
+
 // Manager 更新管理器，协调版本检查、下载和更新通知
 type Manager struct {
 	checker     *Checker
-	downloader  *Downloader
 	notifier    *Notifier
-	downloadDir string
+	appDataPath string
 	currentVer  string
 
 	mu            sync.RWMutex
@@ -44,8 +57,9 @@ type Manager struct {
 // ManagerConfig 更新管理器配置
 type ManagerConfig struct {
 	CurrentVersion string
-	DownloadDir    string
 	InstanceID     string
+	// AppDataPath 应用数据目录（用于自托管 launcher 模式）
+	AppDataPath string
 	// VersionAPIURL 自定义版本检测 API URL（留空使用默认值）
 	// 可设置为本地 HTTP 服务器地址用于测试自动升级逻辑
 	VersionAPIURL string
@@ -53,9 +67,6 @@ type ManagerConfig struct {
 
 // NewManager 创建新的更新管理器
 func NewManager(config ManagerConfig) *Manager {
-	if config.DownloadDir == "" {
-		config.DownloadDir = filepath.Join(os.TempDir(), "bililive-go-updates")
-	}
 	if config.InstanceID == "" {
 		config.InstanceID = ipc.GetInstanceID()
 	}
@@ -71,9 +82,8 @@ func NewManager(config ManagerConfig) *Manager {
 
 	return &Manager{
 		checker:     checker,
-		downloader:  NewDownloader(config.DownloadDir),
 		notifier:    NewNotifier(config.InstanceID),
-		downloadDir: config.DownloadDir,
+		appDataPath: config.AppDataPath,
 		currentVer:  config.CurrentVersion,
 		state:       UpdateStateIdle,
 	}
@@ -94,8 +104,9 @@ func (m *Manager) GetAvailableInfo() *ReleaseInfo {
 }
 
 // GetDownloadProgress 获取下载进度
+// 注意：当前下载由 remotetools 管理，此方法仅返回空值以保持 API 兼容
 func (m *Manager) GetDownloadProgress() DownloadProgress {
-	return m.downloader.GetProgress()
+	return DownloadProgress{}
 }
 
 // GetLastError 获取最后一次错误
@@ -106,11 +117,11 @@ func (m *Manager) GetLastError() string {
 }
 
 // SetProgressCallback 设置下载进度回调
+// 注意：当前下载由 remotetools 管理，此方法仅保存通道引用以保持 API 兼容
 func (m *Manager) SetProgressCallback(ch chan DownloadProgress) {
 	m.mu.Lock()
 	m.progressChan = ch
 	m.mu.Unlock()
-	m.downloader.SetProgressCallback(ch)
 }
 
 // CheckForUpdate 检查是否有新版本
@@ -141,11 +152,28 @@ func (m *Manager) CheckForUpdate(ctx context.Context, includePrerelease bool) (*
 	}
 	m.mu.Unlock()
 
+	// 发现可用更新时，立即将版本信息注入 remotetools
+	// 这样用户可以在 remotetools WebUI 中看到可用的 bgo 版本
+	// 注入失败不影响检查结果，仅记录日志
+	if info != nil && len(info.DownloadURLs) > 0 {
+		tool, err := m.mergeVersionToRemotetools(info)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[update.Manager] 注入版本信息到 remotetools 失败: %v\n", err)
+		} else if tool != nil && tool.DoesToolExist() {
+			// 版本已在 remotetools 中下载完成，直接标记为 Ready
+			m.mu.Lock()
+			m.state = UpdateStateReady
+			m.downloadPath = tool.GetToolPath()
+			m.mu.Unlock()
+			fmt.Fprintf(os.Stderr, "[update.Manager] 版本 %s 已在 remotetools 中存在，直接标记为 Ready\n", info.Version)
+		}
+	}
+
 	return info, nil
 }
 
 // DownloadUpdate 下载可用的更新
-// 按优先级顺序尝试 DownloadURLs 中的链接，第一个成功即停止
+// 通过 remotetools 管理下载：构造 config JSON 并 merge 进 remotetools 实例
 func (m *Manager) DownloadUpdate(ctx context.Context) error {
 	m.mu.RLock()
 	info := m.availableInfo
@@ -164,52 +192,45 @@ func (m *Manager) DownloadUpdate(ctx context.Context) error {
 	m.lastError = ""
 	m.mu.Unlock()
 
-	// 按顺序尝试每个下载链接
-	var lastErr error
-	var errors []string
-	var result *DownloadResult
-
-	for i, url := range info.DownloadURLs {
-		result, lastErr = m.downloader.Download(ctx, url, info.SHA256)
-		if lastErr == nil {
-			// 下载成功
-			break
-		}
-		// 记录失败信息
-		errors = append(errors, fmt.Sprintf("链接%d: %v", i+1, lastErr))
-	}
-
-	// 所有链接都失败
-	if lastErr != nil {
+	// 将版本信息合并到 remotetools
+	tool, err := m.mergeVersionToRemotetools(info)
+	if err != nil {
 		m.mu.Lock()
 		m.state = UpdateStateFailed
-		m.lastError = fmt.Sprintf("所有下载链接均失败: %s", strings.Join(errors, "; "))
+		m.lastError = fmt.Sprintf("构造 remotetools 配置失败: %v", err)
 		m.mu.Unlock()
-		return fmt.Errorf("下载失败: %s", strings.Join(errors, "; "))
+		return err
 	}
 
-	if result.Status == DownloadStatusCancelled {
+	// 如果已下载则跳过
+	if tool.DoesToolExist() {
 		m.mu.Lock()
-		m.state = UpdateStateAvailable
+		m.state = UpdateStateReady
+		m.downloadPath = tool.GetToolPath()
 		m.mu.Unlock()
 		return nil
 	}
 
+	// 通过 remotetools 下载（内部处理多镜像重试、断点续传）
+	if err := tool.Install(); err != nil {
+		m.mu.Lock()
+		m.state = UpdateStateFailed
+		m.lastError = fmt.Sprintf("下载失败: %v", err)
+		m.mu.Unlock()
+		return fmt.Errorf("下载失败: %w", err)
+	}
+
 	m.mu.Lock()
 	m.state = UpdateStateReady
-	m.downloadPath = result.FilePath
-	// 如果 ReleaseInfo 没有预设 SHA256，使用下载时计算的
-	if m.availableInfo.SHA256 == "" {
-		m.availableInfo.SHA256 = result.SHA256
-	}
+	m.downloadPath = tool.GetToolPath()
 	m.mu.Unlock()
 
 	return nil
 }
 
 // CancelDownload 取消下载
+// 注意：当前下载由 remotetools 管理，此方法仅保持 API 兼容
 func (m *Manager) CancelDownload() {
-	m.downloader.Cancel()
 }
 
 // ApplyUpdate 应用更新（通知启动器）
@@ -293,11 +314,152 @@ func (m *Manager) AckShutdown() error {
 
 // Close 关闭管理器
 func (m *Manager) Close() error {
-	m.downloader.Cancel()
 	return m.notifier.Disconnect()
 }
 
 // IsLauncherConnected 检查是否连接到启动器
 func (m *Manager) IsLauncherConnected() bool {
 	return m.notifier.IsConnected()
+}
+
+// ApplyUpdateSelfHosted 应用更新（自托管 launcher 模式）
+// remotetools 已完成下载和解压，直接从 tool 实例获取二进制路径
+// 然后更新 launcher-state.json 指向新版本
+func (m *Manager) ApplyUpdateSelfHosted(ctx context.Context) error {
+	m.mu.RLock()
+	state := m.state
+	info := m.availableInfo
+	downloadPath := m.downloadPath
+	m.mu.RUnlock()
+
+	if state != UpdateStateReady {
+		return fmt.Errorf("更新尚未准备好，当前状态: %s", state)
+	}
+
+	if info == nil || downloadPath == "" {
+		return fmt.Errorf("更新信息不完整")
+	}
+
+	if m.appDataPath == "" {
+		return fmt.Errorf("未配置应用数据目录，无法使用自托管 launcher 模式")
+	}
+
+	m.mu.Lock()
+	m.state = UpdateStateApplying
+	m.mu.Unlock()
+
+	// downloadPath 已经是 remotetools 解压后的二进制路径
+	// 必须转换为绝对路径，因为 launcher.Check() 会对非绝对路径拼接 appDataPath 前缀
+	// 如果 downloadPath 本身已经包含 appDataPath（如 ".appdata/external_tools/..."），
+	// 拼接后会导致路径重复（如 ".appdata/.appdata/external_tools/..."）
+	newBinaryPath, err := filepath.Abs(downloadPath)
+	if err != nil {
+		m.mu.Lock()
+		m.state = UpdateStateFailed
+		m.lastError = fmt.Sprintf("解析更新文件路径失败: %v", err)
+		m.mu.Unlock()
+		return fmt.Errorf("解析更新文件路径失败: %w", err)
+	}
+
+	// 验证文件存在
+	if _, err := os.Stat(newBinaryPath); err != nil {
+		m.mu.Lock()
+		m.state = UpdateStateFailed
+		m.lastError = fmt.Sprintf("更新文件不存在: %v", err)
+		m.mu.Unlock()
+		return fmt.Errorf("更新文件不存在: %w", err)
+	}
+
+	// 加载或创建 launcher-state.json
+	statePath := filepath.Join(m.appDataPath, "launcher-state.json")
+	state_data := &launcherState{
+		ActiveVersion:    info.Version,
+		ActiveBinaryPath: newBinaryPath,
+		BackupVersion:    m.currentVer,
+		StartupTimeout:   60,
+		MaxRetries:       3,
+	}
+
+	// 保留当前版本作为备份
+	if exePath, err := os.Executable(); err == nil {
+		state_data.BackupBinaryPath = exePath
+	}
+
+	fmt.Fprintf(os.Stderr, "[ApplyUpdateSelfHosted] 准备写入 launcher-state.json: path=%s, activeVersion=%s, activeBinary=%s, backupVersion=%s, backupBinary=%s\n",
+		statePath, state_data.ActiveVersion, state_data.ActiveBinaryPath, state_data.BackupVersion, state_data.BackupBinaryPath)
+
+	// 保存状态
+	if err := saveLauncherState(statePath, state_data); err != nil {
+		m.mu.Lock()
+		m.state = UpdateStateFailed
+		m.lastError = fmt.Sprintf("保存启动器状态失败: %v", err)
+		m.mu.Unlock()
+		return fmt.Errorf("保存启动器状态失败: %w", err)
+	}
+
+	m.mu.Lock()
+	m.state = UpdateStateReady // 保持 Ready 状态，等待重启
+	m.mu.Unlock()
+
+	return nil
+}
+
+const bgoToolName = "bililive-go"
+
+// bgoEntryName 返回当前平台的 bgo 二进制文件名
+// 命名格式与构建脚本一致：bililive-{GOOS}-{GOARCH}{.exe}
+func bgoEntryName() string {
+	ext := ""
+	if runtime.GOOS == "windows" {
+		ext = ".exe"
+	}
+	return fmt.Sprintf("bililive-%s-%s%s", runtime.GOOS, runtime.GOARCH, ext)
+}
+
+// mergeVersionToRemotetools 将 ReleaseInfo 注册为 remotetools 工具配置
+// 返回对应版本的 Tool 实例，可直接调用 Install() 下载
+func (m *Manager) mergeVersionToRemotetools(info *ReleaseInfo) (remotetools.Tool, error) {
+	api := remotetools.Get()
+	if api == nil {
+		return nil, fmt.Errorf("remotetools API 未初始化")
+	}
+
+	// 直接使用 remotetools 导出的配置结构体，无需 JSON 序列化
+	cfg := &rtconfig.ToolConfig{
+		ToolName:     bgoToolName,
+		Version:      info.Version,
+		DownloadURL:  rtconfig.OsArchSpecificString{Values: info.DownloadURLs},
+		PathToEntry:  rtconfig.OsArchSpecificString{Values: []string{bgoEntryName()}},
+		IsExecutable: true,
+		PrintInfoCmd: rtconfig.StringArray{"--version"},
+	}
+
+	api.AddToolConfig(cfg)
+
+	// 获取对应版本的 Tool
+	tool, err := api.GetToolWithVersion(bgoToolName, info.Version)
+	if err != nil {
+		return nil, fmt.Errorf("获取 tool 实例失败: %w", err)
+	}
+
+	return tool, nil
+}
+
+// launcherState 启动器状态（与 launcher 包保持一致）
+type launcherState struct {
+	ActiveVersion    string `json:"active_version"`
+	ActiveBinaryPath string `json:"active_binary_path,omitempty"`
+	BackupVersion    string `json:"backup_version,omitempty"`
+	BackupBinaryPath string `json:"backup_binary_path,omitempty"`
+	StartupTimeout   int    `json:"startup_timeout"`
+	MaxRetries       int    `json:"max_retries"`
+}
+
+// saveLauncherState 保存启动器状态
+func saveLauncherState(path string, state *launcherState) error {
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
 }

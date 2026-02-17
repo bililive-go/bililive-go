@@ -205,10 +205,29 @@ NAS 用户使用系统自带 GUI 创建 docker compose 的情况请参考群晖�
 
 | 工具 | 版本要求 | 说明 |
 |------|----------|------|
-| [Go](https://golang.org/dl/) | 1.23+ | 后端开发语言 |
+| [Go](https://golang.org/dl/) | 1.25+ | 后端开发语言 |
+| [GNU Make](https://www.gnu.org/software/make/) | 4.0+ | 构建工具（见下方安装说明） |
 | [Node.js](https://nodejs.org/) | 18+ | 前端构建 |
 | [Git](https://git-scm.com/) | - | 版本控制 |
 | [FFmpeg](https://ffmpeg.org/) | - | 可选，用于视频处理（程序会自动下载） |
+
+### 安装 GNU Make
+
+**Windows（推荐 Scoop）：**
+```powershell
+# 安装 Scoop（如果没有）
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+
+# 安装 Make
+scoop install make
+```
+
+> ⚠️ Windows 上的 GnuWin32 Make（3.81）版本过旧，会导致编码问题。请使用 Scoop 或 Chocolatey 安装新版。
+
+**macOS：** 系统自带 Make，或 `brew install make`
+
+**Linux：** `sudo apt install make`（Debian/Ubuntu）
 
 ### 快速开始
 

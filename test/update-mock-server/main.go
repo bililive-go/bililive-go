@@ -46,11 +46,10 @@ type VersionResponse struct {
 	UpdateAvailable bool   `json:"update_available"`
 	UpdateRequired  bool   `json:"update_required"`
 	Download        *struct {
-		GitHub   string `json:"github"`
-		Proxy    string `json:"proxy"`
-		Filename string `json:"filename"`
-		SHA256   string `json:"sha256"`
-		Size     int64  `json:"size"`
+		URLs     []string `json:"urls"` // 下载链接数组，按优先级排序
+		Filename string   `json:"filename"`
+		SHA256   string   `json:"sha256"`
+		Size     int64    `json:"size"`
 	} `json:"download,omitempty"`
 	ReleasePage string `json:"release_page"`
 }
@@ -235,14 +234,12 @@ func handleVersions(w http.ResponseWriter, r *http.Request) {
 		UpdateAvailable: currentVersion != "" && currentVersion != *version,
 		UpdateRequired:  false,
 		Download: &struct {
-			GitHub   string `json:"github"`
-			Proxy    string `json:"proxy"`
-			Filename string `json:"filename"`
-			SHA256   string `json:"sha256"`
-			Size     int64  `json:"size"`
+			URLs     []string `json:"urls"`
+			Filename string   `json:"filename"`
+			SHA256   string   `json:"sha256"`
+			Size     int64    `json:"size"`
 		}{
-			GitHub:   githubURL,
-			Proxy:    localDownloadURL, // 使用本地下载链接作为代理
+			URLs:     []string{localDownloadURL, githubURL}, // 本地优先，GitHub 备用
 			Filename: updateFilename,
 			SHA256:   updatePackageSHA256,
 			Size:     updatePackageSize,

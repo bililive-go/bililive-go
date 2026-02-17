@@ -86,6 +86,15 @@ export default defineConfig({
 
   // Web 服务器配置
   webServer: [
+    // update-mock-server 模拟版本 API 服务器
+    {
+      command: 'go run ./test/update-mock-server -version 99.0.0 -port 8889',
+      url: 'http://127.0.0.1:8889/health',
+      reuseExistingServer: !process.env.CI,
+      timeout: 60 * 1000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
     // osrp-stream-tester 测试流服务器
     {
       // 本地开发可设置 OSRP_STREAM_TESTER_PATH 环境变量指向本地目录

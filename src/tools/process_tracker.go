@@ -1,7 +1,10 @@
 package tools
 
 import (
+	"os"
 	"sync"
+
+	blog "github.com/bililive-go/bililive-go/src/log"
 )
 
 // ProcessCategory 进程类别，用于按程序名称聚合统计
@@ -127,4 +130,22 @@ func GetPIDsByCategory(category ProcessCategory) []int {
 		}
 	}
 	return pids
+}
+
+// KillAllProcesses 终止所有已注册的子进程并清空跟踪列表。
+// 在进入 launcher 模式前调用，确保端口被释放以供新版本使用。
+func KillAllProcesses() {
+	logger := blog.GetLogger()
+	allProcs := GetAllProcessInfo()
+	for _, proc := range allProcs {
+		if proc.PID > 0 {
+			if p, err := os.FindProcess(proc.PID); err == nil {
+				logger.Infof("正在终止子进程 %s (PID: %d)", proc.Name, proc.PID)
+				if err := p.Kill(); err != nil {
+					logger.Warnf("终止子进程 %s (PID: %d) 失败: %v", proc.Name, proc.PID, err)
+				}
+			}
+			UnregisterProcess(proc.Name)
+		}
+	}
 }

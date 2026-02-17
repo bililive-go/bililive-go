@@ -1,0 +1,59 @@
+.update-page {
+  padding: 16px;
+  max-width: 800px;
+}
+
+.update-page .ant-spin-nested-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+}
+
+.update-page .ant-card {
+  border-radius: 8px;
+}
+
+.update-page .ant-card-head-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.update-page .ant-descriptions-item-label {
+  font-weight: 500;
+}
+
+.update-page .ant-progress {
+  margin-bottom: 8px;
+}
+
+.update-page .changelog-content {
+  max-height: 200px;
+  overflow: auto;
+  padding: 12px;
+  background: #f5f5f5;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  font-family: monospace;
+  font-size: 13px;
+}
+
+.update-page .no-update-message {
+  text-align: center;
+  padding: 40px 0;
+}
+
+.update-page .no-update-message .anticon {
+  font-size: 48px;
+  color: #52c41a;
+  margin-bottom: 16px;
+}
+
+/* 深色模式支持 */
+@media (prefers-color-scheme: dark) {
+  .update-page .changelog-content {
+    background: #1f1f1f;
+    color: #fff;
+  }
+}

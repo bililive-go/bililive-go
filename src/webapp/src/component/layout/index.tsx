@@ -10,7 +10,8 @@ import {
     ToolOutlined,
     MenuFoldOutlined,
     MenuUnfoldOutlined,
-    LineChartOutlined
+    LineChartOutlined,
+    CloudUploadOutlined
 } from '@ant-design/icons';
 import './layout.css';
 
@@ -133,6 +134,11 @@ class RootLayout extends React.Component<Props, State> {
                                         key: 'iostats',
                                         icon: <LineChartOutlined />,
                                         label: <Link to="/iostats">IO 统计</Link>,
+                                    },
+                                    {
+                                        key: 'update',
+                                        icon: <CloudUploadOutlined />,
+                                        label: <Link to="/update">更新</Link>,
                                     }
                                 ]}
                             />

@@ -172,6 +172,7 @@ node_modules
 
 !src/cmd/build/
 .appdata/
+external_tools/
 coverage.txt
 .local
 

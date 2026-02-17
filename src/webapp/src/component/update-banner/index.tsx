@@ -36,11 +36,12 @@ interface DownloadProgress {
 interface UpdateStatus {
   state: string;
   available_info?: UpdateInfo;
-  download_progress?: DownloadProgress;
-  downloaded_path?: string;
+  progress?: DownloadProgress;
   error?: string;
   can_apply_now?: boolean;
-  active_recordings?: number;
+  active_recordings_count?: number;
+  graceful_update_pending?: boolean;
+  graceful_update_version?: string;
 }
 
 // 更新横幅组件
@@ -92,22 +93,23 @@ const UpdateBanner: React.FC = () => {
       subscribeSSE('*', 'update_error', handleSSEMessage),
     ];
 
-    // 初始检查更新状态
+    // 初始检查更新状态（恢复页面刷新前的状态）
     api.getUpdateStatus().then((response: any) => {
-      if (response?.data) {
-        const status = response.data as UpdateStatus;
-        if (status.available_info) {
-          setUpdateInfo(status.available_info);
-        }
-        if (status.state === 'downloaded' || status.state === 'ready') {
-          setIsReady(true);
-        }
-        if (status.download_progress) {
-          setDownloadProgress(status.download_progress);
-        }
-        if (status.error) {
-          setError(status.error);
-        }
+      // API 直接返回 UpdateStatusResponse，不嵌套在 data 中
+      const status = response as UpdateStatus;
+      if (!status || !status.state) return;
+
+      if (status.available_info) {
+        setUpdateInfo(status.available_info as UpdateInfo);
+      }
+      if (status.state === 'ready') {
+        setIsReady(true);
+      }
+      if (status.state === 'downloading' && status.progress) {
+        setDownloadProgress(status.progress as DownloadProgress);
+      }
+      if (status.error) {
+        setError(status.error);
       }
     }).catch(() => {
       // 静默忽略
@@ -199,7 +201,7 @@ const UpdateBanner: React.FC = () => {
       return (
         <Space>
           <CheckCircleOutlined style={{ color: '#52c41a' }} />
-          <Text>新版本 v{updateInfo.version} 已下载完成，准备更新</Text>
+          <Text>新版本 {updateInfo.version} 已下载完成，准备更新</Text>
           <Button size="small" type="primary" onClick={handleShowDetails}>
             立即更新
           </Button>

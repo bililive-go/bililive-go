@@ -110,3 +110,8 @@ proxy:
 openlist:
   port: 5244
   data_path: ""
+update:
+  auto_check: true
+  check_interval_hours: 6
+  auto_download: true
+  include_prerelease: false

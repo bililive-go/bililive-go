@@ -29,10 +29,16 @@ func GetBuildFlags(isDev bool) BuildFlags {
 	now := fmt.Sprintf("%d", time.Now().Unix())
 	var buf bytes.Buffer
 
+	// 版本号优先级：环境变量 APP_VERSION > git tag
+	appVersion := os.Getenv("APP_VERSION")
+	if appVersion == "" {
+		appVersion = getGitTagString()
+	}
+
 	data := map[string]string{
 		"ConstsPath": constsPath,
 		"Now":        now,
-		"AppVersion": getGitTagString(),
+		"AppVersion": appVersion,
 		"GitHash":    getGitHash(),
 	}
 

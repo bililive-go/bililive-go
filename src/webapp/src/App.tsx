@@ -9,6 +9,7 @@ import FileList from './component/file-list/index';
 import TaskPage from './component/task-page/index';
 import IOStats from './component/io-stats/index';
 import UpdateBanner from './component/update-banner/index';
+import UpdatePage from './component/update-page/index';
 
 const App: React.FC = () => {
   return (
@@ -16,6 +17,7 @@ const App: React.FC = () => {
       <UpdateBanner />
       <RootLayout>
         <Routes>
+          <Route path="/update/*" element={<UpdatePage />} />
           <Route path="/iostats/*" element={<IOStats />} />
           <Route path="/tasks/*" element={<TaskPage />} />
           <Route path="/fileList/*" element={<FileList />} />
@@ -29,4 +31,5 @@ const App: React.FC = () => {
 }
 
 export default App;
+
 

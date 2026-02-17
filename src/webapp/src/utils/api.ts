@@ -380,6 +380,22 @@ class API {
     }
 
     /**
+     * 获取回滚信息
+     * 检查是否有可用的备份版本可以回滚
+     */
+    getRollbackInfo() {
+        return utils.requestGet(`${BASE_URL}/update/rollback`);
+    }
+
+    /**
+     * 执行版本回滚
+     * 将当前版本切换为备份版本并重启
+     */
+    doRollback() {
+        return utils.requestPost(`${BASE_URL}/update/rollback`, {});
+    }
+
+    /**
      * 设置更新通道
      * @param channel 更新通道：stable 或 prerelease
      */

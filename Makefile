@@ -4,6 +4,7 @@ help:
 	@echo "Available commands:"
 	@echo "  make build            - Build release version"
 	@echo "  make dev              - Build development version (with debug info)"
+	@echo "  make dev-version VERSION=x.x.x - Build dev with custom version"
 	@echo "  make dev-incremental  - Incremental dev build (only rebuild if sources changed)"
 	@echo "  make test             - Run unit tests"
 	@echo "  make test-e2e         - Run E2E tests with Playwright"
@@ -26,6 +27,15 @@ bililive:
 .PHONY: dev
 dev:
 	@go run build.go dev
+
+# 自定义版本号编译（用于本地测试升级功能）
+# 用法: make dev-version VERSION=v0.8.0-rc.1
+.PHONY: dev-version
+dev-version:
+ifndef VERSION
+	$(error VERSION is required. Usage: make dev-version VERSION=v0.8.0-rc.1)
+endif
+	@go run build.go dev --version $(VERSION)
 
 # 收集所有 Go 源文件作为依赖（使用通配符，兼容 Windows）
 GO_SOURCES := $(wildcard src/**/*.go src/**/**/*.go src/**/**/**/*.go)
@@ -66,8 +76,7 @@ test:
 
 .PHONY: clean
 clean:
-	@rm -rf bin ./src/webapp/build
-	@echo "All clean"
+	@go run build.go clean
 
 .PHONY: generate
 generate:
@@ -77,9 +86,8 @@ generate:
 build-web:
 	go run build.go build-web
 
-.PHONY: run
-run:
-	foreman start || exit 0
+# run 目标已移除（foreman 是平台特定的）
+# 请直接使用 make dev 后运行生成的二进制文件
 
 .PHONY: lint
 lint:

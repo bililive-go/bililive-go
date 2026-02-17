@@ -54,6 +54,27 @@ func IsBToolsStarting() bool {
 	return status == BToolsStatusStarting || status == BToolsStatusNotStarted
 }
 
+// Cleanup 关闭所有通过 tools 包管理的资源：
+// - 终止所有已注册的子进程（btools、klive 等）
+// - 关闭 remotetools WebUI 服务器
+// 在进入 launcher 模式前调用，确保端口被释放以供新版本使用。
+func Cleanup() {
+	logger := blog.GetLogger()
+
+	// 1. 终止所有已注册的子进程
+	KillAllProcesses()
+
+	// 2. 关闭 remotetools WebUI 服务器
+	api := tools.Get()
+	if api != nil {
+		if err := api.StopWebUI(); err != nil {
+			logger.Warnf("关闭 RemoteTools WebUI 失败: %v", err)
+		} else {
+			logger.Info("RemoteTools WebUI 已关闭")
+		}
+	}
+}
+
 // DownloaderAvailability 包含各下载器的可用状态
 type DownloaderAvailability struct {
 	FFmpegAvailable           bool   `json:"ffmpeg_available"`

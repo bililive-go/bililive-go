@@ -28,6 +28,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/pkg/events"
 	"github.com/bililive-go/bililive-go/src/pkg/iostats"
 	"github.com/bililive-go/bililive-go/src/pkg/kliveproxy"
+	"github.com/bililive-go/bililive-go/src/pkg/launcher"
 	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 	"github.com/bililive-go/bililive-go/src/pkg/metadata"
 	"github.com/bililive-go/bililive-go/src/pkg/openlist"
@@ -76,6 +77,77 @@ func getConfigBesidesExecutable() (*configs.Config, error) {
 	return config, nil
 }
 
+// shouldRunAsLauncher 检查是否需要进入 launcher 模式
+// 如果需要，运行 launcher 并返回 true
+// 如果不需要或出错，返回 false（继续正常启动）
+func shouldRunAsLauncher() bool {
+	// 获取当前可执行文件路径
+	exePath, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[Launcher] 获取可执行文件路径失败: %v\n", err)
+		return false
+	}
+
+	// 确定 appdata 路径
+	// 优先使用配置文件中的路径，否则使用可执行文件同目录下的 .appdata
+	var appDataPath string
+	if *flag.Conf != "" {
+		// 尝试从配置文件读取 appdata 路径
+		if cfg, err := configs.NewConfigWithFile(*flag.Conf); err == nil {
+			appDataPath = cfg.AppDataPath
+		} else {
+			fmt.Fprintf(os.Stderr, "[Launcher] 从配置文件 %s 读取 appdata 路径失败: %v\n", *flag.Conf, err)
+		}
+	}
+	if appDataPath == "" {
+		appDataPath = filepath.Join(filepath.Dir(exePath), ".appdata")
+	}
+	// 确保 appDataPath 是绝对路径，与 ApplyUpdateSelfHosted 写入的路径一致
+	if absAppData, err := filepath.Abs(appDataPath); err == nil {
+		appDataPath = absAppData
+	}
+
+	fmt.Fprintf(os.Stderr, "[Launcher] 诊断信息: exePath=%s, appDataPath=%s, appVersion=%q, flag.Conf=%q\n",
+		exePath, appDataPath, consts.AppVersion, *flag.Conf)
+
+	// 检查是否需要进入 launcher 模式
+	result, err := launcher.Check(appDataPath, consts.AppVersion, exePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[Launcher] 检查启动器状态失败: %v\n", err)
+		return false
+	}
+
+	if !result.ShouldBeLauncher {
+		fmt.Fprintf(os.Stderr, "[Launcher] Check 结果: ShouldBeLauncher=false (state=%+v)\n", result.State)
+		return false
+	}
+
+	// 进入 launcher 模式
+	fmt.Printf("[Launcher] 检测到更新版本 %s，进入启动器模式...\n", result.TargetVersion)
+
+	// 创建启动器运行器
+	instanceID := "default"
+	if id := os.Getenv("BILILIVE_INSTANCE_ID"); id != "" {
+		instanceID = id
+	}
+
+	runner := launcher.NewRunner(result.State, result.StatePath, result.TargetBinaryPath, instanceID)
+
+	// 收集要传递给子进程的参数（跳过程序名）
+	args := os.Args[1:]
+
+	// 运行 launcher
+	ctx := context.Background()
+	if err := runner.Run(ctx, args); err != nil {
+		fmt.Fprintf(os.Stderr, "[Launcher] 运行失败: %v\n", err)
+		// launcher 模式运行失败，不再尝试正常启动
+		// 因为用户期望运行的是更新版本
+		os.Exit(1)
+	}
+
+	return true
+}
+
 var (
 	// SentryDSN Sentry DSN (编译时注入，请勿在源代码中硬编码)
 	// 使用 -ldflags="-X main.SentryDSN=your_dsn" 在编译时注入
@@ -98,6 +170,15 @@ func main() {
 			os.Exit(1)
 		}
 		os.Exit(0)
+	}
+
+	// 如果已经是由 launcher 模式启动的，跳过 launcher 检查
+	// 这通过环境变量 BILILIVE_LAUNCHER=1 来标识
+	if os.Getenv("BILILIVE_LAUNCHER") == "" {
+		// 检查是否需要进入 launcher 模式
+		if shouldRunAsLauncher() {
+			return // launcher 模式已完成执行
+		}
 	}
 
 	config, err := getConfig()
@@ -162,20 +243,30 @@ func main() {
 		logger.Debugf("config file is not used.")
 		logger.Debugf("flag: %s used.", os.Args)
 	}
-	logger.Debugf("%+v", consts.AppInfo)
+	logger.Debugf("%+v", consts.GetAppInfo())
 	logger.Debugf("%+v", configs.GetCurrentConfig())
 
 	// 初始化更新管理器并尝试连接到启动器（如果由启动器启动）
 	var updateManager *update.Manager
 	if os.Getenv("BILILIVE_LAUNCHER") != "" {
 		logger.Info("检测到由启动器启动，正在连接到启动器...")
+
+		// 从环境变量读取启动器的 PID 和路径，保存到全局状态
+		// 用于在"系统状态"和"更新"页面展示启动器信息
+		launcherPID := 0
+		if pidStr := os.Getenv("BILILIVE_LAUNCHER_PID"); pidStr != "" {
+			fmt.Sscanf(pidStr, "%d", &launcherPID)
+		}
+		launcherExePath := os.Getenv("BILILIVE_LAUNCHER_EXE")
+		consts.SetLauncherInfo(launcherPID, launcherExePath)
+		logger.Infof("启动器信息: PID=%d, Path=%s", launcherPID, launcherExePath)
+
 		instanceID := os.Getenv("BILILIVE_INSTANCE_ID")
 		if instanceID == "" {
 			instanceID = "default"
 		}
 		updateManager = update.NewManager(update.ManagerConfig{
 			CurrentVersion: consts.AppVersion,
-			DownloadDir:    filepath.Join(config.AppDataPath, "updates"),
 			InstanceID:     instanceID,
 		})
 		if err := updateManager.ConnectToLauncher(rootCtx); err != nil {
@@ -558,6 +649,11 @@ func main() {
 	// 使用 os.Interrupt 更跨平台，在 Windows 上 SIGHUP 可能不被支持
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	msgChan := c
+
+	// 注册关闭回调，供更新系统在热重启时触发优雅关闭
+	servers.SetShutdownFunc(func() {
+		c <- os.Interrupt
+	})
 	bilisentryPkg.Go(func() {
 		<-msgChan
 		logger.Info("Received shutdown signal, closing...")
@@ -593,5 +689,27 @@ func main() {
 	})
 
 	inst.WaitGroup.Wait()
+
+	// 检查是否需要就地切换到 launcher 模式
+	// 如果用户在前端点击了"立即更新"，doApplyUpdate 会设置此标志并触发服务关闭
+	// 所有 bgo 服务已关闭（端口释放），但进程仍然存活
+	// 现在重新执行 launcher 检查：launcher-state.json 已经被更新，
+	// shouldRunAsLauncher() 会启动 launcher.Runner 来运行新版本 bgo 子进程
+	// launcher.Runner.Run() 阻塞运行，直到新版本退出后才返回
+	// 这样进程不会退出，Docker 容器不会重启
+	if servers.PendingLauncherTransition() {
+		logger.Infof("====== 版本切换: 所有服务已关闭，正在进入 Launcher 模式 (AppDataPath=%s) ======", configs.GetCurrentConfig().AppDataPath)
+		// 取消根 context，确保日志文件句柄被关闭（避免新版本清理时文件冲突）
+		rootCancel()
+		// 在进入 launcher 模式前，终止所有子进程（btools、klive 等）并关闭 remotetools WebUI
+		// 确保端口被释放，否则新版本 bgo 启动时会遇到 EADDRINUSE
+		tools.Cleanup()
+		if shouldRunAsLauncher() {
+			logger.Info("Launcher 模式执行完毕")
+			return
+		}
+		logger.Warn("Launcher 检查未通过，程序即将退出")
+	}
+
 	logger.Info("Bye~")
 }

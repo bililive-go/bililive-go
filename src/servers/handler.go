@@ -898,7 +898,7 @@ func applyLiveRoomsByConfig(ctx context.Context, oldConfig *configs.Config, newC
 }
 
 func getInfo(writer http.ResponseWriter, r *http.Request) {
-	writeJSON(writer, consts.AppInfo)
+	writeJSON(writer, consts.GetAppInfo())
 }
 
 // EffectiveConfigResponse 用于返回配置及其实际生效值
@@ -1515,6 +1515,22 @@ func applyConfigUpdates(c *configs.Config, updates map[string]interface{}) error
 					c.StreamPreference.Attributes = nil
 				}
 			}
+		}
+	}
+
+	// 处理自动更新配置
+	if update, ok := updates["update"].(map[string]interface{}); ok {
+		if autoCheck, ok := update["auto_check"].(bool); ok {
+			c.Update.AutoCheck = autoCheck
+		}
+		if checkIntervalHours, ok := update["check_interval_hours"].(float64); ok {
+			c.Update.CheckIntervalHours = int(checkIntervalHours)
+		}
+		if autoDownload, ok := update["auto_download"].(bool); ok {
+			c.Update.AutoDownload = autoDownload
+		}
+		if includePrerelease, ok := update["include_prerelease"].(bool); ok {
+			c.Update.IncludePrerelease = includePrerelease
 		}
 	}
 

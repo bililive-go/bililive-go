@@ -2,14 +2,29 @@ package flag
 
 import (
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/alecthomas/kingpin"
+	"github.com/joho/godotenv"
 
 	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/consts"
 	"github.com/bililive-go/bililive-go/src/pkg/utils"
 )
+
+func init() {
+	// 尝试从当前工作目录加载 .env.local 文件（用于本地开发测试）
+	// 如果文件不存在则忽略错误
+	// 使用 .env.local 与 Playwright 配置保持一致
+	_ = godotenv.Load(".env.local")
+
+	// 如果当前目录没有 .env.local，尝试从可执行文件所在目录加载
+	if exePath, err := os.Executable(); err == nil {
+		envPath := filepath.Join(filepath.Dir(exePath), ".env.local")
+		_ = godotenv.Load(envPath)
+	}
+}
 
 var (
 	app = kingpin.New(consts.AppName, "A command-line live stream save tools.").Version(consts.AppVersion)

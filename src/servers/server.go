@@ -118,6 +118,8 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/update/cancel", cancelUpdate).Methods("POST")       // 取消下载
 	apiRoute.HandleFunc("/update/channel", setUpdateChannel).Methods("PUT")   // 设置更新通道
 	apiRoute.HandleFunc("/update/launcher", getLauncherStatus).Methods("GET") // 获取启动器状态
+	apiRoute.HandleFunc("/update/rollback", getRollbackInfo).Methods("GET")   // 获取回滚信息
+	apiRoute.HandleFunc("/update/rollback", doRollback).Methods("POST")       // 执行回滚
 	apiRoute.Handle("/metrics", promhttp.Handler())
 
 	// IO 统计 API 路由

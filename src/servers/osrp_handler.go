@@ -78,8 +78,8 @@ type OSRPServiceInfo struct {
 // osrpGetInfo GET /osrp/v1/info
 func osrpGetInfo(w http.ResponseWriter, r *http.Request) {
 	osrpWriteSuccess(w, OSRPServiceInfo{
-		Name:        consts.AppInfo.AppName,
-		Version:     consts.AppInfo.AppVersion,
+		Name:        consts.AppName,
+		Version:     consts.AppVersion,
 		OSRPVersion: OSRPVersion,
 		Capabilities: []string{
 			"tasks",

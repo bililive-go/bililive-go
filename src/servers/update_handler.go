@@ -3,15 +3,18 @@ package servers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/consts"
 	"github.com/bililive-go/bililive-go/src/instance"
+	"github.com/bililive-go/bililive-go/src/pkg/launcher"
 	bilisentry "github.com/bililive-go/bililive-go/src/pkg/sentry"
 	"github.com/bililive-go/bililive-go/src/pkg/update"
 	"github.com/bililive-go/bililive-go/src/recorders"
@@ -27,17 +30,22 @@ var (
 	gracefulUpdateMu      sync.RWMutex
 	gracefulUpdatePending bool   // 是否有等待中的优雅更新
 	gracefulUpdateVersion string // 等待更新的版本号
+
+	// 重启关闭回调（由主程序注册）
+	shutdownFunc func()
+
+	// 待执行的 launcher 模式切换标志
+	pendingLauncherTransition bool
 )
 
 // getUpdateManager 获取或初始化更新管理器
 func getUpdateManager() *update.Manager {
 	updateManagerOnce.Do(func() {
 		cfg := configs.GetCurrentConfig()
-		downloadDir := filepath.Join(cfg.AppDataPath, "updates")
 
 		updateManager = update.NewManager(update.ManagerConfig{
 			CurrentVersion: consts.AppVersion,
-			DownloadDir:    downloadDir,
+			AppDataPath:    cfg.AppDataPath,
 			InstanceID:     "",
 		})
 
@@ -134,6 +142,7 @@ type UpdateStatusResponse struct {
 	GracefulUpdateVersion string                  `json:"graceful_update_version,omitempty"`
 	ActiveRecordingsCount int                     `json:"active_recordings_count"`
 	CanApplyNow           bool                    `json:"can_apply_now"`
+	AvailableInfo         *update.ReleaseInfo     `json:"available_info,omitempty"`
 }
 
 // checkUpdate 检查是否有新版本
@@ -177,10 +186,46 @@ func downloadUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 在后台启动下载（错误会存储在 manager 中，可通过 status API 获取）
+	hub := GetSSEHub()
+
+	// 在后台启动下载，设置进度回调并广播完成/失败事件
 	bilisentry.Go(func() {
 		ctx := context.Background() // 使用独立的 context，不受请求取消影响
-		_ = manager.DownloadUpdate(ctx)
+
+		// 设置进度回调，与 AutoUpdater.doDownload 保持一致
+		progressCh := make(chan update.DownloadProgress, 10)
+		manager.SetProgressCallback(progressCh)
+
+		// 启动进度监听并广播
+		bilisentry.Go(func() {
+			for progress := range progressCh {
+				hub.BroadcastUpdateDownloading(map[string]interface{}{
+					"downloaded_bytes": progress.DownloadedBytes,
+					"total_bytes":      progress.TotalBytes,
+					"speed":            progress.Speed,
+					"percentage":       progress.Percentage,
+				})
+			}
+		})
+
+		err := manager.DownloadUpdate(ctx)
+		close(progressCh)
+
+		if err != nil {
+			hub.BroadcastUpdateError(err)
+			return
+		}
+
+		// 下载完成，广播 update_ready 事件
+		info := manager.GetAvailableInfo()
+		if info != nil {
+			activeRecordings := getActiveRecordingsCount(context.Background())
+			hub.BroadcastUpdateReady(map[string]interface{}{
+				"version":           info.Version,
+				"can_apply_now":     activeRecordings == 0,
+				"active_recordings": activeRecordings,
+			})
+		}
 	})
 
 	writeJSON(w, commonResp{
@@ -209,6 +254,7 @@ func getUpdateStatus(w http.ResponseWriter, r *http.Request) {
 		GracefulUpdateVersion: version,
 		ActiveRecordingsCount: activeRecordings,
 		CanApplyNow:           manager.GetState() == update.UpdateStateReady && activeRecordings == 0,
+		AvailableInfo:         manager.GetAvailableInfo(),
 	}
 
 	writeJSON(w, resp)
@@ -324,15 +370,68 @@ func doApplyUpdate(ctx context.Context, manager *update.Manager) error {
 	gracefulUpdateVersion = ""
 	gracefulUpdateMu.Unlock()
 
-	// 如果连接到启动器，通过启动器升级
+	// 如果连接到外部启动器，通过启动器升级（兼容旧模式）
 	if manager.IsLauncherConnected() {
 		return manager.ApplyUpdate(ctx)
 	}
 
-	// 对于 Docker 或直接运行的情况，程序需要退出让外部重启
-	// 这里只是发出信号，由主程序处理退出逻辑
-	// TODO: 实现进程自我重启逻辑
-	return manager.ApplyUpdate(ctx)
+	// 使用自托管 launcher 模式：将更新解压到版本目录并更新状态文件
+	if err := manager.ApplyUpdateSelfHosted(ctx); err != nil {
+		return err
+	}
+
+	// 如果是 Docker 环境，通知用户需要重启容器
+	if os.Getenv("IS_DOCKER") != "" {
+		hub := GetSSEHub()
+		hub.BroadcastUpdateReady(map[string]interface{}{
+			"status":          "restart_required",
+			"message":         "更新已准备就绪，请重启容器以应用更新",
+			"current_version": consts.AppVersion,
+		})
+		return nil
+	}
+
+	// 独立运行模式：进程内热切换到 launcher 模式
+	// ApplyUpdateSelfHosted 已将新版本解压到 versions/ 目录并写入 launcher-state.json
+	// 现在需要关闭所有 bgo 服务，然后在同一进程内进入 launcher 模式来运行新版本
+	// 这样进程不会退出，Docker 容器也不会重启
+	hub := GetSSEHub()
+	hub.BroadcastUpdateReady(map[string]interface{}{
+		"status":          "transitioning",
+		"message":         "更新已应用，正在切换到新版本...",
+		"current_version": consts.AppVersion,
+	})
+
+	// 设置待切换标志，然后触发服务关闭
+	// main() 中 WaitGroup.Wait() 返回后会检查此标志，
+	// 如果为 true 则在同一进程内进入 launcher 模式
+	pendingLauncherTransition = true
+	fmt.Fprintf(os.Stderr, "[doApplyUpdate] pendingLauncherTransition=true, 即将触发关闭\n")
+
+	// 延迟触发关闭，确保 HTTP 响应先发送给前端
+	bilisentry.Go(func() {
+		time.Sleep(500 * time.Millisecond)
+		if shutdownFunc != nil {
+			fmt.Fprintf(os.Stderr, "[doApplyUpdate] 调用 shutdownFunc()\n")
+			shutdownFunc()
+		} else {
+			fmt.Fprintf(os.Stderr, "[doApplyUpdate] shutdownFunc 为 nil！\n")
+		}
+	})
+
+	return nil
+}
+
+// SetShutdownFunc 注册关闭回调函数
+// 由主程序初始化时调用，传入触发优雅关闭的函数
+func SetShutdownFunc(fn func()) {
+	shutdownFunc = fn
+}
+
+// PendingLauncherTransition 检查是否有待执行的 launcher 模式切换
+// main() 在所有服务关闭后调用此函数检查是否需要就地切换到 launcher 模式
+func PendingLauncherTransition() bool {
+	return pendingLauncherTransition
 }
 
 // CheckGracefulUpdate 检查并执行优雅更新（在录制结束时调用）
@@ -444,6 +543,8 @@ func getLauncherStatus(w http.ResponseWriter, r *http.Request) {
 	pendingVersion := gracefulUpdateVersion
 	gracefulUpdateMu.RUnlock()
 
+	appInfo := consts.GetAppInfo()
+
 	resp := map[string]interface{}{
 		"connected":               manager.IsLauncherConnected(),
 		"launched_by":             os.Getenv("BILILIVE_LAUNCHER"),
@@ -453,6 +554,12 @@ func getLauncherStatus(w http.ResponseWriter, r *http.Request) {
 		"graceful_update_pending": pending,
 		"graceful_update_version": pendingVersion,
 		"active_recordings":       getActiveRecordingsCount(r.Context()),
+		// 启动器和 bgo 进程信息
+		"is_launcher_managed": appInfo.IsLauncherManaged,
+		"launcher_pid":        appInfo.LauncherPID,
+		"launcher_exe_path":   appInfo.LauncherExePath,
+		"bgo_pid":             appInfo.Pid,
+		"bgo_exe_path":        appInfo.BgoExePath,
 	}
 
 	if info := manager.GetAvailableInfo(); info != nil {
@@ -460,4 +567,139 @@ func getLauncherStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, resp)
+}
+
+// getRollbackInfo 获取回滚信息
+// GET /api/update/rollback
+func getRollbackInfo(w http.ResponseWriter, r *http.Request) {
+	cfg := configs.GetCurrentConfig()
+	statePath := filepath.Join(cfg.AppDataPath, "launcher-state.json")
+
+	resp := map[string]interface{}{
+		"available":           false,
+		"reason":              "",
+		"current_version":     consts.AppVersion,
+		"prefer_entry_binary": false,
+	}
+
+	// 读取 launcher-state.json
+	state, err := launcher.LoadState(statePath)
+	if err != nil {
+		resp["reason"] = "无启动器状态文件，没有可回滚的版本"
+		writeJSON(w, resp)
+		return
+	}
+
+	resp["prefer_entry_binary"] = state.PreferEntryBinary
+
+	// 检查是否有备份版本
+	if state.BackupVersion == "" || state.BackupBinaryPath == "" {
+		resp["reason"] = "没有备份版本可供回滚"
+		writeJSON(w, resp)
+		return
+	}
+
+	// 检查备份二进制文件是否存在
+	backupPath := state.BackupBinaryPath
+	if !filepath.IsAbs(backupPath) {
+		backupPath = filepath.Join(cfg.AppDataPath, backupPath)
+	}
+	if _, err := os.Stat(backupPath); os.IsNotExist(err) {
+		resp["reason"] = "备份文件不存在: " + backupPath
+		writeJSON(w, resp)
+		return
+	}
+
+	resp["available"] = true
+	resp["backup_version"] = state.BackupVersion
+	resp["backup_binary_path"] = backupPath
+	resp["active_version"] = state.ActiveVersion
+	writeJSON(w, resp)
+}
+
+// doRollback 执行版本回滚（支持所有环境，包括 Docker）
+// POST /api/update/rollback
+func doRollback(w http.ResponseWriter, r *http.Request) {
+	cfg := configs.GetCurrentConfig()
+	statePath := filepath.Join(cfg.AppDataPath, "launcher-state.json")
+
+	// 读取当前状态
+	state, err := launcher.LoadState(statePath)
+	if err != nil {
+		writeJsonWithStatusCode(w, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "读取启动器状态失败: " + err.Error(),
+		})
+		return
+	}
+
+	if state.BackupVersion == "" || state.BackupBinaryPath == "" {
+		writeJsonWithStatusCode(w, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "没有备份版本可供回滚",
+		})
+		return
+	}
+
+	// 验证备份文件存在
+	backupPath := state.BackupBinaryPath
+	if !filepath.IsAbs(backupPath) {
+		backupPath = filepath.Join(cfg.AppDataPath, backupPath)
+	}
+	if _, err := os.Stat(backupPath); os.IsNotExist(err) {
+		writeJsonWithStatusCode(w, http.StatusBadRequest, commonResp{
+			ErrNo:  http.StatusBadRequest,
+			ErrMsg: "备份文件不存在: " + backupPath,
+		})
+		return
+	}
+
+	// 交换活跃版本和备份版本
+	oldActive := state.ActiveVersion
+	oldActivePath := state.ActiveBinaryPath
+
+	state.ActiveVersion = state.BackupVersion
+	state.ActiveBinaryPath = state.BackupBinaryPath
+	state.BackupVersion = oldActive
+	state.BackupBinaryPath = oldActivePath
+	state.PreferEntryBinary = false // 回滚到备份版本时清除入口二进制偏好
+	state.LastUpdateTime = time.Now().Unix()
+	state.FailureCount = 0
+
+	// 保存新状态
+	if err := state.Save(statePath); err != nil {
+		writeJsonWithStatusCode(w, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "保存启动器状态失败: " + err.Error(),
+		})
+		return
+	}
+
+	fmt.Fprintf(os.Stderr, "[doRollback] 版本回滚: %s -> %s\n", oldActive, state.ActiveVersion)
+
+	// 通知前端
+	hub := GetSSEHub()
+	hub.BroadcastUpdateReady(map[string]interface{}{
+		"status":          "transitioning",
+		"message":         fmt.Sprintf("正在切换到版本 %s...", state.ActiveVersion),
+		"current_version": consts.AppVersion,
+		"target_version":  state.ActiveVersion,
+	})
+
+	// 先返回成功响应
+	writeJSON(w, map[string]interface{}{
+		"status":         "switching",
+		"message":        fmt.Sprintf("正在切换到版本 %s", state.ActiveVersion),
+		"target_version": state.ActiveVersion,
+	})
+
+	// 设置待切换标志并延迟触发关闭（不停机切换）
+	pendingLauncherTransition = true
+	bilisentry.Go(func() {
+		time.Sleep(500 * time.Millisecond)
+		if shutdownFunc != nil {
+			fmt.Fprintf(os.Stderr, "[doRollback] 触发不停机版本切换\n")
+			shutdownFunc()
+		}
+	})
 }

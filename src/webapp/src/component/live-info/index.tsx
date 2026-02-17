@@ -2,7 +2,8 @@ import React from "react";
 import API from '../../utils/api';
 import {
     Descriptions,
-    Button
+    Button,
+    Tag
 } from 'antd';
 import copy from 'copy-to-clipboard';
 
@@ -24,6 +25,10 @@ interface IState {
     puid: string
     pgid: string
     umask: string
+    isLauncherManaged: boolean
+    launcherPid: number
+    launcherExePath: string
+    bgoExePath: string
 }
 
 class LiveInfo extends React.Component<Props, IState> {
@@ -41,7 +46,11 @@ class LiveInfo extends React.Component<Props, IState> {
             isDocker: "",
             puid: "",
             pgid: "",
-            umask: ""
+            umask: "",
+            isLauncherManaged: false,
+            launcherPid: 0,
+            launcherExePath: "",
+            bgoExePath: ""
         };
     }
 
@@ -59,7 +68,11 @@ class LiveInfo extends React.Component<Props, IState> {
                     isDocker: rsp.is_docker,
                     puid: rsp.puid,
                     pgid: rsp.pgid,
-                    umask: rsp.umask
+                    umask: rsp.umask,
+                    isLauncherManaged: rsp.is_launcher_managed || false,
+                    launcherPid: rsp.launcher_pid || 0,
+                    launcherExePath: rsp.launcher_exe_path || "",
+                    bgoExePath: rsp.bgo_exe_path || ""
                 })
             })
             .catch(err => {
@@ -75,15 +88,19 @@ class LiveInfo extends React.Component<Props, IState> {
     getTextForCopy(): string {
         const inContainer = this.isInContainer();
         const extra = inContainer ? `\nPUID: ${this.state.puid}\nPGID: ${this.state.pgid}\nUMASK: ${this.state.umask}` : "";
+        const launcherInfo = this.state.isLauncherManaged
+            ? `\nLauncher Managed: 是\nLauncher PID: ${this.state.launcherPid}\nLauncher Path: ${this.state.launcherExePath}`
+            : `\nLauncher Managed: 否`;
         return `
 App Name: ${this.state.appName}
 App Version: ${this.state.appVersion}
 Build Time: ${this.state.buildTime}
-Pid: ${this.state.pid}
+BGO PID: ${this.state.pid}
+BGO Path: ${this.state.bgoExePath}
 Platform: ${this.state.platform}
 Go Version: ${this.state.goVersion}
 Git Hash: ${this.state.gitHash}
-Is In Container: ${inContainer ? "是" : "否"}${extra}
+Is In Container: ${inContainer ? "是" : "否"}${extra}${launcherInfo}
 `;
     }
 
@@ -108,7 +125,8 @@ Is In Container: ${inContainer ? "是" : "否"}${extra}
                     <Descriptions.Item label="App Name">{this.state.appName}</Descriptions.Item>
                     <Descriptions.Item label="App Version">{this.state.appVersion}</Descriptions.Item>
                     <Descriptions.Item label="Build Time">{this.state.buildTime}</Descriptions.Item>
-                    <Descriptions.Item label="Pid">{this.state.pid}</Descriptions.Item>
+                    <Descriptions.Item label="BGO PID">{this.state.pid}</Descriptions.Item>
+                    <Descriptions.Item label="BGO Path" span={2}>{this.state.bgoExePath || "-"}</Descriptions.Item>
                     <Descriptions.Item label="Platform">{this.state.platform}</Descriptions.Item>
                     <Descriptions.Item label="Go Version">{this.state.goVersion}</Descriptions.Item>
                     <Descriptions.Item label="Git Hash">{this.state.gitHash}</Descriptions.Item>
@@ -116,6 +134,19 @@ Is In Container: ${inContainer ? "是" : "否"}${extra}
                     {this.isInContainer() && <Descriptions.Item label="PUID">{this.state.puid || ""}</Descriptions.Item>}
                     {this.isInContainer() && <Descriptions.Item label="PGID">{this.state.pgid || ""}</Descriptions.Item>}
                     {this.isInContainer() && <Descriptions.Item label="UMASK">{this.state.umask || ""}</Descriptions.Item>}
+                    <Descriptions.Item label="启动器模式">
+                        {this.state.isLauncherManaged ? (
+                            <Tag color="purple">由启动器管理</Tag>
+                        ) : (
+                            <Tag>独立运行</Tag>
+                        )}
+                    </Descriptions.Item>
+                    {this.state.isLauncherManaged && (
+                        <Descriptions.Item label="Launcher PID">{this.state.launcherPid || "-"}</Descriptions.Item>
+                    )}
+                    {this.state.isLauncherManaged && (
+                        <Descriptions.Item label="Launcher Path">{this.state.launcherExePath || "-"}</Descriptions.Item>
+                    )}
                 </Descriptions>
                 <Button
                     type="default"
@@ -140,3 +171,4 @@ Is In Container: ${inContainer ? "是" : "否"}${extra}
 }
 
 export default LiveInfo;
+
