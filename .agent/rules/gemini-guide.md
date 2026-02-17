@@ -26,6 +26,7 @@
 | `build` | 编译命令、build tags、代码检查 |
 | `config-modification` | 配置修改同步、层级配置系统 |
 | `test-e2e` | Playwright E2E 测试 |
+| `version-switching` | 不停机版本切换设计规范（Docker/独立运行） |
 
 ## 快速参考
 
@@ -48,3 +49,4 @@ npx playwright test
 # 同步 AI 指示文件
 make sync-agents
 ```
+

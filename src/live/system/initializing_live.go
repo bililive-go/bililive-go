@@ -121,7 +121,7 @@ func (l *InitializingLive) GetInfo() (info *live.Info, err error) {
 
 func (l *InitializingLive) GetStreamUrls() (us []*url.URL, err error) {
 	// 委托给原始 Live 而不是返回空列表
-	return l.OriginalLive.GetStreamUrls()
+	return l.OriginalLive.GetStreamUrls() //nolint:staticcheck // deprecated 方法的委托实现
 }
 
 func (l *InitializingLive) GetStreamInfos() ([]*live.StreamUrlInfo, error) {
