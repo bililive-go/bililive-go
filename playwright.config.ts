@@ -114,7 +114,7 @@ export default defineConfig({
       // 在 CI 中使用预构建的二进制，本地使用 go run
       // 配置文件从模板复制到 test-output 目录（避免 git 跟踪动态变化）
       command: process.env.CI
-        ? './bililive-go --config test-output/test-config.yml'
+        ? './bin/bililive-dev --config test-output/test-config.yml'
         : 'go run -tags dev ./src/cmd/bililive --config test-output/test-config.yml',
       url: 'http://127.0.0.1:8080/api/info',
       reuseExistingServer: !process.env.CI,

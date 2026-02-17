@@ -108,7 +108,7 @@ export default defineConfig({
     // bililive-go 主程序
     {
       command: process.env.CI
-        ? './bililive-go --config test-output/test-config-update.yml'
+        ? './bin/bililive-dev --config test-output/test-config-update.yml'
         : 'go run -tags dev ./src/cmd/bililive --config test-output/test-config-update.yml',
       url: 'http://127.0.0.1:8080/api/info',
       reuseExistingServer: !process.env.CI,
