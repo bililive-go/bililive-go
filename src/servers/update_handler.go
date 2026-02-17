@@ -380,18 +380,7 @@ func doApplyUpdate(ctx context.Context, manager *update.Manager) error {
 		return err
 	}
 
-	// 如果是 Docker 环境，通知用户需要重启容器
-	if os.Getenv("IS_DOCKER") != "" {
-		hub := GetSSEHub()
-		hub.BroadcastUpdateReady(map[string]interface{}{
-			"status":          "restart_required",
-			"message":         "更新已准备就绪，请重启容器以应用更新",
-			"current_version": consts.AppVersion,
-		})
-		return nil
-	}
-
-	// 独立运行模式：进程内热切换到 launcher 模式
+	// 进程内热切换到 launcher 模式（所有环境通用，包括 Docker）
 	// ApplyUpdateSelfHosted 已将新版本解压到 versions/ 目录并写入 launcher-state.json
 	// 现在需要关闭所有 bgo 服务，然后在同一进程内进入 launcher 模式来运行新版本
 	// 这样进程不会退出，Docker 容器也不会重启
@@ -620,6 +609,19 @@ func getRollbackInfo(w http.ResponseWriter, r *http.Request) {
 // doRollback 执行版本回滚（支持所有环境，包括 Docker）
 // POST /api/update/rollback
 func doRollback(w http.ResponseWriter, r *http.Request) {
+	// 检查更新状态，防止在更新过程中并发执行回滚
+	manager := getUpdateManager()
+	if manager != nil {
+		state := manager.GetState()
+		if state == update.UpdateStateChecking || state == update.UpdateStateDownloading || state == update.UpdateStateApplying {
+			writeJsonWithStatusCode(w, http.StatusConflict, commonResp{
+				ErrNo:  http.StatusConflict,
+				ErrMsg: fmt.Sprintf("无法在更新过程中执行回滚，当前状态: %s", state),
+			})
+			return
+		}
+	}
+
 	cfg := configs.GetCurrentConfig()
 	statePath := filepath.Join(cfg.AppDataPath, "launcher-state.json")
 

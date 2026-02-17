@@ -21,7 +21,7 @@ import (
 type State struct {
 	// 当前应该使用的 bgo 版本
 	ActiveVersion string `json:"active_version"`
-	// 当前应该使用的 bgo 可执行文件路径（相对于 appdata）
+	// 当前应该使用的 bgo 可执行文件路径（可以是绝对路径，或相对于 appdata）
 	ActiveBinaryPath string `json:"active_binary_path,omitempty"`
 	// 备份版本号
 	BackupVersion string `json:"backup_version,omitempty"`
@@ -190,7 +190,7 @@ type Runner struct {
 	mainProcess *exec.Cmd
 	mainPID     int
 	startupOK   bool
-	updateReq   *ipc.UpdateRequestPayload
+	startupCh   chan struct{} // startup_success 收到时关闭此 channel
 	verbose     bool
 }
 
@@ -246,14 +246,6 @@ func (r *Runner) Run(ctx context.Context, args []string) error {
 		default:
 		}
 
-		// 检查是否有待处理的更新
-		if r.updateReq != nil {
-			if err := r.performUpdate(); err != nil {
-				r.log("更新失败: %v", err)
-			}
-			r.updateReq = nil
-		}
-
 		// 启动主程序
 		if err := r.startMainProgram(runCtx, args); err != nil {
 			r.log("启动主程序失败: %v", err)
@@ -271,6 +263,9 @@ func (r *Runner) Run(ctx context.Context, args []string) error {
 		}
 
 		// 等待主程序确认启动或退出
+		// 注意：必须有 startupCh case，否则即使子进程秒回 startup_success，
+		// 也要等 StartupTimeout（60秒）才能进入 waitForMainProgram
+		r.startupCh = make(chan struct{})
 		startupTimer := time.NewTimer(time.Duration(r.state.StartupTimeout) * time.Second)
 
 		select {
@@ -278,6 +273,10 @@ func (r *Runner) Run(ctx context.Context, args []string) error {
 			startupTimer.Stop()
 			r.stopMainProgram()
 			return nil
+		case <-r.startupCh:
+			// 启动成功确认，立即进入等待阶段
+			startupTimer.Stop()
+			r.log("收到启动确认，进入运行等待")
 		case <-startupTimer.C:
 			if !r.startupOK {
 				r.log("主程序启动超时")
@@ -309,12 +308,22 @@ func (r *Runner) Run(ctx context.Context, args []string) error {
 		// 等待主程序退出
 		r.waitForMainProgram()
 
-		// 如果是正常更新退出，继续循环
-		if r.updateReq != nil {
-			continue
+		// 子进程可能通过 ApplyUpdateSelfHosted 自行写入了 launcher-state.json
+		// 重新加载状态文件，检查版本是否有变更
+		if newState, err := LoadState(r.statePath); err == nil {
+			if newState.ActiveVersion != r.state.ActiveVersion ||
+				newState.ActiveBinaryPath != r.state.ActiveBinaryPath ||
+				newState.PreferEntryBinary != r.state.PreferEntryBinary {
+				r.log("检测到 launcher-state.json 变更: %s -> %s", r.state.ActiveVersion, newState.ActiveVersion)
+				r.state = newState
+				r.targetPath = newState.ActiveBinaryPath
+				r.startupOK = false
+				continue // 启动新版本
+			}
 		}
 
-		// 主程序退出，也退出启动器
+		// 主程序正常退出且无版本变更，退出启动器
+		r.log("主程序正常退出，启动器也退出")
 		break
 	}
 
@@ -403,6 +412,10 @@ func (r *Runner) handleMessage(conn ipc.Conn, msg *ipc.Message) {
 		if err := msg.ParsePayload(&payload); err == nil {
 			r.log("主程序启动成功: 版本 %s, PID %d", payload.Version, payload.PID)
 			r.startupOK = true
+			// 通知 Run() 循环中的 select 解除阻塞
+			if r.startupCh != nil {
+				close(r.startupCh)
+			}
 
 			// 更新状态
 			r.state.ActiveVersion = payload.Version
@@ -419,18 +432,8 @@ func (r *Runner) handleMessage(conn ipc.Conn, msg *ipc.Message) {
 		}
 
 	case ipc.MsgTypeUpdateRequest:
-		var payload ipc.UpdateRequestPayload
-		if err := msg.ParsePayload(&payload); err == nil {
-			r.log("收到更新请求: 版本 %s", payload.NewVersion)
-			r.updateReq = &payload
-
-			// 发送关闭信号
-			shutdownMsg, _ := ipc.NewMessage(ipc.MsgTypeShutdown, ipc.ShutdownPayload{
-				Reason:      "update",
-				GracePeriod: 30,
-			})
-			conn.Send(shutdownMsg)
-		}
+		// 旧的 IPC 更新路径已废弃，更新由 ApplyUpdateSelfHosted 写入 launcher-state.json 处理
+		r.log("收到 IPC 更新请求（已废弃，忽略）")
 
 	case ipc.MsgTypeShutdownAck:
 		r.log("主程序确认关闭")
@@ -439,53 +442,6 @@ func (r *Runner) handleMessage(conn ipc.Conn, msg *ipc.Message) {
 		ackMsg, _ := ipc.NewMessage(ipc.MsgTypeHeartbeatAck, nil)
 		conn.Send(ackMsg)
 	}
-}
-
-// performUpdate 执行更新
-func (r *Runner) performUpdate() error {
-	if r.updateReq == nil {
-		return fmt.Errorf("没有待处理的更新请求")
-	}
-
-	req := r.updateReq
-	r.log("开始更新到版本 %s", req.NewVersion)
-
-	// 验证下载文件
-	if _, err := os.Stat(req.DownloadPath); os.IsNotExist(err) {
-		return fmt.Errorf("更新文件不存在: %s", req.DownloadPath)
-	}
-
-	// 备份当前版本路径
-	if r.targetPath != "" {
-		r.state.BackupBinaryPath = r.targetPath
-		r.state.BackupVersion = r.state.ActiveVersion
-		r.log("已记录当前版本作为备份: %s", r.targetPath)
-	}
-
-	// 更新目标路径（新版本会被解压到 appdata/versions/xxx）
-	appDataDir := filepath.Dir(r.statePath)
-	newBinaryPath := filepath.Join(appDataDir, "versions", req.NewVersion, "bililive-go")
-	if err := os.MkdirAll(filepath.Dir(newBinaryPath), 0755); err != nil {
-		return fmt.Errorf("创建版本目录失败: %w", err)
-	}
-
-	// 解压或复制新版本
-	if err := extractUpdate(req.DownloadPath, newBinaryPath); err != nil {
-		return fmt.Errorf("替换可执行文件失败: %w", err)
-	}
-
-	// 更新状态
-	r.state.ActiveVersion = req.NewVersion
-	r.state.ActiveBinaryPath = newBinaryPath
-	r.state.LastUpdateTime = time.Now().Unix()
-	r.state.FailureCount = 0
-	r.state.Save(r.statePath)
-
-	// 更新目标路径
-	r.targetPath = newBinaryPath
-
-	r.log("更新完成，新版本: %s", req.NewVersion)
-	return nil
 }
 
 // rollback 回滚到备份版本
@@ -516,6 +472,7 @@ func (r *Runner) rollback() error {
 // log 输出日志
 func (r *Runner) log(format string, args ...any) {
 	if r.verbose {
-		fmt.Printf("[Launcher] "+format+"\n", args...)
+		timestamp := time.Now().Format("2006-01-02 15:04:05")
+		fmt.Printf("[Launcher %s] "+format+"\n", append([]any{timestamp}, args...)...)
 	}
 }

@@ -18,7 +18,7 @@ test.describe('导航功能测试', () => {
 
     // 验证菜单项（使用 menuitem 角色）
     const menuItems = page.getByRole('menuitem');
-    await expect(menuItems).toHaveCount(7); // 7个菜单项
+    await expect(menuItems).toHaveCount(8); // 8个菜单项
 
     // 验证各个菜单项文本
     await expect(page.getByRole('menuitem', { name: /监控列表/ })).toBeVisible();
@@ -28,6 +28,7 @@ test.describe('导航功能测试', () => {
     await expect(page.getByRole('menuitem', { name: /工具/ })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: /任务队列/ })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: /IO 统计/ })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: /更新/ })).toBeVisible();
   });
 
   test('点击导航到系统状态页面', async ({ page }) => {
@@ -80,6 +81,17 @@ test.describe('导航功能测试', () => {
 
     // 验证 URL 包含 iostats
     expect(page.url()).toContain('iostats');
+
+    // 验证页面内容加载
+    await expect(page.getByRole('main')).toBeVisible();
+  });
+
+  test('点击导航到更新页面', async ({ page }) => {
+    await page.getByRole('menuitem', { name: /更新/ }).click();
+    await page.waitForTimeout(500);
+
+    // 验证 URL 包含 update
+    expect(page.url()).toContain('update');
 
     // 验证页面内容加载
     await expect(page.getByRole('main')).toBeVisible();

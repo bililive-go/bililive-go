@@ -74,7 +74,9 @@ jobs:
         run: make build-web
       
       - name: Build bililive-go with dev tag
-        run: go build -tags dev -o bililive-go ./src/cmd/bililive
+        run: |
+          mkdir -p bin
+          go build -tags dev -o bin/bililive-dev ./src/cmd/bililive
       
       - name: Create test output directory
         run: mkdir -p test-output

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -255,7 +256,11 @@ func main() {
 		// 用于在"系统状态"和"更新"页面展示启动器信息
 		launcherPID := 0
 		if pidStr := os.Getenv("BILILIVE_LAUNCHER_PID"); pidStr != "" {
-			fmt.Sscanf(pidStr, "%d", &launcherPID)
+			if pid, err := strconv.Atoi(pidStr); err == nil {
+				launcherPID = pid
+			} else {
+				logger.Warnf("无法解析 BILILIVE_LAUNCHER_PID: %v", err)
+			}
 		}
 		launcherExePath := os.Getenv("BILILIVE_LAUNCHER_EXE")
 		consts.SetLauncherInfo(launcherPID, launcherExePath)
@@ -704,6 +709,17 @@ func main() {
 		// 在进入 launcher 模式前，终止所有子进程（btools、klive 等）并关闭 remotetools WebUI
 		// 确保端口被释放，否则新版本 bgo 启动时会遇到 EADDRINUSE
 		tools.Cleanup()
+
+		// 如果当前进程是由父 Launcher 启动的（BILILIVE_LAUNCHER=1），
+		// 不能自己再变成 launcher——否则两个 launcher 会争抢同一个 Named Pipe。
+		// 正确做法：直接退出，让父 Launcher 的 Run() 循环重新读取
+		// launcher-state.json 并启动新版本。
+		if os.Getenv("BILILIVE_LAUNCHER") == "1" {
+			logger.Info("由父 Launcher 管理，直接退出，由父 Launcher 启动新版本")
+			return
+		}
+
+		// 独立运行模式（非 launcher 子进程）：自己变成 launcher
 		if shouldRunAsLauncher() {
 			logger.Info("Launcher 模式执行完毕")
 			return

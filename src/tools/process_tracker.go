@@ -3,6 +3,7 @@ package tools
 import (
 	"os"
 	"sync"
+	"time"
 
 	blog "github.com/bililive-go/bililive-go/src/log"
 )
@@ -132,17 +133,40 @@ func GetPIDsByCategory(category ProcessCategory) []int {
 	return pids
 }
 
-// KillAllProcesses 终止所有已注册的子进程并清空跟踪列表。
+// KillAllProcesses 终止所有已注册的子进程（包括其子进程树）并等待它们退出。
 // 在进入 launcher 模式前调用，确保端口被释放以供新版本使用。
+//
+// 使用 killProcessTree 而非 p.Kill() 来杀掉整个进程树，
+// 避免循环依赖：子进程的子进程持有管道 → cmd.Wait() 等管道关闭 →
+// Job Object 等 cmd.Wait() 返回 → 子进程的子进程等 Job Object 关闭。
 func KillAllProcesses() {
 	logger := blog.GetLogger()
 	allProcs := GetAllProcessInfo()
 	for _, proc := range allProcs {
 		if proc.PID > 0 {
-			if p, err := os.FindProcess(proc.PID); err == nil {
-				logger.Infof("正在终止子进程 %s (PID: %d)", proc.Name, proc.PID)
-				if err := p.Kill(); err != nil {
-					logger.Warnf("终止子进程 %s (PID: %d) 失败: %v", proc.Name, proc.PID, err)
+			logger.Infof("正在终止子进程树 %s (PID: %d)", proc.Name, proc.PID)
+			killStart := time.Now()
+			if err := killProcessTree(proc.PID); err != nil {
+				logger.Warnf("终止子进程树 %s (PID: %d) 失败: %v，尝试直接 Kill", proc.Name, proc.PID, err)
+				// 回退到直接 Kill
+				if p, err := os.FindProcess(proc.PID); err == nil {
+					p.Kill()
+				}
+			}
+
+			// 等待进程真正退出（最长 5 秒），确保管道句柄被释放
+			p, err := os.FindProcess(proc.PID)
+			if err == nil {
+				done := make(chan struct{})
+				go func() {
+					p.Wait()
+					close(done)
+				}()
+				select {
+				case <-done:
+					logger.Infof("子进程 %s (PID: %d) 已退出，耗时 %v", proc.Name, proc.PID, time.Since(killStart))
+				case <-time.After(5 * time.Second):
+					logger.Warnf("等待子进程 %s (PID: %d) 退出超时（5秒），继续", proc.Name, proc.PID)
 				}
 			}
 			UnregisterProcess(proc.Name)
