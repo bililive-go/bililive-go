@@ -69,6 +69,10 @@ func initMux(ctx context.Context) *mux.Router {
 	// api router
 	apiRoute := m.PathPrefix(apiRouterPrefix).Subrouter()
 	apiRoute.Use(mux.CORSMethodMiddleware(apiRoute))
+	// 添加API密钥认证中间件
+	apiRoute.Use(func(handler http.Handler) http.Handler {
+		return apiKeyAuth(handler)
+	})
 	apiRoute.HandleFunc("/info", getInfo).Methods("GET")
 	apiRoute.HandleFunc("/config", getConfig).Methods("GET")
 	apiRoute.HandleFunc("/config", putConfig).Methods("PUT")
@@ -145,12 +149,14 @@ func initMux(ctx context.Context) *mux.Router {
 	RegisterOSRPRoutes(m, inst)
 
 	m.PathPrefix("/files/").Handler(
-		CORSMiddleware(
-			http.StripPrefix(
-				"/files/",
-				http.FileServer(
-					http.Dir(
-						configs.GetCurrentConfig().OutPutPath,
+		basicAuth(
+			CORSMiddleware(
+				http.StripPrefix(
+					"/files/",
+					http.FileServer(
+						http.Dir(
+							configs.GetCurrentConfig().OutPutPath,
+						),
 					),
 				),
 			),
@@ -174,9 +180,11 @@ func initMux(ctx context.Context) *mux.Router {
 		http.Error(w, "Tools Web UI 未就绪", http.StatusServiceUnavailable)
 	})})
 	m.PathPrefix("/tools/").Handler(
-		http.StripPrefix(
-			"/tools",
-			dyn,
+		basicAuth(
+			http.StripPrefix(
+				"/tools",
+				dyn,
+			),
 		),
 	)
 
@@ -211,7 +219,8 @@ func initMux(ctx context.Context) *mux.Router {
 	if err != nil {
 		applog.GetLogger().Fatal(err)
 	}
-	m.PathPrefix("/").Handler(http.FileServer(fs))
+	// 为Web界面添加Basic认证中间件
+	m.PathPrefix("/").Handler(basicAuth(http.FileServer(fs)))
 
 	// pprof
 	if configs.IsDebug() {

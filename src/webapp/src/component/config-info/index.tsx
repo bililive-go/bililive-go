@@ -47,7 +47,16 @@ interface DownloaderAvailability {
 type DownloaderType = 'ffmpeg' | 'native' | 'bililive-recorder' | '';
 
 interface EffectiveConfig {
-  rpc: { enable: boolean; bind: string };
+  rpc: { 
+    enable: boolean; 
+    bind: string;
+    authentication: {
+      enable: boolean;
+      web_username: string;
+      web_password: string;
+      api_key: string;
+    };
+  };
   debug: boolean;
   interval: number;
   out_put_path: string;
@@ -409,6 +418,28 @@ const GlobalSettings: React.FC<{
           <ConfigField label="绑定地址" description="RPC 服务监听的地址和端口">
             <Form.Item name={['rpc', 'bind']} noStyle>
               <Input placeholder="例如: :8080 或 127.0.0.1:8080" style={{ width: 300 }} />
+            </Form.Item>
+          </ConfigField>
+          
+          <Divider style={{ fontSize: 14 }}>身份验证设置</Divider>
+          <ConfigField label="启用身份验证" description="启用后需要用户名密码访问Web界面，API需要密钥">
+            <Form.Item name={['rpc', 'authentication', 'enable']} valuePropName="checked" noStyle>
+              <Switch />
+            </Form.Item>
+          </ConfigField>
+          <ConfigField label="Web 用户名" description="访问 Web 界面的用户名">
+            <Form.Item name={['rpc', 'authentication', 'web_username']} noStyle>
+              <Input placeholder="设置用户名（启用身份验证时必填）" style={{ width: 300 }} />
+            </Form.Item>
+          </ConfigField>
+          <ConfigField label="Web 密码" description="访问 Web 界面的密码">
+            <Form.Item name={['rpc', 'authentication', 'web_password']} noStyle>
+              <Input.Password placeholder="设置密码（启用身份验证时必填）" style={{ width: 300 }} />
+            </Form.Item>
+          </ConfigField>
+          <ConfigField label="API 密钥" description="API 访问密钥，通过请求头 X-API-Key 或 Authorization: Bearer 传递">
+            <Form.Item name={['rpc', 'authentication', 'api_key']} noStyle>
+              <Input.Password placeholder="设置 API 密钥（启用身份验证时必填）" style={{ width: 300 }} />
             </Form.Item>
           </ConfigField>
         </Card>

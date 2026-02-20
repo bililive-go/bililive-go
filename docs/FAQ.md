@@ -1,5 +1,24 @@
 # 常见问题
 
+## 如何启用身份验证？
+
+在 `config.yml` 中设置 `rpc.authentication` 配置项：
+
+```yaml
+rpc:
+  authentication:
+    enable: true
+    web_username: admin
+    web_password: your-password
+    api_key: your-api-key
+```
+
+保存配置后重启程序即可生效。更多详情请参阅 [README.md](../README.md#身份验证)。
+
+## 忘记了 Web 界面密码怎么办？
+
+编辑 `config.yml` 文件，将 `rpc.authentication.enable` 设置为 `false` 或修改 `web_password` 为新密码，然后重启程序。
+
 ## 录制的视频频繁分段
 
 可能是网络波动导致的。
