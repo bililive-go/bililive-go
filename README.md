@@ -91,6 +91,12 @@ Bililive-go是一个支持多种直播平台的直播录制工具
         <td>滋瓷</td>
     </tr>
     <tr align="center">
+        <td>TikTok</td>
+        <td>www.tiktok.com</td>
+        <td>滋瓷</td>
+        <td></td>
+    </tr>
+    <tr align="center">
         <td>猫耳</td>
         <td>fm.missevan.com</td>
         <td>滋瓷</td>
@@ -122,6 +128,7 @@ cookie的设置以域名为单位。比如想在录制抖音直播时使用 cook
 ```
 cookies:
   live.douyin.com: __ac_nonce=123456789012345678903;name=value
+  www.tiktok.com: sessionid=123456789;csrftoken=abcdefg
 ```
 这里 name 和 value 只是随便举的例子，用来说明当添加超过一条 cookie 的键值对时应该用分号隔开。
 至于具体应该添加哪些键，就需要用户针对不同网站自己获取了。
