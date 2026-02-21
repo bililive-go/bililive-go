@@ -301,8 +301,16 @@ func startBTools() error {
 		}
 	}
 
+	// 使用 GetExecFolder 获取实际执行目录（自动处理临时目录的情况）
+	btoolsExecFolder := btools.GetExecFolder()
+	
+	// 确保执行目录存在，避免 chdir 错误
+	if err = os.MkdirAll(btoolsExecFolder, 0o755); err != nil {
+		return fmt.Errorf("failed to create bililive-tools exec directory: %w", err)
+	}
+	
+	// node 可执行文件所在目录（可能是 bin 目录或工具根目录）
 	nodeFolder := filepath.Dir(node.GetToolPath())
-	btoolsFolder := filepath.Dir(btools.GetToolPath())
 	env := []string{
 		"PATH=" + nodeFolder + string(os.PathListSeparator) + os.Getenv("PATH"),
 	}
@@ -318,7 +326,7 @@ func startBTools() error {
 		"-c",
 		"./appConfig.json",
 	)
-	cmd.Dir = btoolsFolder
+	cmd.Dir = btoolsExecFolder
 	cmd.Env = env
 	// 动态决定是否输出，保留错误信息
 	cmd.Stdout = utils.NewDebugControlledWriter(os.Stdout)
