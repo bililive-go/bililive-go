@@ -70,6 +70,19 @@ func getConfigBesidesExecutable() (*configs.Config, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// 如果是由 Launcher 启动的子进程（新版本 exe 位于 .appdata/versions/{version}/），
+	// 优先从 Launcher（入口程序）的 exe 旁边查找用户的真实 config.yml。
+	// 因为 release 压缩包解压后，新版本 exe 旁边总会有一个默认的 config.yml，
+	// 必须优先使用用户原始目录的配置文件。
+	if launcherExe := os.Getenv("BILILIVE_LAUNCHER_EXE"); launcherExe != "" {
+		launcherConfigPath := filepath.Join(filepath.Dir(launcherExe), "config.yml")
+		if config, err := configs.NewConfigWithFile(launcherConfigPath); err == nil {
+			return config, nil
+		}
+	}
+
+	// 回退：在当前 exe 旁边查找（用户直接双击运行的场景）
 	configPath := filepath.Join(filepath.Dir(exePath), "config.yml")
 	config, err := configs.NewConfigWithFile(configPath)
 	if err != nil {

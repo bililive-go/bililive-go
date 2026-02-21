@@ -192,3 +192,9 @@ test/launcher-config-local.json
 
 # npm 锁文件（项目统一使用 yarn）
 package-lock.json
+
+# CI Docker 构建临时目录（保留 .gitkeep 确保目录结构存在）
+docker-context/bin/*
+!docker-context/bin/.gitkeep
+docker-context/tools/*
+!docker-context/tools/.gitkeep
