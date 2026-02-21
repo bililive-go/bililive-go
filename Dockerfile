@@ -92,8 +92,8 @@ COPY config.docker.yml $CONF_DIR/config.yml
 # ===========================================================================
 COPY docker-context/tools/ /opt/bililive/tools/
 RUN set -eux; \
-    TOOL_COUNT=$(find /opt/bililive/tools -mindepth 1 -not -name '.gitkeep' -print -quit | wc -l); \
-    if [ "$TOOL_COUNT" -gt 0 ]; then \
+    HAS_TOOLS=$(find /opt/bililive/tools -mindepth 1 -not -name '.gitkeep' -print -quit | wc -l); \
+    if [ "$HAS_TOOLS" -gt 0 ]; then \
         echo "=== CI 模式: 使用预下载的内置工具 ==="; \
         find /opt/bililive/tools -name '.gitkeep' -delete 2>/dev/null || true; \
     else \

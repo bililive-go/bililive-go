@@ -78,12 +78,14 @@ func getConfigBesidesExecutable() (*configs.Config, error) {
 	if launcherExe := os.Getenv("BILILIVE_LAUNCHER_EXE"); launcherExe != "" {
 		launcherConfigPath := filepath.Join(filepath.Dir(launcherExe), "config.yml")
 		if config, err := configs.NewConfigWithFile(launcherConfigPath); err == nil {
+			fmt.Fprintf(os.Stderr, "[Config] 使用 Launcher 目录的配置文件: %s\n", launcherConfigPath)
 			return config, nil
 		}
 	}
 
 	// 回退：在当前 exe 旁边查找（用户直接双击运行的场景）
 	configPath := filepath.Join(filepath.Dir(exePath), "config.yml")
+	fmt.Fprintf(os.Stderr, "[Config] 使用当前 exe 目录的配置文件: %s\n", configPath)
 	config, err := configs.NewConfigWithFile(configPath)
 	if err != nil {
 		return nil, err

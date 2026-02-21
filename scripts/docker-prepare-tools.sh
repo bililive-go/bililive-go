@@ -13,6 +13,19 @@
 #   3. 最终移动到目标目录
 set -euo pipefail
 
+# 全局临时文件追踪，用于 trap 清理
+_CLEANUP_DIRS=()
+_CLEANUP_FILES=()
+trap '_cleanup' EXIT
+_cleanup() {
+    for f in "${_CLEANUP_FILES[@]}"; do
+        rm -f "$f" 2>/dev/null || true
+    done
+    for d in "${_CLEANUP_DIRS[@]}"; do
+        rm -rf "$d" 2>/dev/null || true
+    done
+}
+
 ARCH="${1:?用法: $0 <arch> <output_dir>}"
 OUTPUT_DIR="${2:?用法: $0 <arch> <output_dir>}"
 
@@ -38,19 +51,25 @@ download_and_extract() {
     rm -rf "$tmp_dir"
     mkdir -p "$tmp_dir"
 
+    # 使用 mktemp 创建唯一临时文件，避免并发构建时文件冲突
+    local tmp_file
+    tmp_file=$(mktemp "/tmp/docker-prepare-tools-XXXXXX-$filename")
+    _CLEANUP_FILES+=("$tmp_file")
+    _CLEANUP_DIRS+=("$tmp_dir")
+
     echo ">>> 下载: $url"
-    curl -sSL -o "/tmp/$filename" "$url"
+    curl -sSL -o "$tmp_file" "$url"
 
     echo "    解压到临时目录..."
     case "$filename" in
         *.tar.xz)
-            tar xf "/tmp/$filename" -C "$tmp_dir"
+            tar xf "$tmp_file" -C "$tmp_dir"
             ;;
         *.tar.gz)
-            tar xzf "/tmp/$filename" -C "$tmp_dir"
+            tar xzf "$tmp_file" -C "$tmp_dir"
             ;;
         *.zip)
-            unzip -qo "/tmp/$filename" -d "$tmp_dir"
+            unzip -qo "$tmp_file" -d "$tmp_dir"
             ;;
         *)
             echo "    错误: 不支持的格式: $filename"
@@ -58,14 +77,15 @@ download_and_extract() {
             exit 1
             ;;
     esac
-    rm -f "/tmp/$filename"
+    rm -f "$tmp_file"
 
     # 模拟 remotetools 的 "单目录提升" 逻辑：
     # 如果解压后顶层只有一个子目录，将其内容提升为目标目录
+    # 使用 ls -1A 以包含隐藏文件（与 remotetools 的 extractDownloadedFile 行为一致）
     local entries
-    entries=$(ls -1 "$tmp_dir" | wc -l)
+    entries=$(ls -1A "$tmp_dir" | wc -l)
     local first_entry
-    first_entry=$(ls -1 "$tmp_dir" | head -1)
+    first_entry=$(ls -1A "$tmp_dir" | head -1)
 
     if [ "$entries" -eq 1 ] && [ -d "$tmp_dir/$first_entry" ]; then
         echo "    检测到单一顶层目录 '$first_entry'，自动提升"
@@ -80,6 +100,12 @@ download_and_extract() {
 
     echo "    完成: $dest"
 }
+
+# ===========================================================================
+# 工具版本定义
+# 重要: 以下版本号需要与 src/tools/remote-tools-config.json 保持同步。
+# 修改版本时，请同步更新对应的配置文件，以避免版本不一致。
+# ===========================================================================
 
 echo "=== 为 linux/$ARCH 预下载 Docker 内置工具 ==="
 

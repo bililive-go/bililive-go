@@ -211,10 +211,14 @@ jobs:
       - name: Create and push multi-arch manifest
         working-directory: /tmp/digests
         run: |
-          # 构建 digest 参数列表
+          # 构建 digest 参数列表（仅匹配 SHA256 格式的文件名：64个十六进制字符）
           DIGEST_ARGS=""
           for dgst in *; do
-            DIGEST_ARGS="$DIGEST_ARGS chigusa/bililive-go@sha256:$dgst"
+            if echo "$dgst" | grep -qE '^[0-9a-f]{64}$'; then
+              DIGEST_ARGS="$DIGEST_ARGS chigusa/bililive-go@sha256:$dgst"
+            else
+              echo "警告: 跳过非 digest 文件: $dgst"
+            fi
           done
 
           # 为每个 tag 创建 manifest
