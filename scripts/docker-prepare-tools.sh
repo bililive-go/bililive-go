@@ -41,7 +41,8 @@ download_and_extract() {
     local url="$1"
     local dest="$2"  # 最终目标目录（例如 tools/ffmpeg/n8.0-latest）
     local filename
-    filename=$(basename "$url")
+    # 清理文件名：移除路径遍历字符和特殊字符，仅保留安全字符
+    filename=$(basename "$url" | tr -cd 'a-zA-Z0-9._-')
 
     # 确保目标目录的父目录存在
     mkdir -p "$(dirname "$dest")"
@@ -53,7 +54,7 @@ download_and_extract() {
 
     # 使用 mktemp 创建唯一临时文件，避免并发构建时文件冲突
     local tmp_file
-    tmp_file=$(mktemp "/tmp/docker-prepare-tools-XXXXXX-$filename")
+    tmp_file=$(mktemp "/tmp/docker-prepare-tools-XXXXXX")
     _CLEANUP_FILES+=("$tmp_file")
     _CLEANUP_DIRS+=("$tmp_dir")
 
@@ -72,12 +73,11 @@ download_and_extract() {
             unzip -qo "$tmp_file" -d "$tmp_dir"
             ;;
         *)
-            echo "    错误: 不支持的格式: $filename"
-            rm -rf "$tmp_dir"
+            echo "    错误: 不支持的格式: $filename" >&2
+            # trap 会自动清理临时文件和目录
             exit 1
             ;;
     esac
-    rm -f "$tmp_file"
 
     # 模拟 remotetools 的 "单目录提升" 逻辑：
     # 如果解压后顶层只有一个子目录，将其内容提升为目标目录
@@ -91,12 +91,17 @@ download_and_extract() {
         echo "    检测到单一顶层目录 '$first_entry'，自动提升"
         rm -rf "$dest"
         mv "$tmp_dir/$first_entry" "$dest"
-        rm -rf "$tmp_dir"
+        rm -rf "$tmp_dir"  # 顶层目录已空，清理残留
     else
         echo "    直接使用解压内容"
         rm -rf "$dest"
-        mv "$tmp_dir" "$dest"
+        mv "$tmp_dir" "$dest"  # tmp_dir 被 rename，不再需要清理
     fi
+
+    # 下载和解压成功，清理临时文件并从 trap 追踪中移除
+    rm -f "$tmp_file" 2>/dev/null || true
+    _CLEANUP_FILES=("${_CLEANUP_FILES[@]/$tmp_file}")
+    _CLEANUP_DIRS=("${_CLEANUP_DIRS[@]/$tmp_dir}")
 
     echo "    完成: $dest"
 }

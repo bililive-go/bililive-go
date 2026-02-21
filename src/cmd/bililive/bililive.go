@@ -77,9 +77,11 @@ func getConfigBesidesExecutable() (*configs.Config, error) {
 	// 必须优先使用用户原始目录的配置文件。
 	if launcherExe := os.Getenv("BILILIVE_LAUNCHER_EXE"); launcherExe != "" {
 		launcherConfigPath := filepath.Join(filepath.Dir(launcherExe), "config.yml")
-		if config, err := configs.NewConfigWithFile(launcherConfigPath); err == nil {
+		if config, loadErr := configs.NewConfigWithFile(launcherConfigPath); loadErr == nil {
 			fmt.Fprintf(os.Stderr, "[Config] 使用 Launcher 目录的配置文件: %s\n", launcherConfigPath)
 			return config, nil
+		} else {
+			fmt.Fprintf(os.Stderr, "[Config] Launcher 配置文件加载失败 (%s): %v，回退到 exe 目录\n", launcherConfigPath, loadErr)
 		}
 	}
 

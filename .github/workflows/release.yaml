@@ -134,6 +134,20 @@ jobs:
           chmod +x scripts/docker-prepare-tools.sh
           scripts/docker-prepare-tools.sh "${{ matrix.arch }}" docker-context/tools
 
+          # 验证关键工具目录存在且非空
+          echo "--- 验证下载结果 ---"
+          for tool_dir in docker-context/tools/*/; do
+            if [ -d "$tool_dir" ]; then
+              echo "✓ $tool_dir ($(du -sh "$tool_dir" | cut -f1))"
+            fi
+          done
+          TOOL_COUNT=$(find docker-context/tools -mindepth 1 -maxdepth 1 -type d | wc -l)
+          if [ "$TOOL_COUNT" -eq 0 ]; then
+            echo "::error::预下载工具失败：docker-context/tools 目录为空"
+            exit 1
+          fi
+          echo "共下载 $TOOL_COUNT 个工具目录"
+
       # 仅 arm/v7 需要 QEMU（用于 apt-get 安装 ffmpeg 等）
       - name: Set up QEMU
         if: matrix.arch == 'arm'
@@ -211,7 +225,9 @@ jobs:
       - name: Create and push multi-arch manifest
         working-directory: /tmp/digests
         run: |
-          # 构建 digest 参数列表（仅匹配 SHA256 格式的文件名：64个十六进制字符）
+          # 构建 digest 参数列表
+          # 验证文件名是否为 SHA256 格式（64个十六进制字符），跳过非 digest 文件
+          # 原因：actions/download-artifact 合并多个 artifact 时可能引入元数据文件
           DIGEST_ARGS=""
           for dgst in *; do
             if echo "$dgst" | grep -qE '^[0-9a-f]{64}$'; then

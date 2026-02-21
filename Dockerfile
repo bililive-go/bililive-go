@@ -77,7 +77,9 @@ RUN set -eux; \
             exit 1; \
         fi; \
     else \
-        echo "错误: 必须提供预编译二进制 (docker-context/bin/) 或 --build-arg tag=vX.Y.Z"; \
+        echo "错误: 未找到可用的 bililive-go 二进制"; \
+        echo "  CI 模式: 请确保 docker-context/bin/bililive-go 存在"; \
+        echo "  本地模式: docker build --build-arg tag=v0.8.0-rc.3 -t bililive-go ."; \
         exit 1; \
     fi; \
     chmod +x /usr/bin/bililive-go; \
