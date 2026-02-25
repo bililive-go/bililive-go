@@ -11,6 +11,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/live"
 	livemock "github.com/bililive-go/bililive-go/src/live/mock"
+	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 	"github.com/bililive-go/bililive-go/src/types"
 )
 
@@ -22,15 +23,24 @@ func TestManagerAddAndRemoveRecorder(t *testing.T) {
 	ctx := context.WithValue(context.Background(), instance.Key, &instance.Instance{})
 	m := NewManager(ctx)
 	backup := newRecorder
+	callCount := 0
 	newRecorder = func(ctx context.Context, live live.Live) (Recorder, error) {
+		callCount++
 		r := NewMockRecorder(ctrl)
 		r.EXPECT().Start(ctx).Return(nil)
-		r.EXPECT().Close()
+		if callCount == 1 {
+			// 第一个 recorder 会被 RestartRecorder 调用 CloseForRestart
+			r.EXPECT().CloseForRestart().Return(nil)
+		} else {
+			// 第二个 recorder 会被 RemoveRecorder 调用 Close
+			r.EXPECT().Close()
+		}
 		return r, nil
 	}
 	defer func() { newRecorder = backup }()
 	l := livemock.NewMockLive(ctrl)
 	l.EXPECT().GetLiveId().Return(types.LiveID("test")).AnyTimes()
+	l.EXPECT().GetLogger().Return(livelogger.New(0, nil)).AnyTimes()
 	assert.NoError(t, m.AddRecorder(context.Background(), l))
 	assert.Equal(t, ErrRecorderExist, m.AddRecorder(context.Background(), l))
 	ln, err := m.GetRecorder(context.Background(), "test")

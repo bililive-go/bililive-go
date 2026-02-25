@@ -79,7 +79,7 @@ func (f *Feature) GetEffectiveDownloaderType() DownloaderType {
 type VideoSplitStrategies struct {
 	OnRoomNameChanged bool          `yaml:"on_room_name_changed" json:"on_room_name_changed"`
 	MaxDuration       time.Duration `yaml:"max_duration" json:"max_duration"`
-	MaxFileSize       int           `yaml:"max_file_size" json:"max_file_size"`
+	MaxFileSize       ByteSize      `yaml:"max_file_size" json:"max_file_size"`
 }
 
 // UploadTiming 上传时机
@@ -122,9 +122,11 @@ type Log struct {
 
 // 通知服务所需配置
 type Notify struct {
-	Telegram Telegram `yaml:"telegram" json:"telegram"`
-	Email    Email    `yaml:"email" json:"email"`
-	Ntfy     Ntfy     `yaml:"ntfy" json:"ntfy"`
+	SendRecordingSummary bool     `yaml:"send_recording_summary" json:"send_recording_summary"` // 录制结束后推送录制文件摘要
+	Telegram             Telegram `yaml:"telegram" json:"telegram"`
+	Email                Email    `yaml:"email" json:"email"`
+	Ntfy                 Ntfy     `yaml:"ntfy" json:"ntfy"`
+	Bark                 Bark     `yaml:"bark" json:"bark"`
 }
 
 type Telegram struct {
@@ -251,6 +253,16 @@ type Ntfy struct {
 	URL    string `yaml:"URL"`
 	Token  string `yaml:"token"`
 	Tag    string `yaml:"tag"`
+}
+
+type Bark struct {
+	Enable    bool   `yaml:"enable" json:"enable"`
+	ServerURL string `yaml:"serverURL" json:"serverURL"` // Bark 服务器地址，默认 https://api.day.app
+	DeviceKey string `yaml:"deviceKey" json:"deviceKey"` // 设备推送密钥
+	Sound     string `yaml:"sound" json:"sound"`         // 推送铃声（可选）
+	Group     string `yaml:"group" json:"group"`         // 通知分组（可选）
+	Icon      string `yaml:"icon" json:"icon"`           // 自定义图标 URL（可选）
+	Level     string `yaml:"level" json:"level"`         // 通知级别: active/timeSensitive/passive/critical
 }
 
 // Config content all config info.
@@ -621,6 +633,7 @@ var defaultConfig = Config{
 	},
 	TimeoutInUs: 60000000,
 	Notify: Notify{
+		SendRecordingSummary: false,
 		Telegram: Telegram{
 			Enable:           false,
 			WithNotification: true,
@@ -640,6 +653,11 @@ var defaultConfig = Config{
 			URL:    "",
 			Token:  "",
 			Tag:    "",
+		},
+		Bark: Bark{
+			Enable:    false,
+			ServerURL: "https://api.day.app",
+			Group:     "bililive-go",
 		},
 	},
 	AppDataPath:        "",

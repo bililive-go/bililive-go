@@ -188,6 +188,66 @@ platform_configs:
 	assert.Equal(t, 20, resolvedUnknown.Interval) // 使用全局默认值
 }
 
+func TestBarkConfig_Load(t *testing.T) {
+	barkConfigYaml := `
+rpc:
+  enable: true
+  bind: :8080
+interval: 20
+out_put_path: ./
+notify:
+  bark:
+    enable: true
+    serverURL: "https://my-bark.example.com"
+    deviceKey: "test_device_key_123456"
+    sound: "alarm"
+    group: "bililive-go"
+    icon: "https://example.com/icon.png"
+    level: "timeSensitive"
+`
+	cfg, err := NewConfigWithBytes([]byte(barkConfigYaml))
+	assert.NoError(t, err)
+	assert.True(t, cfg.Notify.Bark.Enable)
+	assert.Equal(t, "https://my-bark.example.com", cfg.Notify.Bark.ServerURL)
+	assert.Equal(t, "test_device_key_123456", cfg.Notify.Bark.DeviceKey)
+	assert.Equal(t, "alarm", cfg.Notify.Bark.Sound)
+	assert.Equal(t, "bililive-go", cfg.Notify.Bark.Group)
+	assert.Equal(t, "https://example.com/icon.png", cfg.Notify.Bark.Icon)
+	assert.Equal(t, "timeSensitive", cfg.Notify.Bark.Level)
+}
+
+func TestBarkConfig_BackwardCompatibility(t *testing.T) {
+	// 旧配置文件没有 bark 字段，应正常加载且使用默认值
+	oldConfigYaml := `
+rpc:
+  enable: true
+  bind: :8080
+interval: 30
+out_put_path: ./
+notify:
+  telegram:
+    enable: false
+  email:
+    enable: false
+`
+	cfg, err := NewConfigWithBytes([]byte(oldConfigYaml))
+	assert.NoError(t, err)
+	assert.False(t, cfg.Notify.Bark.Enable)
+	assert.Equal(t, "https://api.day.app", cfg.Notify.Bark.ServerURL)
+	assert.Equal(t, "bililive-go", cfg.Notify.Bark.Group)
+}
+
+func TestBarkConfig_DefaultValues(t *testing.T) {
+	cfg := NewConfig()
+	assert.False(t, cfg.Notify.Bark.Enable)
+	assert.Equal(t, "https://api.day.app", cfg.Notify.Bark.ServerURL)
+	assert.Equal(t, "bililive-go", cfg.Notify.Bark.Group)
+	assert.Equal(t, "", cfg.Notify.Bark.DeviceKey)
+	assert.Equal(t, "", cfg.Notify.Bark.Sound)
+	assert.Equal(t, "", cfg.Notify.Bark.Icon)
+	assert.Equal(t, "", cfg.Notify.Bark.Level)
+}
+
 // Helper functions for pointer conversion
 func intPtr(i int) *int {
 	return &i
