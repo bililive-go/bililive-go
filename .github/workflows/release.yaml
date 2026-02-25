@@ -81,30 +81,168 @@ jobs:
             dist/**/*.7z
           prerelease: ${{ contains(env.GIT_TAG, 'rc') }}
 
+  # Docker 镜像构建：按平台分矩阵，arm64 使用原生 ARM runner
+  # 优化策略：
+  #   1. amd64/arm64 使用原生 runner，避免 QEMU 模拟
+  #   2. 内置工具在 CI 原生环境中预下载，COPY 进镜像（避免在 QEMU 下解压 xz）
+  #   3. bgo 二进制直接从 artifact 获取，不再从 GitHub Releases curl 下载
   release-docker-images:
-    runs-on: ubuntu-latest
-    needs:
-      - publish-release
+    needs: [publish-release]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            arch: amd64
+          - platform: linux/arm64/v8
+            runner: ubuntu-24.04-arm
+            arch: arm64
+          - platform: linux/arm/v7
+            runner: ubuntu-24.04-arm  # arm/v7 仍需 QEMU，但 ARM runner 上模拟 armv7 比 x86 模拟快
+            arch: arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - run: echo "GIT_TAG=`echo $(git describe --tags --abbrev=0)`" >> $GITHUB_ENV
-      - run: if ! echo $GIT_TAG | grep "rc" >/dev/null; then DOCKER_TAGS=chigusa/bililive-go:$GIT_TAG,chigusa/bililive-go:latest; else DOCKER_TAGS=chigusa/bililive-go:$GIT_TAG; fi; echo "DOCKER_TAGS=$DOCKER_TAGS" >> $GITHUB_ENV
+
+      # 下载编译好的二进制 artifact（从 release-bins-sharded 产物中提取）
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      # 准备 Docker 构建上下文：提取对应架构的二进制
+      - name: Prepare bgo binary for Docker
+        run: |
+          mkdir -p docker-context/bin
+          # 从 shard artifacts 中查找对应架构的 tar.gz
+          TARBALL=$(find dist -name "bililive-linux-${{ matrix.arch }}.tar.gz" -print -quit)
+          if [ -z "$TARBALL" ]; then
+            echo "::error::找不到 bililive-linux-${{ matrix.arch }}.tar.gz"
+            exit 1
+          fi
+          echo "找到二进制包: $TARBALL"
+          tar xzf "$TARBALL" -C docker-context/bin "bililive-linux-${{ matrix.arch }}"
+          mv "docker-context/bin/bililive-linux-${{ matrix.arch }}" docker-context/bin/bililive-go
+          chmod +x docker-context/bin/bililive-go
+          ls -la docker-context/bin/
+
+      # 在原生环境中预下载内置工具（避免在 QEMU 下解压 xz 的巨大开销）
+      - name: Pre-download built-in tools
+        run: |
+          chmod +x scripts/docker-prepare-tools.sh
+          scripts/docker-prepare-tools.sh "${{ matrix.arch }}" docker-context/tools
+
+          # 验证关键工具目录存在且非空
+          echo "--- 验证下载结果 ---"
+          for tool_dir in docker-context/tools/*/; do
+            if [ -d "$tool_dir" ]; then
+              echo "✓ $tool_dir ($(du -sh "$tool_dir" | cut -f1))"
+            fi
+          done
+          TOOL_COUNT=$(find docker-context/tools -mindepth 1 -maxdepth 1 -type d | wc -l)
+          if [ "$TOOL_COUNT" -eq 0 ]; then
+            echo "::error::预下载工具失败：docker-context/tools 目录为空"
+            exit 1
+          fi
+          echo "共下载 $TOOL_COUNT 个工具目录"
+
+      # 仅 arm/v7 需要 QEMU（用于 apt-get 安装 ffmpeg 等）
       - name: Set up QEMU
+        if: matrix.arch == 'arm'
         uses: docker/setup-qemu-action@v3
+
       - name: Docker Setup Buildx
         uses: docker/setup-buildx-action@v3
+
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN }}
-      - name: Build the Docker image
+
+      # 构建并推送单平台镜像（by digest，不关联 tag）
+      - name: Build and push single-platform image
+        id: build
         uses: docker/build-push-action@v5
         with:
+          context: .
           file: Dockerfile
-          build-args: tag=${{ env.GIT_TAG }}
-          platforms: linux/amd64,linux/arm64/v8,linux/arm/v7
+          platforms: ${{ matrix.platform }}
           push: true
-          tags: ${{ env.DOCKER_TAGS }}
-          cache-from: type=gha,scope=bililive-go
-          cache-to: type=gha,mode=max,scope=bililive-go
+          tags: ""
+          outputs: type=image,name=chigusa/bililive-go,push-by-digest=true,name-canonical=true
+          cache-from: type=gha,scope=docker-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=docker-${{ matrix.arch }}
+
+      # 导出 digest 供后续合并
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-digest-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # 合并各平台镜像为 multi-arch manifest
+  merge-docker-manifest:
+    runs-on: ubuntu-latest
+    needs: [release-docker-images]
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "GIT_TAG=`echo $(git describe --tags --abbrev=0)`" >> $GITHUB_ENV
+      - run: |
+          if ! echo $GIT_TAG | grep "rc" >/dev/null; then
+            DOCKER_TAGS="chigusa/bililive-go:$GIT_TAG,chigusa/bililive-go:latest"
+          else
+            DOCKER_TAGS="chigusa/bililive-go:$GIT_TAG"
+          fi
+          echo "DOCKER_TAGS=$DOCKER_TAGS" >> $GITHUB_ENV
+
+      - name: Download all digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: docker-digest-*
+          merge-multiple: true
+
+      - name: Docker Setup Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Create and push multi-arch manifest
+        working-directory: /tmp/digests
+        run: |
+          # 构建 digest 参数列表
+          # 验证文件名是否为 SHA256 格式（64个十六进制字符），跳过非 digest 文件
+          # 原因：actions/download-artifact 合并多个 artifact 时可能引入元数据文件
+          DIGEST_ARGS=""
+          for dgst in *; do
+            if echo "$dgst" | grep -qE '^[0-9a-f]{64}$'; then
+              DIGEST_ARGS="$DIGEST_ARGS chigusa/bililive-go@sha256:$dgst"
+            else
+              echo "警告: 跳过非 digest 文件: $dgst"
+            fi
+          done
+
+          # 为每个 tag 创建 manifest
+          IFS=',' read -ra TAGS <<< "$DOCKER_TAGS"
+          for tag in "${TAGS[@]}"; do
+            echo "创建 manifest: $tag"
+            docker buildx imagetools create -t "$tag" $DIGEST_ARGS
+          done
+
+      - name: Inspect final image
+        run: docker buildx imagetools inspect "chigusa/bililive-go:$GIT_TAG"
