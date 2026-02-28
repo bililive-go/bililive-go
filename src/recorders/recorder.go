@@ -437,6 +437,7 @@ func (r *recorder) tryRecord(ctx context.Context) {
 
 	if err != nil {
 		r.getLogger().WithError(err).Error("failed to parse live stream")
+		removeEmptyFile(fileName)
 		return
 	}
 	r.getLogger().Debugln("End ParseLiveStream(" + url.String() + ", " + fileName + ")")
