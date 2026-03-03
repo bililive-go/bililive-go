@@ -100,8 +100,6 @@ func TestRestartRecorderRaceWithLiveEnd(t *testing.T) {
 
 			// 两个操作都完成后，不应残留僵尸录制器
 			if m.HasRecorder(ctx, "test") {
-				// 清理残留录制器
-				m.RemoveRecorder(ctx, "test")
 				t.Fatalf("iteration %d: 发现僵尸录制器 - RestartRecorder 竞态条件", iter)
 			}
 		}()
