@@ -94,15 +94,14 @@ task_queue:
   max_concurrent: 3
 # 代理配置（支持 HTTP 和 SOCKS5 代理）
 proxy:
-  # 通用代理开关
+  # 是否启用配置的代理
   # false: 使用系统环境变量 (HTTP_PROXY, HTTPS_PROXY, ALL_PROXY)
   # true: 使用下方配置的代理地址
   enable: false
-  # 通用代理地址，支持以下格式：
+  # 代理地址，支持以下格式：
   # HTTP 代理: http://host:port 或 http://user:pass@host:port
   # SOCKS5 代理: socks5://host:port 或 socks5://user:pass@host:port
   # 示例: socks5://127.0.0.1:1080 (翻墙软件常用端口)
-  # 此地址同时用于信息获取和下载，除非下方单独配置了专用代理
   url: ""
 openlist:
   port: 5244
