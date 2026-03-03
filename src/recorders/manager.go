@@ -145,6 +145,11 @@ func (m *manager) Close(ctx context.Context) {
 func (m *manager) AddRecorder(ctx context.Context, live live.Live) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
+	return m.addRecorderLocked(ctx, live)
+}
+
+// addRecorderLocked 是 AddRecorder 的内部实现，调用者必须已持有 m.lock
+func (m *manager) addRecorderLocked(ctx context.Context, live live.Live) error {
 	if _, ok := m.savers[live.GetLiveId()]; ok {
 		return ErrRecorderExist
 	}
@@ -184,18 +189,22 @@ func (m *manager) cronRestart(ctx context.Context, live live.Live) {
 }
 
 func (m *manager) RestartRecorder(ctx context.Context, live live.Live) error {
-	if err := m.RemoveRecorder(ctx, live.GetLiveId()); err != nil {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	if err := m.removeRecorderLocked(ctx, live.GetLiveId()); err != nil {
 		return err
 	}
-	if err := m.AddRecorder(ctx, live); err != nil {
-		return err
-	}
-	return nil
+	return m.addRecorderLocked(ctx, live)
 }
 
 func (m *manager) RemoveRecorder(ctx context.Context, liveId types.LiveID) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
+	return m.removeRecorderLocked(ctx, liveId)
+}
+
+// removeRecorderLocked 是 RemoveRecorder 的内部实现，调用者必须已持有 m.lock
+func (m *manager) removeRecorderLocked(ctx context.Context, liveId types.LiveID) error {
 	recorder, ok := m.savers[liveId]
 	if !ok {
 		return ErrRecorderNotExist
