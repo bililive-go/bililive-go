@@ -23,10 +23,11 @@ video_split_strategies:
   on_room_name_changed: false
   max_duration: 0s
   # 仅在使用 ffmpeg 或 bililive-recorder 下载器时生效
-  # 单位为字节 (byte)
-  # 有效值为正数，默认值 0 为无效
+  # 支持可读格式，如: 500MB, 1GB, 1.5GB, 1024KB
+  # 也支持纯数字（视为字节），如: 1073741824
+  # 有效值为正数，默认值 0 为不限制
   # 负数为非法值，程序会输出 log 提醒，并无视所设定的数值
-  max_file_size: 0
+  max_file_size: "0"
 on_record_finished:
   convert_to_mp4: false
   delete_flv_after_convert: false

@@ -141,7 +141,7 @@ func (p *Parser) ParseLiveStream(ctx context.Context, streamUrlInfo *live.Stream
 	cfg := configs.GetCurrentConfig()
 	if cfg != nil {
 		// 最大文件大小 (字节 -> MB)
-		if maxFileSize := cfg.VideoSplitStrategies.MaxFileSize; maxFileSize > 0 {
+		if maxFileSize := cfg.VideoSplitStrategies.MaxFileSize.Bytes(); maxFileSize > 0 {
 			maxSizeMB := float64(maxFileSize) / 1024.0 / 1024.0
 			args = append(args, "--max-size", strconv.FormatFloat(maxSizeMB, 'f', 2, 64))
 		}

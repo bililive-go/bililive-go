@@ -79,7 +79,7 @@ func (p *Parser) ParseLiveStream(ctx context.Context, streamUrlInfo *live.Stream
 	// 检查是否配置了分段策略，原生 FLV 解析器不支持
 	cfg := configs.GetCurrentConfig()
 	if cfg != nil {
-		if cfg.VideoSplitStrategies.MaxDuration > 0 || cfg.VideoSplitStrategies.MaxFileSize > 0 {
+		if cfg.VideoSplitStrategies.MaxDuration > 0 || cfg.VideoSplitStrategies.MaxFileSize.Bytes() > 0 {
 			p.logger.Warn("原生 FLV 解析器不支持 max_duration 和 max_file_size 分段功能，这些设置将被忽略。如需分段功能，请使用 FFmpeg 或 BililiveRecorder 下载器。")
 		}
 	}

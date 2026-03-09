@@ -10,7 +10,7 @@ import {
   BellOutlined, LinkOutlined, InfoCircleOutlined, SaveOutlined,
   ReloadOutlined, EditOutlined, DeleteOutlined,
   RightOutlined, PlusOutlined, WarningOutlined,
-  ExclamationCircleOutlined
+  ExclamationCircleOutlined, MobileOutlined
 } from '@ant-design/icons';
 import { useLocation, Link } from 'react-router-dom';
 import Editor from 'react-simple-code-editor';
@@ -71,7 +71,7 @@ interface EffectiveConfig {
   video_split_strategies: {
     on_room_name_changed: boolean;
     max_duration: number;
-    max_file_size: number;
+    max_file_size: string;
   };
   on_record_finished: {
     convert_to_mp4: boolean;
@@ -82,6 +82,7 @@ interface EffectiveConfig {
   timeout_in_us: number;
   timeout_in_seconds: number;
   notify: {
+    send_recording_summary: boolean;
     telegram: {
       enable: boolean;
       withNotification: boolean;
@@ -95,6 +96,15 @@ interface EffectiveConfig {
       senderEmail: string;
       senderPassword: string;
       recipientEmail: string;
+    };
+    bark: {
+      enable: boolean;
+      serverURL: string;
+      deviceKey: string;
+      sound: string;
+      group: string;
+      icon: string;
+      level: string;
     };
   };
   app_data_path: string;
@@ -626,9 +636,9 @@ const GlobalSettings: React.FC<{
               <InputNumber min={0} style={{ width: 200 }} />
             </Form.Item>
           </ConfigField>
-          <ConfigField label="最大文件大小 (字节)" description="单个视频的最大文件大小，0表示不限制">
+          <ConfigField label="最大文件大小" description="单个视频的最大文件大小，支持 MB/GB 等格式（如 500MB、1GB），0表示不限制">
             <Form.Item name={['video_split_strategies', 'max_file_size']} noStyle>
-              <InputNumber min={0} style={{ width: 200 }} />
+              <Input placeholder="如: 500MB, 1GB, 0" style={{ width: 200 }} />
             </Form.Item>
           </ConfigField>
         </Card>
@@ -847,6 +857,15 @@ const NotifySettings: React.FC<{
   return (
     <div className="config-content">
       <Form form={form} layout="vertical">
+        {/* 录制摘要通知 */}
+        <Card title={<><BellOutlined /> 录制摘要</>} size="small" style={{ marginBottom: 16 }}>
+          <ConfigField label="推送录制摘要" description="录制结束后推送文件数量、文件名和大小等信息">
+            <Form.Item name={['send_recording_summary']} valuePropName="checked" noStyle>
+              <Switch />
+            </Form.Item>
+          </ConfigField>
+        </Card>
+
         {/* Telegram 通知 */}
         <Card title={<><BellOutlined /> Telegram 通知</>} size="small" style={{ marginBottom: 16 }}>
           <ConfigField label="启用" description="开启后会在直播开始/结束时发送 Telegram 通知">
@@ -901,6 +920,50 @@ const NotifySettings: React.FC<{
           <ConfigField label="收件人邮箱">
             <Form.Item name={['email', 'recipientEmail']} noStyle>
               <Input placeholder="接收通知的邮箱" style={{ width: 300 }} />
+            </Form.Item>
+          </ConfigField>
+        </Card>
+
+        {/* Bark 通知 */}
+        <Card title={<><MobileOutlined /> Bark 推送 (iOS)</>} size="small" style={{ marginBottom: 16 }}>
+          <ConfigField label="启用" description="开启后会在直播开始/结束时发送 Bark 推送通知">
+            <Form.Item name={['bark', 'enable']} valuePropName="checked" noStyle>
+              <Switch />
+            </Form.Item>
+          </ConfigField>
+          <ConfigField label="服务器地址" description="默认 https://api.day.app，支持自建服务器">
+            <Form.Item name={['bark', 'serverURL']} noStyle>
+              <Input placeholder="https://api.day.app" style={{ width: 300 }} />
+            </Form.Item>
+          </ConfigField>
+          <ConfigField label="设备密钥 (Device Key)" description="在 Bark App 首页获取的推送密钥">
+            <Form.Item name={['bark', 'deviceKey']} noStyle>
+              <Input.Password placeholder="请输入 Device Key" style={{ width: 300 }} />
+            </Form.Item>
+          </ConfigField>
+          <ConfigField label="推送铃声" description="可选，如 alarm、birdsong、glass 等">
+            <Form.Item name={['bark', 'sound']} noStyle>
+              <Input placeholder="默认铃声（留空）" style={{ width: 200 }} />
+            </Form.Item>
+          </ConfigField>
+          <ConfigField label="通知分组" description="同一分组的通知会折叠在一起">
+            <Form.Item name={['bark', 'group']} noStyle>
+              <Input placeholder="bililive-go" style={{ width: 200 }} />
+            </Form.Item>
+          </ConfigField>
+          <ConfigField label="自定义图标" description="通知图标 URL（可选）">
+            <Form.Item name={['bark', 'icon']} noStyle>
+              <Input placeholder="https://example.com/icon.png" style={{ width: 300 }} />
+            </Form.Item>
+          </ConfigField>
+          <ConfigField label="通知级别" description="active=默认, timeSensitive=时效性, passive=静默, critical=紧急">
+            <Form.Item name={['bark', 'level']} noStyle>
+              <Select placeholder="active（默认）" style={{ width: 200 }} allowClear>
+                <Select.Option value="active">active（默认）</Select.Option>
+                <Select.Option value="timeSensitive">timeSensitive（时效性）</Select.Option>
+                <Select.Option value="passive">passive（静默）</Select.Option>
+                <Select.Option value="critical">critical（紧急）</Select.Option>
+              </Select>
             </Form.Item>
           </ConfigField>
         </Card>

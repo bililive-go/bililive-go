@@ -26,8 +26,9 @@ func DecorateConfigNode(node *yaml.Node) {
 	if splitNode != nil {
 		setFieldComment(splitNode, "max_file_size",
 			`# 仅在使用 ffmpeg 或 bililive-recorder 下载器时生效
-# 单位为字节 (byte)
-# 有效值为正数，默认值 0 为无效
+# 支持可读格式，如: 500MB, 1GB, 1.5GB, 1024KB
+# 也支持纯数字（视为字节），如: 1073741824
+# 有效值为正数，默认值 0 为不限制
 # 负数为非法值，程序会输出 log 提醒，并无视所设定的数值`, "")
 	}
 
@@ -45,6 +46,9 @@ func DecorateConfigNode(node *yaml.Node) {
 	setFieldHeadComment(root, "notify", "# 通知服务配置")
 	notifyNode := findNode(root, "notify")
 	if notifyNode != nil {
+		setFieldComment(notifyNode, "send_recording_summary",
+			`# 录制结束后是否推送录制文件摘要（文件数量、文件名、大小）
+# 需要至少开启一个通知渠道（Telegram/Email/Bark）才会生效`, "")
 		telegram := findNode(notifyNode, "telegram")
 		if telegram != nil {
 			setFieldComment(telegram, "enable", "# 是否开启Telegram通知", "")
@@ -60,6 +64,16 @@ func DecorateConfigNode(node *yaml.Node) {
 			setFieldComment(email, "senderEmail", "# 发送者邮箱地址", "")
 			setFieldComment(email, "senderPassword", "# 发送者邮箱授权码或应用专用密码", "")
 			setFieldComment(email, "recipientEmail", "# 接收者邮箱地址 ", "")
+		}
+		barkNode := findNode(notifyNode, "bark")
+		if barkNode != nil {
+			setFieldComment(barkNode, "enable", "# 是否开启Bark通知(iOS)", "")
+			setFieldComment(barkNode, "serverURL", "# Bark服务器地址，默认 https://api.day.app，支持自建", "")
+			setFieldComment(barkNode, "deviceKey", "# 设备推送密钥（在Bark App首页获取）", "")
+			setFieldComment(barkNode, "sound", "# 推送铃声（可选，如 alarm、birdsong、glass 等）", "")
+			setFieldComment(barkNode, "group", "# 通知分组名称（可选）", "")
+			setFieldComment(barkNode, "icon", "# 自定义图标URL（可选）", "")
+			setFieldComment(barkNode, "level", "# 通知级别（可选）: active/timeSensitive/passive/critical", "")
 		}
 	}
 

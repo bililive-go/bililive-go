@@ -254,14 +254,14 @@ func (p *Parser) ParseLiveStream(ctx context.Context, streamUrlInfo *live.Stream
 	}
 
 	cfg := configs.GetCurrentConfig()
-	MaxFileSize := 0
+	var maxFileSize int64
 	if cfg != nil {
-		MaxFileSize = cfg.VideoSplitStrategies.MaxFileSize
+		maxFileSize = cfg.VideoSplitStrategies.MaxFileSize.Bytes()
 	}
-	if MaxFileSize < 0 {
-		p.logger.Infof("Invalid MaxFileSize: %d", MaxFileSize)
-	} else if MaxFileSize > 0 {
-		args = append(args, "-fs", strconv.Itoa(MaxFileSize))
+	if maxFileSize < 0 {
+		p.logger.Infof("Invalid MaxFileSize: %d", maxFileSize)
+	} else if maxFileSize > 0 {
+		args = append(args, "-fs", strconv.FormatInt(maxFileSize, 10))
 	}
 
 	args = append(args, file)

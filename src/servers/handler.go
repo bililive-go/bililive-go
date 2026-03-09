@@ -1438,7 +1438,11 @@ func applyConfigUpdates(c *configs.Config, updates map[string]interface{}) error
 			c.VideoSplitStrategies.MaxDuration = time.Duration(maxDuration)
 		}
 		if maxFileSize, ok := vss["max_file_size"].(float64); ok {
-			c.VideoSplitStrategies.MaxFileSize = int(maxFileSize)
+			c.VideoSplitStrategies.MaxFileSize = configs.ByteSize(int64(maxFileSize))
+		} else if maxFileSizeStr, ok := vss["max_file_size"].(string); ok {
+			if parsed, err := configs.ParseByteSize(maxFileSizeStr); err == nil {
+				c.VideoSplitStrategies.MaxFileSize = parsed
+			}
 		}
 	}
 
@@ -1460,6 +1464,9 @@ func applyConfigUpdates(c *configs.Config, updates map[string]interface{}) error
 
 	// 处理通知配置
 	if notify, ok := updates["notify"].(map[string]interface{}); ok {
+		if sendRecordingSummary, ok := notify["send_recording_summary"].(bool); ok {
+			c.Notify.SendRecordingSummary = sendRecordingSummary
+		}
 		if telegram, ok := notify["telegram"].(map[string]interface{}); ok {
 			if enable, ok := telegram["enable"].(bool); ok {
 				c.Notify.Telegram.Enable = enable
@@ -1492,6 +1499,29 @@ func applyConfigUpdates(c *configs.Config, updates map[string]interface{}) error
 			}
 			if recipientEmail, ok := email["recipientEmail"].(string); ok {
 				c.Notify.Email.RecipientEmail = recipientEmail
+			}
+		}
+		if barkCfg, ok := notify["bark"].(map[string]interface{}); ok {
+			if enable, ok := barkCfg["enable"].(bool); ok {
+				c.Notify.Bark.Enable = enable
+			}
+			if serverURL, ok := barkCfg["serverURL"].(string); ok {
+				c.Notify.Bark.ServerURL = serverURL
+			}
+			if deviceKey, ok := barkCfg["deviceKey"].(string); ok {
+				c.Notify.Bark.DeviceKey = deviceKey
+			}
+			if sound, ok := barkCfg["sound"].(string); ok {
+				c.Notify.Bark.Sound = sound
+			}
+			if group, ok := barkCfg["group"].(string); ok {
+				c.Notify.Bark.Group = group
+			}
+			if icon, ok := barkCfg["icon"].(string); ok {
+				c.Notify.Bark.Icon = icon
+			}
+			if level, ok := barkCfg["level"].(string); ok {
+				c.Notify.Bark.Level = level
 			}
 		}
 	}

@@ -184,12 +184,35 @@ func (m *manager) cronRestart(ctx context.Context, live live.Live) {
 }
 
 func (m *manager) RestartRecorder(ctx context.Context, live live.Live) error {
-	if err := m.RemoveRecorder(ctx, live.GetLiveId()); err != nil {
-		return err
+	// 1. 取出旧 recorder
+	m.lock.Lock()
+	oldRecorder, ok := m.savers[live.GetLiveId()]
+	if !ok {
+		m.lock.Unlock()
+		return ErrRecorderNotExist
 	}
+	delete(m.savers, live.GetLiveId())
+	m.lock.Unlock()
+
+	// 2. 关闭旧 recorder 并获取累积文件（不推送摘要）
+	oldFiles := oldRecorder.CloseForRestart()
+	live.GetLogger().Infof("分段重启录制，携带 %d 个历史文件", len(oldFiles))
+
+	// 3. 创建并启动新 recorder
 	if err := m.AddRecorder(ctx, live); err != nil {
+		live.GetLogger().Errorf("分段重启创建新 recorder 失败: %v，%d 个累积文件丢失", err, len(oldFiles))
 		return err
 	}
+
+	// 4. 将旧文件传递给新 recorder
+	if len(oldFiles) > 0 {
+		m.lock.RLock()
+		if newRec, ok := m.savers[live.GetLiveId()]; ok {
+			newRec.SetInitialRecordedFiles(oldFiles)
+		}
+		m.lock.RUnlock()
+	}
+
 	return nil
 }
 
