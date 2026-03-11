@@ -310,9 +310,10 @@ func (w *WrappedLive) GetInfo() (*Info, error) {
 		}
 	}
 
-	// 无论请求成功还是失败，都更新最后请求时间
-	// 这是为了确保调度器始终按配置的刷新间隔推进，
-	// 避免在错误状态下（如直播结束、网络异常）进入高频重试循环
+	// 不管成功还是失败，都通知所有等待的调用方
+	w.notifyWaiters(i, err)
+
+	// 更新最后请求时间
 	w.mu.Lock()
 	w.lastRequestAt = time.Now()
 	w.mu.Unlock()
@@ -320,16 +321,11 @@ func (w *WrappedLive) GetInfo() (*Info, error) {
 	// 发送调度器刷新完成事件，通知前端更新倒计时
 	w.dispatchSchedulerRefreshEvent()
 
-	// 不管成功还是失败，都通知所有等待的调用方
-	w.notifyWaiters(i, err)
-
 	if err != nil {
-		if w.cache != nil {
-			if info, err2 := w.cache.Get(w); err2 == nil {
-				// 将错误信息存到 LastError 而非 RoomName
-				// 避免错误文本出现在录制文件名中
-				info.(*Info).LastError = err.Error()
-			}
+		if info, err2 := w.cache.Get(w); err2 == nil {
+			// 将错误信息存到 LastError 而非 RoomName
+			// 避免错误文本出现在录制文件名中
+			info.(*Info).LastError = err.Error()
 		}
 		return nil, err
 	}
