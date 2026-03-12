@@ -226,6 +226,11 @@ func (l *Live) GetStreamInfos() (infos []*live.StreamUrlInfo, err error) {
 					format = "flv"
 				}
 
+				// 跳过无法识别格式的流（format 为空，通常为 bilipc 等非标准协议流）
+				if format == "" {
+					return true // 继续下一个codec
+				}
+
 				// 解析编码
 				var codec string
 				switch codecName {
