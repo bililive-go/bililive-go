@@ -18,6 +18,7 @@ import { highlight, languages } from 'prismjs';
 import 'prismjs/components/prism-yaml';
 import 'prismjs/themes/prism.css';
 import API from '../../utils/api';
+import { subscribeSSE, unsubscribeSSE } from '../../utils/sse';
 import './config-info.css';
 import './config-gui.css';
 import {
@@ -1997,6 +1998,21 @@ const ConfigInfo: React.FC = () => {
   useEffect(() => {
     loadConfig();
   }, [loadConfig]);
+
+  // 订阅 SSE 事件，当直播间初始化完成或状态变化时自动刷新
+  useEffect(() => {
+    const refreshPlatformStats = () => {
+      api.getPlatformStats().then(platforms => {
+        setPlatformStats(platforms as PlatformStatsResponse);
+      }).catch(() => {});
+    };
+    const liveUpdateSubId = subscribeSSE('*', 'live_update', refreshPlatformStats);
+    const listChangeSubId = subscribeSSE('*', 'list_change', refreshPlatformStats);
+    return () => {
+      unsubscribeSSE(liveUpdateSubId);
+      unsubscribeSSE(listChangeSubId);
+    };
+  }, []);
 
   // 处理 Hash 路由
   // 处理路由导航 (Hash & Search Params)
