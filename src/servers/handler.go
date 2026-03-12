@@ -51,10 +51,28 @@ func parseInfo(ctx context.Context, l live.Live) *live.Info {
 	if err != nil || obj == nil {
 		// 缓存中没有信息，可能是 InitializingLive 还未初始化
 		// 创建一个基础信息
+		hostName := "初始化中..."
+		roomName := l.GetRawUrl()
+
+		// 尝试从 InitializingLive 获取数据库缓存的信息
+		target := l
+		if wrapped, ok := l.(*live.WrappedLive); ok {
+			target = wrapped.Live
+		}
+		if setter, ok := target.(live.CachedInfoSetter); ok {
+			h, r := setter.GetCachedInfo()
+			if h != "" {
+				hostName = h
+			}
+			if r != "" {
+				roomName = r
+			}
+		}
+
 		info = &live.Info{
 			Live:         l,
-			HostName:     "初始化中...",
-			RoomName:     l.GetRawUrl(),
+			HostName:     hostName,
+			RoomName:     roomName,
 			Status:       false,
 			Initializing: true,
 		}
@@ -1055,15 +1073,12 @@ func getPlatformStats(writer http.ResponseWriter, r *http.Request) {
 			"live_id":      string(room.LiveId),
 		}
 
-		// 从缓存获取直播间信息（不触发网络请求）
+		// 获取直播间信息（不触发网络请求，使用 parseInfo 处理缓存和默认值）
 		if liveInstance, ok := inst.Lives.Get(room.LiveId); ok {
-			if obj, err := inst.Cache.Get(liveInstance); err == nil {
-				if info, ok := obj.(*live.Info); ok && info != nil {
-					roomInfo["host_name"] = info.HostName
-					roomInfo["room_name"] = info.RoomName
-					roomInfo["status"] = info.Status
-				}
-			}
+			info := parseInfo(r.Context(), liveInstance)
+			roomInfo["host_name"] = info.HostName
+			roomInfo["room_name"] = info.RoomName
+			roomInfo["status"] = info.Status
 		}
 
 		platformRooms[platformKey] = append(platformRooms[platformKey], roomInfo)
