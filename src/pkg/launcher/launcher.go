@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/bililive-go/bililive-go/src/pkg/ipc"
 	bilisentry "github.com/bililive-go/bililive-go/src/pkg/sentry"
 )
@@ -129,12 +130,36 @@ func Check(appDataPath, currentVersion, currentExePath string) (*CheckResult, er
 		return result, nil
 	}
 
-	// 检查活动版本是否与当前版本相同
-	if state.ActiveVersion == currentVersion {
-		// 当前版本就是活动版本，正常启动
-		fmt.Fprintf(os.Stderr, "[Launcher.Check] ActiveVersion(%q) == currentVersion(%q)，正常启动\n",
-			state.ActiveVersion, currentVersion)
-		return result, nil
+	// 检查版本高低
+	currVer, err1 := semver.NewVersion(currentVersion)
+	activeVer, err2 := semver.NewVersion(state.ActiveVersion)
+
+	if err1 == nil && err2 == nil {
+		if currVer.GreaterThan(activeVer) {
+			// 当前版本比记录的活动版本更高，更新状态并正常启动
+			fmt.Fprintf(os.Stderr, "[Launcher.Check] 当前版本(%q) > 活动版本(%q)，接管主导权\n",
+				currentVersion, state.ActiveVersion)
+			state.ActiveVersion = currentVersion
+			state.ActiveBinaryPath = currentExePath
+			state.BackupVersion = "" // 清除旧备份
+			state.BackupBinaryPath = ""
+			state.FailureCount = 0
+			state.Save(result.StatePath)
+			return result, nil
+		}
+		if currVer.Equal(activeVer) {
+			// 版本相同，正常启动
+			fmt.Fprintf(os.Stderr, "[Launcher.Check] 当前版本(%q) == 活动版本(%q)，正常启动\n",
+				currentVersion, state.ActiveVersion)
+			return result, nil
+		}
+	} else {
+		// 如果版本号不符合 semver，回退到字符串比较
+		if state.ActiveVersion == currentVersion {
+			fmt.Fprintf(os.Stderr, "[Launcher.Check] ActiveVersion(%q) == currentVersion(%q)，正常启动\n",
+				state.ActiveVersion, currentVersion)
+			return result, nil
+		}
 	}
 
 	// 构建完整的二进制路径
