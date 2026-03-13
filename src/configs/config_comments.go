@@ -15,6 +15,18 @@ func DecorateConfigNode(node *yaml.Node) {
 	root.HeadComment = `# 这个配置文件内的注释是自动生成的，请不要手动修改。
 # 需要修改注释时，请在 src/configs/config_comments.go 文件内修改。`
 
+	// RPC 身份验证配置注释
+	rpcNode := findNode(root, "rpc")
+	if rpcNode != nil {
+		authNode := findNode(rpcNode, "authentication")
+		if authNode != nil {
+			setFieldComment(authNode, "enable", "# 是否启用身份验证（启用后需要用户名密码才能访问Web界面，API需要密钥）", "")
+			setFieldComment(authNode, "web_username", "# Web界面登录用户名", "")
+			setFieldComment(authNode, "web_password", "# Web界面登录密码", "")
+			setFieldComment(authNode, "api_key", "# API访问密钥（通过请求头 X-API-Key 传递）", "")
+		}
+	}
+
 	setFieldLineComment(root, "ffmpeg_path", "# 如果此项为空，就自动在环境变量里寻找")
 
 	setFieldComment(root, "out_put_tmpl",
