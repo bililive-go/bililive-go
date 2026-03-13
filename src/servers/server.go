@@ -104,6 +104,10 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/bilibili/qrcode", getBilibiliQRCode).Methods("GET")
 	apiRoute.HandleFunc("/bilibili/qrcode/poll", pollBilibiliQRCode).Methods("GET")
 	apiRoute.HandleFunc("/bilibili/cookie/verify", verifyBilibiliCookie).Methods("POST")
+	apiRoute.HandleFunc("/sooplive/auth", getSoopLiveAuthConfig).Methods("GET")
+	apiRoute.HandleFunc("/sooplive/auth", clearSoopLiveAuthConfig).Methods("DELETE")
+	apiRoute.HandleFunc("/sooplive/login", loginSoopLive).Methods("POST")
+	apiRoute.HandleFunc("/sooplive/cookie/verify", verifySoopLiveCookie).Methods("POST")
 	apiRoute.HandleFunc("/sse", sseHandler).Methods("GET") // SSE 实时推送端点
 	// 远程 WebUI 路由
 	apiRoute.HandleFunc("/webui/remote/status", getRemoteWebuiStatus).Methods("GET")  // 获取远程 WebUI 状态

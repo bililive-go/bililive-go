@@ -29,6 +29,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/listeners"
 	"github.com/bililive-go/bililive-go/src/live"
+	soop "github.com/bililive-go/bililive-go/src/live/sooplive"
 	"github.com/bililive-go/bililive-go/src/livestate"
 	applog "github.com/bililive-go/bililive-go/src/log"
 	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
@@ -1076,7 +1077,7 @@ func getPlatformStats(writer http.ResponseWriter, r *http.Request) {
 	allKnownPlatforms := []string{
 		"bilibili", "douyin", "douyu", "huya", "kuaishou", "yy", "acfun",
 		"lang", "missevan", "openrec", "weibolive", "xiaohongshu", "yizhibo",
-		"hongdoufm", "zhanqi", "cc", "twitch", "qq", "huajiao",
+		"hongdoufm", "zhanqi", "cc", "twitch", "qq", "huajiao", "sooplive",
 	}
 
 	// 构建平台统计响应
@@ -1398,6 +1399,14 @@ func applyConfigUpdates(c *configs.Config, updates map[string]interface{}) error
 	}
 	if toolRootFolder, ok := updates["tool_root_folder"].(string); ok {
 		c.ToolRootFolder = toolRootFolder
+	}
+	if soopAuth, ok := updates["sooplive_auth"].(map[string]interface{}); ok {
+		if username, ok := soopAuth["username"].(string); ok {
+			c.SoopLiveAuth.Username = username
+		}
+		if password, ok := soopAuth["password"].(string); ok {
+			c.SoopLiveAuth.Password = password
+		}
 	}
 
 	// 处理日志配置
@@ -2270,6 +2279,40 @@ func getLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 	writeJSON(writer, result)
 }
 
+func applyCookiesToLives(ctx context.Context, newCfg *configs.Config, hosts ...string) {
+	inst := instance.GetInstance(ctx)
+	hostSet := make(map[string]struct{}, len(hosts))
+	for _, host := range hosts {
+		hostSet[host] = struct{}{}
+	}
+
+	for _, room := range newCfg.LiveRooms {
+		tmpurl, err := url.Parse(room.Url)
+		if err != nil {
+			continue
+		}
+		if _, ok := hostSet[tmpurl.Host]; !ok {
+			continue
+		}
+
+		liveObj, _ := inst.Lives.Get(room.LiveId)
+		if liveObj == nil {
+			inst.Lives.Range(func(_ types.LiveID, l live.Live) bool {
+				if l.GetRawUrl() == room.Url {
+					liveObj = l
+					return false
+				}
+				return true
+			})
+		}
+		if liveObj == nil {
+			applog.GetLogger().Warn("can't find live by id or url: " + string(room.LiveId) + " " + room.Url)
+			continue
+		}
+		liveObj.UpdateLiveOptionsbyConfig(ctx, &room)
+	}
+}
+
 func putLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 	b, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -2280,7 +2323,6 @@ func putLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	inst := instance.GetInstance(ctx)
 	data := gjson.ParseBytes(b)
 
 	host := data.Get("Host").Str
@@ -2306,35 +2348,189 @@ func putLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	for _, v := range newCfg.LiveRooms {
-		tmpurl, _ := url.Parse(v.Url)
-		if tmpurl.Host != host {
-			continue
-		}
-		liveObj, _ := inst.Lives.Get(v.LiveId)
-		if liveObj == nil {
-			// fallback search by URL
-			inst.Lives.Range(func(_ types.LiveID, l live.Live) bool {
-				if l.GetRawUrl() == v.Url {
-					liveObj = l
-					return false
-				}
-				return true
-			})
-		}
-
-		if liveObj == nil {
-			applog.GetLogger().Warn("can't find live by id or url: " + string(v.LiveId) + " " + v.Url)
-			continue
-		}
-		liveObj.UpdateLiveOptionsbyConfig(ctx, &v)
-	}
+	applyCookiesToLives(ctx, newCfg, host)
 	if err := newCfg.Marshal(); err != nil {
 		applog.GetLogger().Error("failed to persistence config: " + err.Error())
 	}
 	writeJSON(writer, commonResp{
 		Data: "OK",
 	})
+}
+
+func getSoopLiveAuthConfig(writer http.ResponseWriter, _ *http.Request) {
+	cfg := configs.GetCurrentConfig()
+	if cfg == nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "配置未加载",
+		})
+		return
+	}
+
+	var verifyResult *soop.CookieVerifyResult
+	verifyError := ""
+	cookieStatus := "missing"
+	storedCookie := ""
+	if cfg.Cookies != nil {
+		if cookie := strings.TrimSpace(cfg.Cookies["play.sooplive.co.kr"]); cookie != "" {
+			storedCookie = cookie
+		}
+	}
+	if storedCookie != "" {
+		if result, err := soop.VerifyCookieStringCached(storedCookie); err == nil {
+			verifyResult = result
+			if result != nil && result.IsLogin {
+				cookieStatus = "valid"
+			} else {
+				cookieStatus = "invalid"
+				verifyError = "Soop Cookie 校验未通过，当前登录态已失效或权限不足"
+			}
+		} else {
+			cookieStatus = "error"
+			verifyError = err.Error()
+		}
+	}
+	applog.GetLogger().Debugf("Soop auth 状态查询: hasCookie=%v cookieStatus=%s hasSavedCredential=%v verifyError=%v",
+		storedCookie != "", cookieStatus, cfg.SoopLiveAuth.Username != "" || cfg.SoopLiveAuth.Password != "", verifyError != "")
+
+	writeJSON(writer, commonResp{
+		Data: map[string]any{
+			"username":              cfg.SoopLiveAuth.Username,
+			"password":              cfg.SoopLiveAuth.Password,
+			"has_saved_credentials": cfg.SoopLiveAuth.Username != "" || cfg.SoopLiveAuth.Password != "",
+			"cookie_status":         cookieStatus,
+			// verify 为空通常表示：
+			// 1. 当前没有保存 Cookie；
+			// 2. Soop 校验接口请求失败；
+			// 3. 平台暂时不可达。
+			"verify":       verifyResult,
+			"verify_error": verifyError,
+		},
+	})
+}
+
+// clearSoopLiveAuthConfig 清空 Soop 账号密码与持久化 Cookie。
+// 这会让后续 Soop 请求退回到“无登录态”模式。
+func clearSoopLiveAuthConfig(writer http.ResponseWriter, r *http.Request) {
+	applog.GetLogger().Debug("Soop 清空账号密码与 Cookie 请求开始")
+	newCfg, err := configs.UpdateWithRetry(func(c *configs.Config) error {
+		c.SoopLiveAuth.Username = ""
+		c.SoopLiveAuth.Password = ""
+		if c.Cookies != nil {
+			delete(c.Cookies, "play.sooplive.co.kr")
+		}
+		return nil
+	}, 3, 10*time.Millisecond)
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "清空 Soop 凭证失败: " + err.Error(),
+		})
+		return
+	}
+
+	applyCookiesToLives(r.Context(), newCfg, "play.sooplive.co.kr")
+	applog.GetLogger().Debug("Soop 清空账号密码与 Cookie 请求完成")
+	writeJSON(writer, commonResp{Data: "OK"})
+}
+
+// loginSoopLive 接收前端输入的账号密码，调用 Soop 登录接口换取 Cookie。
+// 登录成功后：
+// 1. 将 Cookie 写入配置文件；
+// 2. 可选保存明文账号密码；
+// 3. 更新当前运行中 Soop 房间的请求选项。
+func loginSoopLive(writer http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username        string `json:"username"`
+		Password        string `json:"password"`
+		SaveCredentials bool   `json:"save_credentials"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{ErrNo: http.StatusBadRequest, ErrMsg: "请求体格式错误，无法解析 Soop 登录参数"})
+		return
+	}
+	if strings.TrimSpace(req.Username) == "" || strings.TrimSpace(req.Password) == "" {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{ErrNo: http.StatusBadRequest, ErrMsg: "Soop 账号或密码为空，请完整填写后再登录"})
+		return
+	}
+	applog.GetLogger().Debugf("Soop Web 登录开始: username=%s saveCredentials=%v", req.Username, req.SaveCredentials)
+
+	result, err := soop.LoginAndGetCookie(req.Username, req.Password)
+	if err != nil {
+		applog.GetLogger().WithError(err).Debugf("Soop Web 登录失败: username=%s", req.Username)
+		writeJsonWithStatusCode(writer, http.StatusUnauthorized, commonResp{
+			ErrNo:  http.StatusUnauthorized,
+			ErrMsg: "Soop 登录失败，可能是账号密码错误、平台风控、网络异常或接口已变更: " + err.Error(),
+		})
+		return
+	}
+
+	newCfg, err := configs.UpdateWithRetry(func(c *configs.Config) error {
+		if c.Cookies == nil {
+			c.Cookies = make(map[string]string)
+		}
+		c.Cookies["play.sooplive.co.kr"] = result.Cookie
+		if req.SaveCredentials {
+			c.SoopLiveAuth.Username = req.Username
+			c.SoopLiveAuth.Password = req.Password
+		} else {
+			c.SoopLiveAuth.Username = ""
+			c.SoopLiveAuth.Password = ""
+		}
+		return nil
+	}, 3, 10*time.Millisecond)
+	if err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "Soop 登录成功，但写入配置失败: " + err.Error(),
+		})
+		return
+	}
+
+	applyCookiesToLives(r.Context(), newCfg, "play.sooplive.co.kr")
+	applog.GetLogger().Debugf("Soop Web 登录成功: username=%s cookieLength=%d loginID=%s", req.Username, len(result.Cookie), result.Verify.LoginID)
+
+	writeJSON(writer, commonResp{
+		Data: map[string]any{
+			"cookie":   result.Cookie,
+			"verify":   result.Verify,
+			"username": result.Username,
+		},
+	})
+}
+
+// verifySoopLiveCookie 验证前端提供的 Soop Cookie 是否有效。
+// 常见失败原因：
+// - Cookie 已过期；
+// - Cookie 不完整；
+// - 账号已在平台侧退出登录；
+// - Soop 校验接口当前不可用。
+func verifySoopLiveCookie(writer http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Cookie string `json:"cookie"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{ErrNo: http.StatusBadRequest, ErrMsg: "请求体格式错误，无法解析 Soop Cookie"})
+		return
+	}
+	if strings.TrimSpace(req.Cookie) == "" {
+		writeJsonWithStatusCode(writer, http.StatusBadRequest, commonResp{ErrNo: http.StatusBadRequest, ErrMsg: "Soop Cookie 不能为空"})
+		return
+	}
+	applog.GetLogger().Debugf("Soop Cookie 校验开始: cookieLength=%d", len(req.Cookie))
+
+	result, err := soop.VerifyCookieStringCached(req.Cookie)
+	if err != nil {
+		applog.GetLogger().WithError(err).Debug("Soop Cookie 校验失败")
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "验证 Soop Cookie 失败，可能是网络异常、Cookie 已失效或平台接口返回异常: " + err.Error(),
+		})
+		return
+	}
+	applog.GetLogger().Debugf("Soop Cookie 校验完成: isLogin=%v loginID=%s", result.IsLogin, result.LoginID)
+
+	writeJSON(writer, commonResp{Data: result})
 }
 
 // getLiveSessionHistory 获取直播间的会话历史记录
