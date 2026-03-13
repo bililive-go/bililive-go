@@ -144,7 +144,9 @@ func Check(appDataPath, currentVersion, currentExePath string) (*CheckResult, er
 			state.BackupVersion = "" // 清除旧备份
 			state.BackupBinaryPath = ""
 			state.FailureCount = 0
-			state.Save(result.StatePath)
+			if err := state.Save(result.StatePath); err != nil {
+				fmt.Fprintf(os.Stderr, "[Launcher.Check] 警告：保存接管状态失败: %v\n", err)
+			}
 			return result, nil
 		}
 		if currVer.Equal(activeVer) {
@@ -153,13 +155,11 @@ func Check(appDataPath, currentVersion, currentExePath string) (*CheckResult, er
 				currentVersion, state.ActiveVersion)
 			return result, nil
 		}
-	} else {
+	} else if state.ActiveVersion == currentVersion {
 		// 如果版本号不符合 semver，回退到字符串比较
-		if state.ActiveVersion == currentVersion {
-			fmt.Fprintf(os.Stderr, "[Launcher.Check] ActiveVersion(%q) == currentVersion(%q)，正常启动\n",
-				state.ActiveVersion, currentVersion)
-			return result, nil
-		}
+		fmt.Fprintf(os.Stderr, "[Launcher.Check] ActiveVersion(%q) == currentVersion(%q)，正常启动\n",
+			state.ActiveVersion, currentVersion)
+		return result, nil
 	}
 
 	// 构建完整的二进制路径
