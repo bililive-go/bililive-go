@@ -26,6 +26,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/notify"
 	"github.com/bililive-go/bililive-go/src/pipeline"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
+	"github.com/bililive-go/bililive-go/src/pkg/hlsproxy"
 	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 	"github.com/bililive-go/bililive-go/src/pkg/parser"
 	"github.com/bililive-go/bililive-go/src/pkg/parser/bililive_recorder"
@@ -406,6 +407,35 @@ func (r *recorder) tryRecord(ctx context.Context) {
 			url = probe.LocalURL()
 		}
 	} else if streamprobe.IsStreamHLS(url) {
+		if r.Live.GetPlatformCNName() == "SOOP" {
+			hlsFilterProxy, proxyErr := hlsproxy.New(url, streamInfo.HeadersForDownloader, true)
+			if proxyErr != nil {
+				r.getLogger().WithError(proxyErr).Warn("Soop HLS 过滤代理启动失败，将直接使用上游 m3u8")
+			} else if proxyErr = hlsFilterProxy.Start(ctx); proxyErr != nil {
+				r.getLogger().WithError(proxyErr).Warn("Soop HLS 过滤代理运行失败，将直接使用上游 m3u8")
+			} else {
+				defer hlsFilterProxy.Stop()
+				streamInfo = &live.StreamUrlInfo{
+					Url:                       hlsFilterProxy.LocalURL(),
+					HeadersForDownloader:      nil,
+					Format:                    streamInfo.Format,
+					Quality:                   streamInfo.Quality,
+					Description:               streamInfo.Description,
+					Codec:                     streamInfo.Codec,
+					Width:                     streamInfo.Width,
+					Height:                    streamInfo.Height,
+					Bitrate:                   streamInfo.Bitrate,
+					Vbitrate:                  streamInfo.Vbitrate,
+					FrameRate:                 streamInfo.FrameRate,
+					Name:                      streamInfo.Name,
+					AudioCodec:                streamInfo.AudioCodec,
+					AttributesForStreamSelect: streamInfo.AttributesForStreamSelect,
+				}
+				url = hlsFilterProxy.LocalURL()
+				r.getLogger().Info("Soop HLS 过滤代理已启用，将自动跳过 preloading 分片")
+			}
+		}
+
 		// HLS 流：不使用代理，异步探测第一个 TS 分段的头部信息
 		// 使用 tryRecord 的 ctx，当录制结束/重试时自动取消探测
 		go func(probeCtx context.Context) {

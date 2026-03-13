@@ -13,7 +13,7 @@ import (
 func TestCreateTLSConfig(t *testing.T) {
 	// Reset warning once for testing
 	edgesrvWarningOnce = sync.Once{}
-	
+
 	tests := []struct {
 		name                string
 		host                string
@@ -68,15 +68,15 @@ func TestCreateTLSConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			config := createTLSConfig(tt.host)
-			
+
 			assert.NotNil(t, config)
 			assert.Equal(t, tt.host, config.ServerName)
-			
+
 			if tt.expectWeakCiphers {
 				// Check for CBC-mode cipher suites (the actual weak ciphers needed)
 				assert.NotNil(t, config.CipherSuites)
 				assert.Equal(t, tt.expectedCipherCount, len(config.CipherSuites))
-				
+
 				// Verify CBC cipher suites are included
 				foundCBC128 := false
 				foundCBC256 := false
@@ -99,7 +99,7 @@ func TestCreateTLSConfig(t *testing.T) {
 				// For non-edgesrv.com domains, cipher suites should be nil (use default)
 				assert.Nil(t, config.CipherSuites)
 			}
-			
+
 			if tt.expectMinTLS12 {
 				assert.Equal(t, uint16(tls.VersionTLS12), config.MinVersion)
 			} else {
@@ -228,14 +228,32 @@ func TestExtractHostname(t *testing.T) {
 
 func TestCreateDefaultClient(t *testing.T) {
 	client := CreateDefaultClient()
-	
+
 	assert.NotNil(t, client)
 	assert.NotNil(t, client.Transport)
-	
+
 	transport, ok := client.Transport.(*http.Transport)
 	assert.True(t, ok, "Transport should be *http.Transport")
-	
+
 	// Verify transport configuration
+	assert.NotNil(t, transport.DialContext)
+	assert.NotNil(t, transport.DialTLSContext)
+	assert.Equal(t, 100, transport.MaxIdleConns)
+	assert.Equal(t, 10, transport.MaxIdleConnsPerHost)
+	assert.Greater(t, transport.IdleConnTimeout.Seconds(), 0.0)
+	assert.Greater(t, transport.TLSHandshakeTimeout.Seconds(), 0.0)
+	assert.Greater(t, transport.ResponseHeaderTimeout.Seconds(), 0.0)
+}
+
+func TestCreateDownloadClient(t *testing.T) {
+	client := CreateDownloadClient()
+
+	assert.NotNil(t, client)
+	assert.NotNil(t, client.Transport)
+
+	transport, ok := client.Transport.(*http.Transport)
+	assert.True(t, ok, "Transport should be *http.Transport")
+
 	assert.NotNil(t, transport.DialContext)
 	assert.NotNil(t, transport.DialTLSContext)
 	assert.Equal(t, 100, transport.MaxIdleConns)
@@ -247,14 +265,14 @@ func TestCreateDefaultClient(t *testing.T) {
 
 func TestCreateConnCounterClient(t *testing.T) {
 	client, err := CreateConnCounterClient()
-	
+
 	assert.NoError(t, err)
 	assert.NotNil(t, client)
 	assert.NotNil(t, client.Transport)
-	
+
 	transport, ok := client.Transport.(*http.Transport)
 	assert.True(t, ok, "Transport should be *http.Transport")
-	
+
 	// Verify transport configuration
 	assert.NotNil(t, transport.DialContext)
 	assert.NotNil(t, transport.DialTLSContext)
