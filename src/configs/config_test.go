@@ -129,6 +129,7 @@ func TestGetPlatformKeyFromUrl(t *testing.T) {
 		{"https://live.douyin.com/789", "douyin"},
 		{"https://v.douyin.com/abc", "douyin"},
 		{"https://www.douyu.com/room/123", "douyu"},
+		{"https://play.sooplive.co.kr/mbntv", "sooplive"},
 		{"https://unknown.domain.com/room", "unknown.domain.com"},
 		{"invalid-url", ""},
 	}
@@ -137,6 +138,20 @@ func TestGetPlatformKeyFromUrl(t *testing.T) {
 		result := GetPlatformKeyFromUrl(test.url)
 		assert.Equal(t, test.expected, result, "URL: %s", test.url)
 	}
+}
+
+func TestSetCookieDeletesEmptyCookie(t *testing.T) {
+	cfg := NewConfig()
+	cfg.Cookies = map[string]string{
+		"play.sooplive.co.kr": "SESS=abc",
+	}
+	SetCurrentConfig(cfg)
+
+	newCfg, err := SetCookie("play.sooplive.co.kr", "")
+	assert.NoError(t, err)
+	assert.NotNil(t, newCfg)
+	_, exists := newCfg.Cookies["play.sooplive.co.kr"]
+	assert.False(t, exists)
 }
 
 func TestHierarchicalConfigFromExistingConfig(t *testing.T) {
@@ -246,6 +261,23 @@ func TestBarkConfig_DefaultValues(t *testing.T) {
 	assert.Equal(t, "", cfg.Notify.Bark.Sound)
 	assert.Equal(t, "", cfg.Notify.Bark.Icon)
 	assert.Equal(t, "", cfg.Notify.Bark.Level)
+}
+
+func TestSoopLiveAuth_LoadAndSet(t *testing.T) {
+	cfgYaml := `
+rpc:
+  enable: true
+  bind: :8080
+interval: 20
+out_put_path: ./
+sooplive_auth:
+  username: "tester"
+  password: "secret"
+`
+	cfg, err := NewConfigWithBytes([]byte(cfgYaml))
+	assert.NoError(t, err)
+	assert.Equal(t, "tester", cfg.SoopLiveAuth.Username)
+	assert.Equal(t, "secret", cfg.SoopLiveAuth.Password)
 }
 
 // Helper functions for pointer conversion
