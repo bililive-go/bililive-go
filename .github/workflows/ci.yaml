@@ -19,7 +19,12 @@ permissions:
   contents: read
 
 jobs:
+  # 预热 Go 依赖缓存
+  go-cache:
+    uses: ./.github/workflows/go-cache.yaml
+
   build-web:
+    needs: go-cache
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,7 +49,7 @@ jobs:
             cache: yarn
             cache-dependency-path: 'src/webapp/yarn.lock'
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         if: ${{ steps.cache_web_build.outputs.cache-hit != 'true' && github.event.inputs.is_force != 'true' }}
         with:
           go-version: '1.25'

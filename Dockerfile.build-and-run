@@ -1,5 +1,5 @@
 #docker build -t bililive-go:build . -f Dockerfile.build-and-run 
-FROM golang:1.23.4-bullseye AS builder
+FROM golang:1.25.0-bullseye AS builder
 
 WORKDIR /build
 

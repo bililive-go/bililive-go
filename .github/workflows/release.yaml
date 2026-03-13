@@ -3,8 +3,31 @@ on:
   push:
     tags:
       - 'v*'
+  # 支持手动触发（用于 dry-run 测试整个编译流程）
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry-run 模式：执行完整编译流程但不发布（不推送到 GitHub Release 和 Docker Hub）'
+        required: false
+        default: true
+        type: boolean
+      tag:
+        description: '模拟的 tag 版本号（如 v0.8.0-rc.3），dry-run 时必填'
+        required: false
+        type: string
+
+# dry-run 判断：workflow_dispatch 触发 + dry_run=true
+# 注意：push tag 触发时 inputs 不存在，github.event.inputs.dry_run 为空字符串
+env:
+  IS_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true' }}
+
 jobs:
+  # 预热 Go 依赖缓存
+  go-cache:
+    uses: ./.github/workflows/go-cache.yaml
+
   release-bins-sharded:
+    needs: go-cache
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -19,13 +42,23 @@ jobs:
       SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
     steps:
       - uses: actions/checkout@v4
-      - run: echo "GIT_TAG=`echo $(git describe --tags --abbrev=0)`" >> $GITHUB_ENV
-      - uses: actions/setup-go@v5
+        with:
+          # fetch-depth: 0 获取完整历史和所有 tags
+          # 注意：不要使用 fetch-tags: true，会导致 tag 触发时 fetch 冲突
+          # 参考: https://github.com/actions/checkout/issues/1467
+          fetch-depth: 0
+      - name: Set GIT_TAG
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "GIT_TAG=${{ inputs.tag }}" >> $GITHUB_ENV
+          else
+            echo "GIT_TAG=`echo $(git describe --tags --abbrev=0)`" >> $GITHUB_ENV
+          fi
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.25'
           cache: true
           cache-dependency-path: '**/go.sum'
-      - run: go install github.com/golang/mock/mockgen@v1.6.0
       - name: Restore cache of built web (src/webapp/build)
         id: cache_web_build_restore
         uses: actions/cache/restore@v4
@@ -67,12 +100,29 @@ jobs:
     needs: [release-bins-sharded]
     steps:
       - uses: actions/checkout@v4
-      - run: echo "GIT_TAG=`echo $(git describe --tags --abbrev=0)`" >> $GITHUB_ENV
+        with:
+          fetch-depth: 0
+      - name: Set GIT_TAG
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "GIT_TAG=${{ inputs.tag }}" >> $GITHUB_ENV
+          else
+            echo "GIT_TAG=`echo $(git describe --tags --abbrev=0)`" >> $GITHUB_ENV
+          fi
       - name: Download all shard artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
+      - name: List artifacts (dry-run verification)
+        run: |
+          echo "=== 已下载的构建产物 ==="
+          find dist -type f | sort
+          echo "=== 产物统计 ==="
+          echo "tar.gz: $(find dist -name '*.tar.gz' | wc -l) 个"
+          echo "zip: $(find dist -name '*.zip' | wc -l) 个"
+          echo "7z: $(find dist -name '*.7z' | wc -l) 个"
       - name: Publish GitHub Release with all packaged files
+        if: ${{ env.IS_DRY_RUN != 'true' }}
         uses: softprops/action-gh-release@v1
         with:
           files: |
@@ -80,31 +130,186 @@ jobs:
             dist/**/*.zip
             dist/**/*.7z
           prerelease: ${{ contains(env.GIT_TAG, 'rc') }}
+      - name: "[Dry-Run] 跳过 GitHub Release 发布"
+        if: ${{ env.IS_DRY_RUN == 'true' }}
+        run: echo "::notice::Dry-run 模式：跳过 GitHub Release 发布（GIT_TAG=$GIT_TAG）"
 
+  # Docker 镜像构建：按平台分矩阵，arm64 使用原生 ARM runner
+  # 优化策略：
+  #   1. amd64/arm64 使用原生 runner，避免 QEMU 模拟
+  #   2. 内置工具在 CI 原生环境中预下载，COPY 进镜像（避免在 QEMU 下解压 xz）
+  #   3. bgo 二进制直接从 artifact 获取，不再从 GitHub Releases curl 下载
   release-docker-images:
+    needs: [publish-release]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            arch: amd64
+          - platform: linux/arm64/v8
+            runner: ubuntu-24.04-arm
+            arch: arm64
+          - platform: linux/arm/v7
+            runner: ubuntu-24.04-arm  # arm/v7 仍需 QEMU，但 ARM runner 上模拟 armv7 比 x86 模拟快
+            arch: arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set GIT_TAG
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "GIT_TAG=${{ inputs.tag }}" >> $GITHUB_ENV
+          else
+            echo "GIT_TAG=`echo $(git describe --tags --abbrev=0)`" >> $GITHUB_ENV
+          fi
+
+      # 下载编译好的二进制 artifact（从 release-bins-sharded 产物中提取）
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      # 准备 Docker 构建上下文：提取对应架构的二进制
+      - name: Prepare bgo binary for Docker
+        run: |
+          mkdir -p docker-context/bin
+          # 从 shard artifacts 中查找对应架构的 tar.gz
+          TARBALL=$(find dist -name "bililive-linux-${{ matrix.arch }}.tar.gz" -print -quit)
+          if [ -z "$TARBALL" ]; then
+            echo "::error::找不到 bililive-linux-${{ matrix.arch }}.tar.gz"
+            exit 1
+          fi
+          echo "找到二进制包: $TARBALL"
+          tar xzf "$TARBALL" -C docker-context/bin "bililive-linux-${{ matrix.arch }}"
+          mv "docker-context/bin/bililive-linux-${{ matrix.arch }}" docker-context/bin/bililive-go
+          chmod +x docker-context/bin/bililive-go
+          ls -la docker-context/bin/
+
+      # 在原生环境中预下载内置工具（避免在 QEMU 下解压 xz 的巨大开销）
+      # 版本号和下载 URL 自动从 src/tools/remote-tools-config.json 读取
+      # 缓存策略：以 config hash + 架构作为 key，避免重复下载
+      - name: Cache built-in tools
+        id: cache-tools
+        uses: actions/cache@v4
+        with:
+          path: docker-tools-cache/${{ matrix.arch }}
+          key: docker-tools-${{ matrix.arch }}-${{ hashFiles('src/tools/remote-tools-config.json', 'scripts/docker-prepare-tools.mjs') }}
+      - name: Pre-download built-in tools
+        if: steps.cache-tools.outputs.cache-hit != 'true'
+        run: node scripts/docker-prepare-tools.mjs "${{ matrix.arch }}" docker-tools-cache/${{ matrix.arch }}
+      - name: Copy tools to docker-context
+        run: |
+          mkdir -p docker-context/tools
+          cp -r docker-tools-cache/${{ matrix.arch }}/* docker-context/tools/ 2>/dev/null || true
+
+      # 仅 arm/v7 需要 QEMU（用于 apt-get 安装 ffmpeg 等）
+      - name: Set up QEMU
+        if: matrix.arch == 'arm'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Docker Setup Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: ${{ env.IS_DRY_RUN != 'true' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      # 构建并推送单平台镜像（by digest，不关联 tag）
+      # dry-run 模式下只构建不推送（push: false）
+      - name: Build and push single-platform image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: ${{ env.IS_DRY_RUN != 'true' }}
+          tags: ""
+          outputs: ${{ env.IS_DRY_RUN != 'true' && 'type=image,name=chigusa/bililive-go,push-by-digest=true,name-canonical=true' || '' }}
+          cache-from: type=gha,scope=docker-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=docker-${{ matrix.arch }}
+
+      # 导出 digest 供后续合并（仅非 dry-run）
+      - name: Export digest
+        if: ${{ env.IS_DRY_RUN != 'true' }}
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        if: ${{ env.IS_DRY_RUN != 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-digest-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: "[Dry-Run] Docker 构建成功"
+        if: ${{ env.IS_DRY_RUN == 'true' }}
+        run: echo "::notice::Dry-run 模式：Docker 镜像 (${{ matrix.platform }}) 构建成功，跳过推送"
+
+  # 合并各平台镜像为 multi-arch manifest
+  merge-docker-manifest:
     runs-on: ubuntu-latest
-    needs:
-      - publish-release
+    needs: [release-docker-images]
+    # dry-run 模式下跳过 manifest 合并（没有推送 digest）
+    if: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true') }}
     steps:
       - uses: actions/checkout@v4
       - run: echo "GIT_TAG=`echo $(git describe --tags --abbrev=0)`" >> $GITHUB_ENV
-      - run: if ! echo $GIT_TAG | grep "rc" >/dev/null; then DOCKER_TAGS=chigusa/bililive-go:$GIT_TAG,chigusa/bililive-go:latest; else DOCKER_TAGS=chigusa/bililive-go:$GIT_TAG; fi; echo "DOCKER_TAGS=$DOCKER_TAGS" >> $GITHUB_ENV
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - run: |
+          if ! echo $GIT_TAG | grep "rc" >/dev/null; then
+            DOCKER_TAGS="chigusa/bililive-go:$GIT_TAG,chigusa/bililive-go:latest"
+          else
+            DOCKER_TAGS="chigusa/bililive-go:$GIT_TAG"
+          fi
+          echo "DOCKER_TAGS=$DOCKER_TAGS" >> $GITHUB_ENV
+
+      - name: Download all digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: docker-digest-*
+          merge-multiple: true
+
       - name: Docker Setup Buildx
         uses: docker/setup-buildx-action@v3
+
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN }}
-      - name: Build the Docker image
-        uses: docker/build-push-action@v5
-        with:
-          file: Dockerfile
-          build-args: tag=${{ env.GIT_TAG }}
-          platforms: linux/amd64,linux/arm64/v8,linux/arm/v7
-          push: true
-          tags: ${{ env.DOCKER_TAGS }}
-          cache-from: type=gha,scope=bililive-go
-          cache-to: type=gha,mode=max,scope=bililive-go
+
+      - name: Create and push multi-arch manifest
+        working-directory: /tmp/digests
+        run: |
+          # 构建 digest 参数列表
+          # 验证文件名是否为 SHA256 格式（64个十六进制字符），跳过非 digest 文件
+          # 原因：actions/download-artifact 合并多个 artifact 时可能引入元数据文件
+          DIGEST_ARGS=""
+          for dgst in *; do
+            if echo "$dgst" | grep -qE '^[0-9a-f]{64}$'; then
+              DIGEST_ARGS="$DIGEST_ARGS chigusa/bililive-go@sha256:$dgst"
+            else
+              echo "警告: 跳过非 digest 文件: $dgst"
+            fi
+          done
+
+          # 为每个 tag 创建 manifest
+          IFS=',' read -ra TAGS <<< "$DOCKER_TAGS"
+          for tag in "${TAGS[@]}"; do
+            echo "创建 manifest: $tag"
+            docker buildx imagetools create -t "$tag" $DIGEST_ARGS
+          done
+
+      - name: Inspect final image
+        run: docker buildx imagetools inspect "chigusa/bililive-go:$GIT_TAG"
+

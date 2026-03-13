@@ -62,3 +62,34 @@ live_rooms:
 	assert.Equal(t, string(contentAfter), string(contentAfterTransient), "File content should not change")
 
 }
+
+// TestReadAppDataPathFromFile_MinimalParsing 测试最小解析，忽略其他不兼容字段
+func TestReadAppDataPathFromFile_MinimalParsing(t *testing.T) {
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "config.yml")
+
+	// 包含一个在旧版不支持的可能导致完整解析失败的字段，以及有效的 app_data_path
+	content := `
+app_data_path: "/test/appdata"
+new_feature_xyz:
+  enabled: true
+  score: "invalid_type_for_int_in_full_config"
+`
+	err := os.WriteFile(configFile, []byte(content), 0644)
+	assert.NoError(t, err)
+
+	parsedPath, err := ReadAppDataPathFromFile(configFile)
+	assert.NoError(t, err, "由于使用了最小子集结构体，其他不兼容字段不应导致解析失败")
+	assert.Equal(t, "/test/appdata", parsedPath)
+
+	// 测试回退到 out_put_path/.appdata
+	content2 := `
+out_put_path: "/test/out"
+`
+	err = os.WriteFile(configFile, []byte(content2), 0644)
+	assert.NoError(t, err)
+
+	parsedPath2, err := ReadAppDataPathFromFile(configFile)
+	assert.NoError(t, err)
+	assert.Equal(t, filepath.Join("/test/out", ".appdata"), parsedPath2)
+}

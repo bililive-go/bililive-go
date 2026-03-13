@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/bililive-go/bililive-go/src/configs"
+	"github.com/bililive-go/bililive-go/src/pkg/migration"
+	"github.com/sirupsen/logrus"
 	_ "modernc.org/sqlite"
 )
 
@@ -88,95 +90,54 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 		dbPath: dbPath,
 	}
 
-	// 初始化表结构
-	if err := store.initTables(); err != nil {
+	// 运行数据库迁移
+	if err := store.runMigrations(); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("failed to init tables: %w", err)
+		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
 	return store, nil
 }
 
-// initTables 初始化表结构
-func (s *SQLiteStore) initTables() error {
-	// IO 统计表
-	_, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS io_stats (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			timestamp INTEGER NOT NULL,
-			stat_type TEXT NOT NULL,
-			live_id TEXT,
-			platform TEXT,
-			speed INTEGER NOT NULL DEFAULT 0,
-			total_bytes INTEGER NOT NULL DEFAULT 0
-		);
-		CREATE INDEX IF NOT EXISTS idx_io_stats_timestamp ON io_stats(timestamp);
-		CREATE INDEX IF NOT EXISTS idx_io_stats_type_time ON io_stats(stat_type, timestamp);
-		CREATE INDEX IF NOT EXISTS idx_io_stats_live_time ON io_stats(live_id, timestamp);
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to create io_stats table: %w", err)
+// runMigrations 运行数据库迁移
+func (s *SQLiteStore) runMigrations() error {
+	config := &migration.MigrationConfig{
+		DBPath: s.dbPath,
+		Schema: IOStatsDatabaseSchema,
+		DB:     s.db,
 	}
 
-	// 请求状态表
-	_, err = s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS request_status (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			timestamp INTEGER NOT NULL,
-			live_id TEXT NOT NULL,
-			platform TEXT NOT NULL,
-			success INTEGER NOT NULL,
-			error_message TEXT
-		);
-		CREATE INDEX IF NOT EXISTS idx_request_status_timestamp ON request_status(timestamp);
-		CREATE INDEX IF NOT EXISTS idx_request_status_live ON request_status(live_id, timestamp);
-		CREATE INDEX IF NOT EXISTS idx_request_status_platform ON request_status(platform, timestamp);
-	`)
+	migrator, err := migration.NewMigrator(config)
 	if err != nil {
-		return fmt.Errorf("failed to create request_status table: %w", err)
+		return fmt.Errorf("创建迁移器失败: %w", err)
 	}
 
-	// 磁盘 I/O 统计表
-	_, err = s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS disk_io_stats (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			timestamp INTEGER NOT NULL,
-			device_name TEXT NOT NULL,
-			read_count INTEGER NOT NULL DEFAULT 0,
-			write_count INTEGER NOT NULL DEFAULT 0,
-			read_bytes INTEGER NOT NULL DEFAULT 0,
-			write_bytes INTEGER NOT NULL DEFAULT 0,
-			read_time_ms INTEGER NOT NULL DEFAULT 0,
-			write_time_ms INTEGER NOT NULL DEFAULT 0,
-			avg_read_latency REAL NOT NULL DEFAULT 0,
-			avg_write_latency REAL NOT NULL DEFAULT 0,
-			read_speed INTEGER NOT NULL DEFAULT 0,
-			write_speed INTEGER NOT NULL DEFAULT 0
-		);
-		CREATE INDEX IF NOT EXISTS idx_disk_io_timestamp ON disk_io_stats(timestamp);
-		CREATE INDEX IF NOT EXISTS idx_disk_io_device_time ON disk_io_stats(device_name, timestamp);
-	`)
+	recovered, err := migrator.CheckAndRecover()
 	if err != nil {
-		return fmt.Errorf("failed to create disk_io_stats table: %w", err)
+		logrus.WithError(err).Warn("IO 统计数据库迁移恢复检查失败")
+	}
+	if recovered {
+		logrus.Info("IO 统计数据库从未完成的迁移中恢复")
+		s.db.Close()
+		db, err := sql.Open("sqlite", s.dbPath)
+		if err != nil {
+			return fmt.Errorf("恢复后重新打开数据库失败: %w", err)
+		}
+		s.db = db
+		config.DB = s.db
+		migrator, err = migration.NewMigrator(config)
+		if err != nil {
+			return fmt.Errorf("恢复后重新创建迁移器失败: %w", err)
+		}
 	}
 
-	// 内存统计表
-	_, err = s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS memory_stats (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			timestamp INTEGER NOT NULL,
-			category TEXT NOT NULL,
-			rss INTEGER NOT NULL DEFAULT 0,
-			vms INTEGER NOT NULL DEFAULT 0,
-			alloc INTEGER NOT NULL DEFAULT 0,
-			sys INTEGER NOT NULL DEFAULT 0,
-			num_gc INTEGER NOT NULL DEFAULT 0
-		);
-		CREATE INDEX IF NOT EXISTS idx_memory_stats_timestamp ON memory_stats(timestamp);
-		CREATE INDEX IF NOT EXISTS idx_memory_stats_category_time ON memory_stats(category, timestamp);
-	`)
+	result, err := migrator.Run()
 	if err != nil {
-		return fmt.Errorf("failed to create memory_stats table: %w", err)
+		return fmt.Errorf("迁移失败: %w", err)
+	}
+
+	if result.BackupPath != "" {
+		logrus.WithField("backup_path", result.BackupPath).Debug("已创建 IO 统计数据库备份")
 	}
 
 	return nil
@@ -721,8 +682,8 @@ func (s *SQLiteStore) SaveMemoryStats(ctx context.Context, stats []*MemoryStat) 
 	defer tx.Rollback()
 
 	stmt, err := tx.PrepareContext(ctx,
-		`INSERT INTO memory_stats (timestamp, category, rss, vms, alloc, sys, num_gc)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO memory_stats (timestamp, category, rss, vms, alloc, sys, num_gc, num_goroutine)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 	)
 	if err != nil {
 		return err
@@ -731,7 +692,7 @@ func (s *SQLiteStore) SaveMemoryStats(ctx context.Context, stats []*MemoryStat) 
 
 	for _, stat := range stats {
 		_, err = stmt.ExecContext(ctx,
-			stat.Timestamp, stat.Category, stat.RSS, stat.VMS, stat.Alloc, stat.Sys, stat.NumGC,
+			stat.Timestamp, stat.Category, stat.RSS, stat.VMS, stat.Alloc, stat.Sys, stat.NumGC, stat.NumGoroutine,
 		)
 		if err != nil {
 			return err
@@ -746,7 +707,7 @@ func (s *SQLiteStore) QueryMemoryStats(ctx context.Context, query MemoryStatsQue
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	sqlQuery := `SELECT id, timestamp, category, rss, vms, alloc, sys, num_gc
+	sqlQuery := `SELECT id, timestamp, category, rss, vms, alloc, sys, num_gc, num_goroutine
 				 FROM memory_stats WHERE timestamp >= ? AND timestamp <= ?`
 	args := []interface{}{query.StartTime, query.EndTime}
 
@@ -775,7 +736,7 @@ func (s *SQLiteStore) QueryMemoryStats(ctx context.Context, query MemoryStatsQue
 		var stat MemoryStat
 		if err := rows.Scan(
 			&stat.ID, &stat.Timestamp, &stat.Category,
-			&stat.RSS, &stat.VMS, &stat.Alloc, &stat.Sys, &stat.NumGC,
+			&stat.RSS, &stat.VMS, &stat.Alloc, &stat.Sys, &stat.NumGC, &stat.NumGoroutine,
 		); err != nil {
 			return nil, err
 		}
@@ -827,12 +788,13 @@ func (s *SQLiteStore) aggregateMemoryStats(stats []MemoryStat, aggregation strin
 	}
 
 	groups := make(map[groupKey]*struct {
-		count int
-		rss   uint64
-		vms   uint64
-		alloc uint64
-		sys   uint64
-		numGC uint32
+		count        int
+		rss          uint64
+		vms          uint64
+		alloc        uint64
+		sys          uint64
+		numGC        uint32
+		numGoroutine int
 	})
 
 	for _, stat := range stats {
@@ -844,12 +806,13 @@ func (s *SQLiteStore) aggregateMemoryStats(stats []MemoryStat, aggregation strin
 
 		if groups[key] == nil {
 			groups[key] = &struct {
-				count int
-				rss   uint64
-				vms   uint64
-				alloc uint64
-				sys   uint64
-				numGC uint32
+				count        int
+				rss          uint64
+				vms          uint64
+				alloc        uint64
+				sys          uint64
+				numGC        uint32
+				numGoroutine int
 			}{}
 		}
 		groups[key].count++
@@ -860,19 +823,21 @@ func (s *SQLiteStore) aggregateMemoryStats(stats []MemoryStat, aggregation strin
 		if stat.NumGC > groups[key].numGC {
 			groups[key].numGC = stat.NumGC // 使用最大值
 		}
+		groups[key].numGoroutine += stat.NumGoroutine
 	}
 
 	// 转换回切片
 	result := make([]MemoryStat, 0, len(groups))
 	for key, group := range groups {
 		result = append(result, MemoryStat{
-			Timestamp: key.bucket * interval,
-			Category:  key.category,
-			RSS:       group.rss / uint64(group.count), // 平均值
-			VMS:       group.vms / uint64(group.count),
-			Alloc:     group.alloc / uint64(group.count),
-			Sys:       group.sys / uint64(group.count),
-			NumGC:     group.numGC,
+			Timestamp:    key.bucket * interval,
+			Category:     key.category,
+			RSS:          group.rss / uint64(group.count), // 平均值
+			VMS:          group.vms / uint64(group.count),
+			Alloc:        group.alloc / uint64(group.count),
+			Sys:          group.sys / uint64(group.count),
+			NumGC:        group.numGC,
+			NumGoroutine: group.numGoroutine / group.count, // 平均值
 		})
 	}
 

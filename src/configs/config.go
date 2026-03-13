@@ -689,6 +689,37 @@ func newConfigPostProcess(c *Config) {
 	}
 }
 
+// configMinimal 是配置文件的最小子集，仅包含 launcher 决策所需的字段。
+// 使用独立的小结构体而非完整 Config，确保即使完整配置格式在版本间发生不兼容变更，
+// launcher 检查阶段仍能正常工作（Docker 不停机升级的关键保障）。
+type configMinimal struct {
+	AppDataPath string `yaml:"app_data_path"`
+	OutPutPath  string `yaml:"out_put_path"`
+}
+
+// ReadAppDataPathFromFile 从配置文件中仅解析 app_data_path 字段。
+// 使用最小结构体解析，不受完整配置结构体变更的影响。
+// 若 app_data_path 为空，则按照 Config 的默认逻辑回退到 out_put_path/.appdata。
+func ReadAppDataPathFromFile(file string) (string, error) {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return "", err
+	}
+	var minimal configMinimal
+	// 即使配置文件中有未知字段或类型不兼容的字段，
+	// yaml.Unmarshal 也只会解析 minimal 中定义的字段，不会报错
+	if err := yaml.Unmarshal(b, &minimal); err != nil {
+		return "", err
+	}
+	if minimal.AppDataPath != "" {
+		return minimal.AppDataPath, nil
+	}
+	if minimal.OutPutPath != "" {
+		return filepath.Join(minimal.OutPutPath, ".appdata"), nil
+	}
+	return "", nil
+}
+
 // Verify will return an error when this config has problem.
 func (c *Config) Verify() error {
 	if c == nil {

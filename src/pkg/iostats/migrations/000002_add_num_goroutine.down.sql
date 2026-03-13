@@ -1,0 +1,2 @@
+-- 无法直接删除列，SQLite 不支持 DROP COLUMN
+-- 如需回滚，需要重建 memory_stats 表

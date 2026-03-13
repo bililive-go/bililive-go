@@ -6,6 +6,7 @@
 - Telegram 消息通知
 - Email 邮件通知
 - ntfy 推送通知
+- Bark 推送通知 (iOS)
 
 ## 使用方法
 
@@ -55,6 +56,7 @@ live_rooms:
 ```yaml
 # 通知服务配置
 notify:
+  send_recording_summary: true  # 是否在录制结束后推送录制文件摘要
   telegram:
     enable: true                # 是否启用Telegram通知
     withNotification: true      # 是否在Telegram通知中包含通知内容（是否有声音通知）
@@ -74,6 +76,15 @@ notify:
     URL: "https://ntfy.sh/your-topic"  # ntfy服务器地址和主题
     token: "your-token"         # 如果需要认证，填写访问令牌
     tag: "new"                  # 消息标签
+
+  bark:
+    enable: true                # 是否开启Bark通知(iOS)
+    serverURL: "https://api.day.app" # Bark服务器地址，默认 https://api.day.app，支持自建
+    deviceKey: "your-device-key" # 设备推送密钥（在Bark App首页获取）
+    sound: "alarm"              # 推送铃声（可选，如 alarm、birdsong、glass 等）
+    group: "bililive-go"        # 通知分组名称（可选）
+    icon: ""                    # 自定义图标URL（可选）
+    level: "timeSensitive"      # 通知级别（可选）: active/timeSensitive/passive/critical
 ```
 
 ## 注意事项

@@ -2,14 +2,15 @@ package iostats
 
 // MemoryStat 内存统计数据点
 type MemoryStat struct {
-	ID        int64  `json:"id"`
-	Timestamp int64  `json:"timestamp"`        // Unix 毫秒
-	Category  string `json:"category"`         // 类别: self, ffmpeg, bililive-tools, klive, bililive-recorder, container
-	RSS       uint64 `json:"rss"`              // Resident Set Size (bytes)
-	VMS       uint64 `json:"vms,omitempty"`    // Virtual Memory Size (bytes)，仅进程有
-	Alloc     uint64 `json:"alloc,omitempty"`  // Go Heap Alloc (bytes)，仅 self 有
-	Sys       uint64 `json:"sys,omitempty"`    // Go Sys Memory (bytes)，仅 self 有
-	NumGC     uint32 `json:"num_gc,omitempty"` // GC 次数，仅 self 有
+	ID           int64  `json:"id"`
+	Timestamp    int64  `json:"timestamp"`               // Unix 毫秒
+	Category     string `json:"category"`                // 类别: self, ffmpeg, bililive-tools, klive, bililive-recorder, container
+	RSS          uint64 `json:"rss"`                     // Resident Set Size (bytes) - 实际物理内存
+	VMS          uint64 `json:"vms,omitempty"`           // Virtual Memory Size (bytes)
+	Alloc        uint64 `json:"alloc,omitempty"`         // Go Heap Alloc (bytes)，仅 self 有
+	Sys          uint64 `json:"sys,omitempty"`           // Go Sys Memory (bytes)，仅 self 有
+	NumGC        uint32 `json:"num_gc,omitempty"`        // GC 次数，仅 self 有
+	NumGoroutine int    `json:"num_goroutine,omitempty"` // Goroutine 数量，仅 self 有
 }
 
 // MemoryStatsQuery 内存统计查询参数

@@ -31,6 +31,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/pkg/kliveproxy"
 	"github.com/bililive-go/bililive-go/src/pkg/launcher"
 	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
+	"github.com/bililive-go/bililive-go/src/pkg/memwatch"
 	"github.com/bililive-go/bililive-go/src/pkg/metadata"
 	"github.com/bililive-go/bililive-go/src/pkg/openlist"
 	"github.com/bililive-go/bililive-go/src/pkg/ratelimit"
@@ -70,7 +71,24 @@ func getConfigBesidesExecutable() (*configs.Config, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// 如果是由 Launcher 启动的子进程（新版本 exe 位于 .appdata/versions/{version}/），
+	// 优先从 Launcher（入口程序）的 exe 旁边查找用户的真实 config.yml。
+	// 因为 release 压缩包解压后，新版本 exe 旁边总会有一个默认的 config.yml，
+	// 必须优先使用用户原始目录的配置文件。
+	if launcherExe := os.Getenv("BILILIVE_LAUNCHER_EXE"); launcherExe != "" {
+		launcherConfigPath := filepath.Join(filepath.Dir(launcherExe), "config.yml")
+		if config, loadErr := configs.NewConfigWithFile(launcherConfigPath); loadErr == nil {
+			fmt.Fprintf(os.Stderr, "[Config] 使用 Launcher 目录的配置文件: %s\n", launcherConfigPath)
+			return config, nil
+		} else {
+			fmt.Fprintf(os.Stderr, "[Config] Launcher 配置文件加载失败 (%s): %v，回退到 exe 目录\n", launcherConfigPath, loadErr)
+		}
+	}
+
+	// 回退：在当前 exe 旁边查找（用户直接双击运行的场景）
 	configPath := filepath.Join(filepath.Dir(exePath), "config.yml")
+	fmt.Fprintf(os.Stderr, "[Config] 使用当前 exe 目录的配置文件: %s\n", configPath)
 	config, err := configs.NewConfigWithFile(configPath)
 	if err != nil {
 		return nil, err
@@ -94,8 +112,8 @@ func shouldRunAsLauncher() bool {
 	var appDataPath string
 	if *flag.Conf != "" {
 		// 尝试从配置文件读取 appdata 路径
-		if cfg, err := configs.NewConfigWithFile(*flag.Conf); err == nil {
-			appDataPath = cfg.AppDataPath
+		if parsedPath, err := configs.ReadAppDataPathFromFile(*flag.Conf); err == nil {
+			appDataPath = parsedPath
 		} else {
 			fmt.Fprintf(os.Stderr, "[Launcher] 从配置文件 %s 读取 appdata 路径失败: %v\n", *flag.Conf, err)
 		}
@@ -177,9 +195,10 @@ func main() {
 		os.Exit(0)
 	}
 
-	// 如果已经是由 launcher 模式启动的，跳过 launcher 检查
-	// 这通过环境变量 BILILIVE_LAUNCHER=1 来标识
-	if os.Getenv("BILILIVE_LAUNCHER") == "" {
+	// 如果已经是由 launcher 模式启动的，或者指定了 --no-launcher 参数，跳过 launcher 检查
+	// BILILIVE_LAUNCHER=1 环境变量由 launcher 自动设置
+	// --no-launcher 参数用于开发者手动跳过（等同于设置环境变量，但无需污染当前窗口）
+	if os.Getenv("BILILIVE_LAUNCHER") == "" && !*flag.NoLauncher {
 		// 检查是否需要进入 launcher 模式
 		if shouldRunAsLauncher() {
 			return // launcher 模式已完成执行
@@ -506,6 +525,17 @@ func main() {
 		})
 	}
 
+	// 初始化内存监控器
+	memWatcher := memwatch.New(memwatch.DefaultConfig())
+	memWatcher.SetAlertCallback(func(alert memwatch.AlertInfo) {
+		// 通过 SSE 推送内存警告到前端
+		if cfg := configs.GetCurrentConfig(); cfg != nil && cfg.RPC.Enable {
+			servers.GetSSEHub().BroadcastMemoryWarning(alert)
+		}
+	})
+	memWatcher.Start()
+	servers.SetMemoryWatcher(memWatcher)
+
 	// 初始化 live rooms
 	// 第一步：立即为所有配置的直播间创建 InitializingLive，让前端可以看到
 	cfg := configs.GetCurrentConfig()
@@ -686,6 +716,8 @@ func main() {
 		if liveStateManager != nil {
 			liveStateManager.Close()
 		}
+		// 停止内存监控器
+		memWatcher.Stop()
 		// 关闭 IO 统计模块
 		if inst.IOStatsModule != nil {
 			inst.IOStatsModule.Close(ctx)

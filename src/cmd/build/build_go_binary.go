@@ -138,7 +138,8 @@ func BuildGoBinaryWithOutput(isDev bool, outputPath string) {
 	log.Print(cmd.String())
 	err := cmd.Run()
 	if err != nil {
-		fmt.Printf("Command finished with error: %v", err)
+		fmt.Printf("Command finished with error: %v\n", err)
+		os.Exit(1)
 	}
 }
 

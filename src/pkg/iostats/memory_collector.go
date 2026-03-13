@@ -92,15 +92,17 @@ func (c *MemoryCollector) collect() {
 	// 1. 收集主进程（Go 运行时）内存
 	selfMem := memstats.GetSelfMemory()
 	stats = append(stats, &MemoryStat{
-		Timestamp: timestamp,
-		Category:  MemoryCategorySelf,
-		RSS:       selfMem.Sys, // 使用 Sys 作为 RSS 近似值
-		Alloc:     selfMem.Alloc,
-		Sys:       selfMem.Sys,
-		NumGC:     selfMem.NumGC,
+		Timestamp:    timestamp,
+		Category:     MemoryCategorySelf,
+		RSS:          selfMem.RSS, // 使用 gopsutil 获取的真实物理内存 (RSS)
+		VMS:          selfMem.VMS,
+		Alloc:        selfMem.Alloc,
+		Sys:          selfMem.Sys,
+		NumGC:        selfMem.NumGC,
+		NumGoroutine: selfMem.NumGoroutine,
 	})
 
-	totalRSS := selfMem.Sys
+	totalRSS := selfMem.RSS
 
 	// 2. 收集 tools 管理的子进程内存（按类别聚合）
 	toolsProcesses := tools.GetAllProcessInfo()

@@ -46,8 +46,26 @@ if [ "$SHARD_INDEX" -ge "$SHARD_TOTAL" ]; then SHARD_INDEX=$((SHARD_INDEX % SHAR
 echo "[deps] Warming Go module cache..."
 go mod download >/dev/null 2>&1 || true
 
-# 生成目标列表并过滤不支持的目标
-TARGETS=$(go tool dist list | awk '!/^(linux\/loong64|android\/|ios\/|js\/wasm)/')
+# 明确支持的目标平台列表（白名单）
+# 避免使用 go tool dist list 全量列表，因为很多冷门平台的第三方库（如 modernc.org/sqlite、gopsutil）不支持
+TARGETS="
+linux/amd64
+linux/arm64
+linux/arm
+linux/386
+linux/ppc64le
+linux/riscv64
+linux/s390x
+darwin/amd64
+darwin/arm64
+windows/amd64
+windows/arm64
+windows/386
+freebsd/amd64
+freebsd/arm64
+"
+# 去除空行
+TARGETS=$(echo "$TARGETS" | sed '/^$/d')
 echo "[shard] TOTAL=${SHARD_TOTAL} INDEX=${SHARD_INDEX}"
 
 i=0

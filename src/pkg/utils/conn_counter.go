@@ -72,6 +72,13 @@ func (m *ConnCounterManagerType) GetOrCreateConnCounter(url string) *ByteCounter
 	return bc
 }
 
+// GetMapSize 返回 bcMap 当前条目数量（用于内存监控）
+func (m *ConnCounterManagerType) GetMapSize() int {
+	m.mapLock.Lock()
+	defer m.mapLock.Unlock()
+	return len(m.bcMap)
+}
+
 func (m *ConnCounterManagerType) PrintMap() {
 	m.mapLock.Lock()
 	defer m.mapLock.Unlock()

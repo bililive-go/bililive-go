@@ -1,0 +1,35 @@
+# Go 依赖缓存预热
+# 确保 setup-go 的内置缓存包含所有 Go 模块依赖
+# 其他 workflow 通过 workflow_call 调用此 workflow 作为前置 job
+name: Go Cache
+on:
+  # 允许其他 workflow 调用（reusable workflow）
+  workflow_call:
+  # go.mod/go.sum 变更时自动预热
+  push:
+    branches:
+      - '*'
+    paths:
+      - 'go.mod'
+      - 'go.sum'
+  # 支持手动触发（强制刷新缓存）
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  warmup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+          cache: true
+          cache-dependency-path: '**/go.sum'
+
+      # 显式下载所有依赖，确保 setup-go 的 post step 保存的缓存是完整的
+      - name: Download all Go modules
+        run: go mod download

@@ -1,0 +1,1 @@
+ALTER TABLE memory_stats ADD COLUMN num_goroutine INTEGER NOT NULL DEFAULT 0;

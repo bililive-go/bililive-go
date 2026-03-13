@@ -42,6 +42,8 @@ var (
 	SplitStrategies = app.Flag("split-strategies", "video split strategies, support\"on_room_name_changed\", \"max_duration:(duration)\"").Strings()
 	// 同步（仅保留）容器内置的外部工具到目标目录，然后退出（用于 Docker 镜像构建阶段）
 	SyncBuiltInToolsToPath = app.Flag("sync-built-in-tools-to-path", "Sync built-in tools into the target folder (remove others), then exit.").Default("").String()
+	// 跳过 Launcher 检查，强制使用当前二进制运行（用于本地开发调试，等同于设置 BILILIVE_LAUNCHER=1 环境变量）
+	NoLauncher = app.Flag("no-launcher", "跳过 Launcher 版本检查，直接运行当前编译的版本（开发调试用）").Default("false").Bool()
 )
 
 func init() {

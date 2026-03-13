@@ -131,6 +131,9 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/iostats/memory", getMemoryStatsHistory).Methods("GET")          // 内存统计历史数据
 	apiRoute.HandleFunc("/iostats/memory/categories", getMemoryCategories).Methods("GET") // 可用内存类别列表
 
+	// 内存监控 API 路由
+	apiRoute.HandleFunc("/memory/snapshots", getMemorySnapshots).Methods("GET") // 获取内存快照
+
 	// OpenList (云上传) API 路由
 	apiRoute.HandleFunc("/openlist/status", getOpenListStatus).Methods("GET")
 	apiRoute.HandleFunc("/openlist/check-storage", checkOpenListStorageHealth).Methods("GET")

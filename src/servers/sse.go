@@ -40,6 +40,8 @@ const (
 	SSEEventUpdateReady SSEEventType = "update_ready"
 	// SSEEventUpdateError 更新过程中出错
 	SSEEventUpdateError SSEEventType = "update_error"
+	// SSEEventMemoryWarning 内存异常增长警告
+	SSEEventMemoryWarning SSEEventType = "memory_warning"
 )
 
 // SSEMessage SSE 消息结构
@@ -204,6 +206,15 @@ func (h *SSEHub) BroadcastUpdateError(err error) {
 		Data: map[string]string{
 			"error": err.Error(),
 		},
+	})
+}
+
+// BroadcastMemoryWarning 广播内存异常警告
+func (h *SSEHub) BroadcastMemoryWarning(data interface{}) {
+	h.Broadcast(SSEMessage{
+		Type:   SSEEventMemoryWarning,
+		RoomID: "",
+		Data:   data,
 	})
 }
 

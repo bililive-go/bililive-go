@@ -222,7 +222,11 @@ type recorder struct {
 	actualStreamInfo atomic.Pointer[streamprobe.StreamHeaderInfo]
 
 	// 累积的录制文件信息，待录制结束后统一推送摘要
-	recordedFiles []notify.RecordingFileDetail
+	// recordedFilesMu 保护 recordedFiles 的并发访问：
+	// run() goroutine 中的 accumulateRecordedFiles 和 RestartRecorder 中的
+	// SetInitialRecordedFiles 可能并发操作此 slice
+	recordedFilesMu sync.Mutex
+	recordedFiles   []notify.RecordingFileDetail
 
 	// done 在 run() 退出时关闭，用于 CloseForRestart 等待 goroutine 完成
 	done chan struct{}
@@ -671,6 +675,8 @@ func (r *recorder) run(ctx context.Context) {
 
 // accumulateRecordedFiles 累积录制文件信息，仅记录实际存在的文件
 func (r *recorder) accumulateRecordedFiles(files ...string) {
+	r.recordedFilesMu.Lock()
+	defer r.recordedFilesMu.Unlock()
 	for _, f := range files {
 		if fi, err := os.Stat(f); err == nil {
 			r.recordedFiles = append(r.recordedFiles, notify.RecordingFileDetail{
@@ -684,6 +690,8 @@ func (r *recorder) accumulateRecordedFiles(files ...string) {
 // sendAccumulatedSummary 录制结束后统一推送录制文件摘要通知
 // 在 run() 退出时通过 defer 调用，确保所有分段文件汇总为一条通知
 func (r *recorder) sendAccumulatedSummary() {
+	r.recordedFilesMu.Lock()
+	defer r.recordedFilesMu.Unlock()
 	if r.suppressSummary {
 		r.getLogger().Infof("录制摘要推送已抑制（分段重启），累积 %d 个文件将传递给新 recorder", len(r.recordedFiles))
 		return
@@ -777,12 +785,21 @@ func (r *recorder) CloseForRestart() []notify.RecordingFileDetail {
 	r.suppressSummary = true
 	r.Close()
 	<-r.done // 等待 run() 完全退出，确保最后一个文件已累积
+	r.recordedFilesMu.Lock()
+	defer r.recordedFilesMu.Unlock()
 	r.getLogger().Infof("分段重启：携带 %d 个累积文件传递给新 recorder", len(r.recordedFiles))
 	return r.recordedFiles
 }
 
 func (r *recorder) SetInitialRecordedFiles(files []notify.RecordingFileDetail) {
-	r.recordedFiles = append(files, r.recordedFiles...)
+	r.recordedFilesMu.Lock()
+	// 分配新 slice 避免修改入参 files 的底层数组，防止调用方持有的切片被意外改变
+	merged := make([]notify.RecordingFileDetail, 0, len(files)+len(r.recordedFiles))
+	merged = append(merged, files...)
+	merged = append(merged, r.recordedFiles...)
+	r.recordedFiles = merged
+	r.recordedFilesMu.Unlock()
+	// 日志不依赖 r.recordedFiles，移到锁外减少持有时间
 	r.getLogger().Infof("继承上一个 recorder 的 %d 个录制文件", len(files))
 }
 

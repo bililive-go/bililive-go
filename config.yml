@@ -23,10 +23,11 @@ video_split_strategies:
   on_room_name_changed: false
   max_duration: 0s
   # 仅在使用 ffmpeg 或 bililive-recorder 下载器时生效
-  # 单位为字节 (byte)
-  # 有效值为正数，默认值 0 为无效
+  # 支持可读格式，如: 500MB, 1GB, 1.5GB, 1024KB
+  # 也支持纯数字（视为字节），如: 1073741824
+  # 有效值为正数，默认值 0 为不限制
   # 负数为非法值，程序会输出 log 提醒，并无视所设定的数值
-  max_file_size: 0
+  max_file_size: "0"
 on_record_finished:
   convert_to_mp4: false
   delete_flv_after_convert: false
@@ -60,6 +61,9 @@ live_rooms:
 cookies: {}
 # 通知服务配置
 notify:
+  # 录制结束后是否推送录制文件摘要（文件数量、文件名、大小）
+  # 需要至少开启一个通知渠道（Telegram/Email/Bark）才会生效
+  send_recording_summary: false
   telegram:
     # 是否开启Telegram通知
     enable: false
@@ -87,6 +91,21 @@ notify:
     URL: https://ntfy.sh/xxxx
     token: tk_xxxxxxxxx
     tag: new
+  bark:
+    # 是否开启Bark通知(iOS)
+    enable: false
+    # Bark服务器地址，默认 https://api.day.app，支持自建
+    serverURL: https://api.day.app
+    # 设备推送密钥（在Bark App首页获取）
+    deviceKey: ""
+    # 推送铃声（可选，如 alarm、birdsong、glass 等）
+    sound: ""
+    # 通知分组名称（可选）
+    group: bililive-go
+    # 自定义图标URL（可选）
+    icon: ""
+    # 通知级别（可选）: active/timeSensitive/passive/critical
+    level: ""
 app_data_path: .appdata
 read_only_tool_folder: ""
 tool_root_folder: ""
@@ -94,14 +113,15 @@ task_queue:
   max_concurrent: 3
 # 代理配置（支持 HTTP 和 SOCKS5 代理）
 proxy:
-  # 是否启用配置的代理
+  # 通用代理开关
   # false: 使用系统环境变量 (HTTP_PROXY, HTTPS_PROXY, ALL_PROXY)
   # true: 使用下方配置的代理地址
   enable: false
-  # 代理地址，支持以下格式：
+  # 通用代理地址，支持以下格式：
   # HTTP 代理: http://host:port 或 http://user:pass@host:port
   # SOCKS5 代理: socks5://host:port 或 socks5://user:pass@host:port
   # 示例: socks5://127.0.0.1:1080 (翻墙软件常用端口)
+  # 此地址同时用于信息获取和下载，除非下方单独配置了专用代理
   url: ""
 openlist:
   port: 5244

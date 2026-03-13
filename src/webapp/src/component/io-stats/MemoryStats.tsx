@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Row, Col, Progress, Table, Statistic, Button, Empty } from 'antd';
-import { ReloadOutlined, DashboardOutlined, BuildOutlined, AppstoreOutlined } from '@ant-design/icons';
+import { Card, Row, Col, Progress, Table, Statistic, Button, Empty, Tooltip } from 'antd';
+import { ReloadOutlined, DashboardOutlined, BuildOutlined, AppstoreOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 
 // 数据单位转换工具函数
 const formatBytes = (bytes: number, decimals = 2) => {
-  if (bytes === 0) return '0 B';
+  if (!bytes || bytes === 0) return '0 B';
   const k = 1024;
   const dm = decimals < 0 ? 0 : decimals;
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
@@ -17,6 +17,9 @@ interface SelfMemoryStats {
   total_alloc: number;
   sys: number;
   num_gc: number;
+  rss: number;
+  vms: number;
+  num_goroutine: number;
 }
 
 interface ProcessMemoryStats {
@@ -114,16 +117,56 @@ const MemoryStats: React.FC = () => {
           >
             <Row gutter={16}>
               <Col span={12}>
-                <Statistic title="当前分配 (Alloc)" value={formatBytes(data.self_memory.alloc)} />
+                <Statistic
+                  title={
+                    <span>
+                      物理内存 (RSS){' '}
+                      <Tooltip title="进程实际占用的物理内存 (Resident Set Size)，最能反映真实内存使用量">
+                        <QuestionCircleOutlined style={{ color: '#999' }} />
+                      </Tooltip>
+                    </span>
+                  }
+                  value={formatBytes(data.self_memory.rss)}
+                />
               </Col>
               <Col span={12}>
-                <Statistic title="系统占用 (Sys)" value={formatBytes(data.self_memory.sys)} />
+                <Statistic
+                  title={
+                    <span>
+                      堆内存 (Alloc){' '}
+                      <Tooltip title="Go 运行时当前堆上分配且未被 GC 回收的内存">
+                        <QuestionCircleOutlined style={{ color: '#999' }} />
+                      </Tooltip>
+                    </span>
+                  }
+                  value={formatBytes(data.self_memory.alloc)}
+                />
               </Col>
               <Col span={12} style={{ marginTop: 16 }}>
-                <Statistic title="累计分配 (Total)" value={formatBytes(data.self_memory.total_alloc)} />
+                <Statistic
+                  title={
+                    <span>
+                      Goroutine 数{' '}
+                      <Tooltip title="当前活跃的 Go 协程数量。异常增长可能表示存在 goroutine 泄漏">
+                        <QuestionCircleOutlined style={{ color: '#999' }} />
+                      </Tooltip>
+                    </span>
+                  }
+                  value={data.self_memory.num_goroutine || 0}
+                />
               </Col>
               <Col span={12} style={{ marginTop: 16 }}>
-                <Statistic title="GC 次数" value={data.self_memory.num_gc} />
+                <Statistic
+                  title={
+                    <span>
+                      虚拟内存 (VMS){' '}
+                      <Tooltip title="进程的虚拟地址空间大小，包含映射但未实际使用的内存。通常远大于 RSS，不反映真实内存压力">
+                        <QuestionCircleOutlined style={{ color: '#999' }} />
+                      </Tooltip>
+                    </span>
+                  }
+                  value={formatBytes(data.self_memory.vms)}
+                />
               </Col>
             </Row>
           </Card>
@@ -168,7 +211,7 @@ const MemoryStats: React.FC = () => {
               pagination={false}
               size="small"
               locale={{
-                emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无活动子进程 (原生下载器的内存计入自身内存)" />
+                emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无活动子进程 (原生下载器的内存计入自身内存)" />,
               }}
             />
           </Card>
