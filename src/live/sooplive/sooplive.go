@@ -61,7 +61,11 @@ type Live struct {
 // 这一步不依赖 Soop API，主要用于：
 // 1. 在接口异常时提供基础房间信息；
 // 2. 从页面脚本中兜底提取 nBroadNo；
-// 3. 在未开播场景下快速返回。
+// 3. 在页面明确暴露“当前没有直播场次号”时快速返回。
+//
+// 注意：
+// 当前 IsLiving 只是基于页面里是否拿到了 nBroadNo 的启发式判断，
+// 不能等价理解为“平台最终确认未开播”。
 type pageMeta struct {
 	Channel  string
 	BroadNo  string
@@ -108,10 +112,11 @@ func (l *Live) GetInfo() (*live.Info, error) {
 		AudioOnly: l.Options.AudioOnly,
 	}
 
-	// 页面上不存在 nBroadNo 时，通常表示未开播或页面结构异常。
-	// 此时直接返回页面元信息，不再继续请求播放接口。
+	// 页面上不存在 nBroadNo 时，当前实现会先按“未解析到有效直播场次号”处理。
+	// 这通常意味着未开播，但也可能是需要登录、页面结构变化或页面脚本返回受限。
+	// 当前版本这里不再继续请求播放接口，而是直接返回页面元信息。
 	if !meta.IsLiving {
-		l.GetLogger().Debugf("Soop GetInfo 完成：页面判断当前未开播 channel=%s broadNo=%s", meta.Channel, meta.BroadNo)
+		l.GetLogger().Debugf("Soop GetInfo 完成：页面未解析到有效直播场次号 channel=%s broadNo=%s", meta.Channel, meta.BroadNo)
 		return info, nil
 	}
 
@@ -139,12 +144,15 @@ func (l *Live) GetInfo() (*live.Info, error) {
 }
 
 // GetStreamInfos 获取 Soop 所有可用 HLS 流。
-// 链路与 streamlink/soop.py 基本一致：
 // 1. 拿页面元信息和 bno；
 // 2. 解析频道信息（含登录态预检）；
 // 3. 针对每个清晰度申请 aid；
 // 4. 通过调度接口获取 view_url；
 // 5. 将 view_url 与 aid 组合成最终可录制的 m3u8 地址。
+//
+// 注意：
+// 当前实现仍以页面中的 nBroadNo 作为进入后续 API 链路的前提，
+// 因此页面元信息缺失时返回的是“无法确认可录制流”的错误，而不是平台最终业务结论。
 func (l *Live) GetStreamInfos() ([]*live.StreamUrlInfo, error) {
 	l.GetLogger().Debugf("Soop GetStreamInfos 开始: url=%s", l.GetRawUrl())
 	meta, err := l.fetchPageMeta()
@@ -153,7 +161,7 @@ func (l *Live) GetStreamInfos() ([]*live.StreamUrlInfo, error) {
 		return nil, err
 	}
 	if !meta.IsLiving {
-		return nil, fmt.Errorf("Soop 房间当前未开播，无法获取播放流")
+		return nil, fmt.Errorf("未从 Soop 播放页解析到有效直播场次号，可能未开播、需要登录或页面结构已变更，暂时无法获取播放流")
 	}
 
 	channelInfo, err := l.resolveChannelInfo(meta.Channel, meta.BroadNo)
@@ -267,7 +275,8 @@ func (l *Live) UpdateLiveOptionsbyConfig(ctx context.Context, room *configs.Live
 }
 
 // fetchPageMeta 从播放页 HTML 中提取频道名、bno、主播名、标题等基础信息。
-// 这是所有后续 API 请求的前置步骤，因为 Soop 的很多接口都依赖 channel + bno。
+// 这是当前后续 API 请求的前置步骤，因为 Soop 的很多接口都依赖 channel + bno。
+// 如果页面里没有可用的 nBroadNo，后续流程会在当前版本中提前结束。
 func (l *Live) fetchPageMeta() (*pageMeta, error) {
 	l.GetLogger().Debugf("Soop 请求播放页: url=%s", l.GetRawUrl())
 	resp, err := l.RequestSession.Get(
@@ -512,6 +521,7 @@ func (l *Live) getCookieMap() map[string]string {
 
 // resolveChannelInfo 是 Soop 获取频道信息的统一入口。
 // 它在真正请求播放信息前，会先做一次 Cookie 预检和必要的自动重登。
+// 这里的“播放信息前”指的是 Soop API 请求前，不包括更早一步的页面元信息抓取。
 func (l *Live) resolveChannelInfo(channel, broadNo string) (*channelInfo, error) {
 	l.GetLogger().Debugf("Soop 开始解析频道信息: channel=%s broadNo=%s", channel, broadNo)
 	if err := l.tryVerifyAndReloginIfNeeded(); err != nil {
@@ -538,6 +548,7 @@ func (l *Live) resolveChannelInfo(channel, broadNo string) (*channelInfo, error)
 
 // tryVerifyAndReloginIfNeeded 在真正访问 Soop 播放接口前预检查登录态。
 // 如果已有 Cookie 失效且配置中存在账号密码，则自动重新登录。
+// 这里不会回溯重抓播放页，因此只影响后续 API 调用，不改变当前页面解析步骤的行为。
 func (l *Live) tryVerifyAndReloginIfNeeded() error {
 	cookie := l.getPrimaryCookieString()
 	cfg := configs.GetCurrentConfig()

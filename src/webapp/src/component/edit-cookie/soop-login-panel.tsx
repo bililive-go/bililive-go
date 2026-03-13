@@ -108,6 +108,8 @@ const SoopLoginPanel: React.FC<SoopLoginPanelProps> = ({
                     }
                 }
             })
+            // 这里故意不阻断面板使用：
+            // 即使初始化拉取失败，用户仍然可以手动输入账号密码或 Cookie 完成后续操作。
             .catch(() => undefined);
 
         return () => {
@@ -152,15 +154,15 @@ const SoopLoginPanel: React.FC<SoopLoginPanelProps> = ({
                     } else {
                         verifyCookie(cookie);
                     }
-                    notification.success({ message: 'Soop 登录成功，Cookie 已写入配置' });
+                    notification.success({ message: 'Soop 登录成功，已完成 Cookie 写入并立即生效' });
                 } else {
-                    notification.error({ message: 'Soop 登录失败' });
+                    notification.error({ message: 'Soop 登录未返回有效 Cookie' });
                 }
             })
             .catch((err: any) => {
                 if (!isMounted.current) return;
                 setLoggingIn(false);
-                notification.error({ message: 'Soop 登录失败', description: String(err) });
+                notification.error({ message: 'Soop 登录失败，未能完成账号密码换 Cookie', description: String(err) });
             });
     };
 

@@ -112,6 +112,7 @@ func VerifyCookieStringCached(cookie string) (*CookieVerifyResult, error) {
 
 // LoginAndGetCookie 使用账号密码调用 Soop 登录接口换取 Cookie。
 // 该函数不会落盘配置，仅负责完成一次登录动作并返回可持久化的 Cookie 字符串。
+// 如果返回错误，既可能是认证失败，也可能是平台接口异常或登录后校验未通过。
 func LoginAndGetCookie(username, password string) (*LoginResult, error) {
 	if strings.TrimSpace(username) == "" || strings.TrimSpace(password) == "" {
 		return nil, fmt.Errorf("Soop 登录失败：账号或密码为空")

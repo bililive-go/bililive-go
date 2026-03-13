@@ -2357,6 +2357,8 @@ func putLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// getSoopLiveAuthConfig 返回 Soop 凭证状态和当前已保存的账号字段，供 WebUI 面板初始化使用。
+// 注意：当前实现仍会把已保存密码原样返回给前端用于回填，这只是现有行为描述，不代表推荐的安全策略。
 func getSoopLiveAuthConfig(writer http.ResponseWriter, _ *http.Request) {
 	cfg := configs.GetCurrentConfig()
 	if cfg == nil {
@@ -2437,7 +2439,7 @@ func clearSoopLiveAuthConfig(writer http.ResponseWriter, r *http.Request) {
 // loginSoopLive 接收前端输入的账号密码，调用 Soop 登录接口换取 Cookie。
 // 登录成功后：
 // 1. 将 Cookie 写入配置文件；
-// 2. 可选保存明文账号密码；
+// 2. 按当前前端选择决定是否保存明文账号密码；
 // 3. 更新当前运行中 Soop 房间的请求选项。
 func loginSoopLive(writer http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -2460,7 +2462,7 @@ func loginSoopLive(writer http.ResponseWriter, r *http.Request) {
 		applog.GetLogger().WithError(err).Debugf("Soop Web 登录失败: username=%s", req.Username)
 		writeJsonWithStatusCode(writer, http.StatusUnauthorized, commonResp{
 			ErrNo:  http.StatusUnauthorized,
-			ErrMsg: "Soop 登录失败，可能是账号密码错误、平台风控、网络异常或接口已变更: " + err.Error(),
+			ErrMsg: "Soop 登录失败，后端未能完成“账号密码换 Cookie”流程；常见原因包括账号密码错误、平台风控、网络异常或接口已变更: " + err.Error(),
 		})
 		return
 	}
@@ -2524,7 +2526,7 @@ func verifySoopLiveCookie(writer http.ResponseWriter, r *http.Request) {
 		applog.GetLogger().WithError(err).Debug("Soop Cookie 校验失败")
 		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
 			ErrNo:  http.StatusInternalServerError,
-			ErrMsg: "验证 Soop Cookie 失败，可能是网络异常、Cookie 已失效或平台接口返回异常: " + err.Error(),
+			ErrMsg: "验证 Soop Cookie 失败；这通常表示校验接口当前不可用、网络异常，或平台返回了当前版本无法识别的响应: " + err.Error(),
 		})
 		return
 	}
