@@ -12,7 +12,7 @@
 3. 命令行输入
 >$ docker compose up
 
-假如docker 版本低于20，需要安装docker-compose。新的版本是直接内置的
+假如docker 版本低于20，需要安装docker-compose。新的版本是直接内置的。以 `docker-compose up -d` 在后台启动。
 
 4. 浏览器打开 http://localhost:3000 。
 
