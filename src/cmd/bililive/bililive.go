@@ -728,6 +728,9 @@ func main() {
 		}
 		// 停止自动更新器
 		servers.StopAutoUpdater()
+		// 终止所有工具子进程（bililive-tools、klive 等），确保它们不会在主进程退出后成为僵尸进程
+		// 必须在主进程最终退出前调用，避免端口被残留子进程占用（特别是 bililivetools nodejs 进程）
+		tools.Cleanup()
 		logger.Info("Shutdown complete")
 	})
 
