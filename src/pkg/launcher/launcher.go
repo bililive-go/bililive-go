@@ -10,9 +10,11 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/bililive-go/bililive-go/src/pkg/ipc"
 	bilisentry "github.com/bililive-go/bililive-go/src/pkg/sentry"
 )
@@ -39,6 +41,9 @@ type State struct {
 	// 启动失败计数（用于决定是否回滚）
 	FailureCount int `json:"failure_count,omitempty"`
 }
+
+// forceKillTimeout 是强制终止进程后等待其完全退出的超时时间
+const forceKillTimeout = 5 * time.Second
 
 // DefaultState 返回默认状态
 func DefaultState() *State {
@@ -137,6 +142,17 @@ func Check(appDataPath, currentVersion, currentExePath string) (*CheckResult, er
 		return result, nil
 	}
 
+	// 如果当前版本比活动版本更新，说明用户手动更新了程序包（完整替换二进制），
+	// 不需要进入 launcher 模式，应直接以当前版本运行
+	if cmp, err := compareVersions(currentVersion, state.ActiveVersion); err != nil {
+		fmt.Fprintf(os.Stderr, "[Launcher.Check] 版本比较失败（currentVersion=%q, activeVersion=%q）: %v，跳过版本大小检查\n",
+			currentVersion, state.ActiveVersion, err)
+	} else if cmp > 0 {
+		fmt.Fprintf(os.Stderr, "[Launcher.Check] currentVersion(%q) 比 activeVersion(%q) 更新，不需要进入 launcher 模式\n",
+			currentVersion, state.ActiveVersion)
+		return result, nil
+	}
+
 	// 构建完整的二进制路径
 	targetPath := state.ActiveBinaryPath
 	if !filepath.IsAbs(targetPath) {
@@ -168,6 +184,22 @@ func Check(appDataPath, currentVersion, currentExePath string) (*CheckResult, er
 	result.TargetVersion = state.ActiveVersion
 
 	return result, nil
+}
+
+// compareVersions 比较两个版本号
+// 返回: -1 (v1 < v2), 0 (v1 == v2), 1 (v1 > v2)
+func compareVersions(v1, v2 string) (int, error) {
+	ver1, err := semver.NewVersion(strings.TrimPrefix(v1, "v"))
+	if err != nil {
+		return 0, fmt.Errorf("解析版本 %s 失败: %w", v1, err)
+	}
+
+	ver2, err := semver.NewVersion(strings.TrimPrefix(v2, "v"))
+	if err != nil {
+		return 0, fmt.Errorf("解析版本 %s 失败: %w", v2, err)
+	}
+
+	return ver1.Compare(ver2), nil
 }
 
 // sameFile 检查两个路径是否指向同一个文件
@@ -428,6 +460,13 @@ func (r *Runner) stopMainProgram() {
 	case <-time.After(35 * time.Second):
 		r.log("主程序未响应，强制终止")
 		r.mainProcess.Process.Kill()
+		// 等待进程真正终止，避免僵尸进程导致端口冲突
+		select {
+		case <-waitCh:
+			r.log("进程已强制终止")
+		case <-time.After(forceKillTimeout):
+			r.log("进程强制终止超时，继续运行")
+		}
 	}
 }
 
