@@ -2,6 +2,7 @@ import { Modal, Input, notification, Divider } from 'antd';
 import React from 'react';
 import API from '../../utils/api';
 import BiliLoginPanel from './bili-login-panel';
+import SoopLoginPanel from './soop-login-panel';
 import './edit-cookie.css'
 
 const { TextArea } = Input;
@@ -15,6 +16,9 @@ class EditCookieDialog extends React.Component<IProps> {
         visible: false,
         confirmLoading: false,
         textView: '',
+        initialTextView: '',
+        soopPersisted: false,
+        soopAuthDraft: null as any,
         Host: '',
         Platform_cn_name: '',
         modalKey: 0
@@ -27,6 +31,9 @@ class EditCookieDialog extends React.Component<IProps> {
             visible: true,
             confirmLoading: false,
             textView: data.Cookie || '',
+            initialTextView: data.Cookie || '',
+            soopPersisted: false,
+            soopAuthDraft: null,
             Host: data.Host,
             Platform_cn_name: data.Platform_cn_name,
             modalKey: Date.now()
@@ -37,20 +44,66 @@ class EditCookieDialog extends React.Component<IProps> {
         this.setState({ textView: val });
     };
 
-    handleOk = () => {
+    handleSoopPersistStateChange = (persisted: boolean) => {
+        this.setState({ soopPersisted: persisted });
+    };
+
+    handleSoopAuthDraftChange = (draft: any) => {
+        this.setState({ soopAuthDraft: draft });
+    };
+
+    buildSoopAuthUpdate = () => {
+        const draft = this.state.soopAuthDraft;
+        if (!draft || !draft.dirty) {
+            return null;
+        }
+
+        if (draft.saveCredentials) {
+            const username = String(draft.username || '').trim();
+            const password = String(draft.password || '').trim();
+            if (!username || !password) {
+                throw new Error('保存 Soop 账号密码需要同时填写账号和密码');
+            }
+            return { username, password };
+        }
+
+        if (draft.hasSavedCredentials || draft.saveCredentialsTouched) {
+            return { username: '', password: '' };
+        }
+
+        return null;
+    };
+
+    handleOk = async () => {
+        if (this.state.Host === 'play.sooplive.co.kr' && this.state.soopPersisted) {
+            this.setState({ visible: false, confirmLoading: false });
+            this.props.refresh();
+            return;
+        }
+
         this.setState({ confirmLoading: true });
 
-        this.api.saveCookie({ Host: this.state.Host, Cookie: this.state.textView })
-            .then(() => {
+        try {
+            const isSoop = this.state.Host === 'play.sooplive.co.kr';
+            const soopAuthUpdate = isSoop ? this.buildSoopAuthUpdate() : null;
+            const cookieChanged = this.state.textView !== this.state.initialTextView;
+
+            if (soopAuthUpdate) {
+                await this.api.updateConfig({ sooplive_auth: soopAuthUpdate });
+            }
+
+            if (cookieChanged) {
+                await this.api.saveCookie({ Host: this.state.Host, Cookie: this.state.textView });
                 this.api.saveSettingsInBackground();
-                this.setState({ visible: false, confirmLoading: false });
-                this.props.refresh();
-                notification.success({ message: '保存成功' });
-            })
-            .catch(err => {
-                this.setState({ confirmLoading: false });
-                notification.error({ message: '保存失败', description: String(err) });
-            });
+            }
+
+            this.setState({ visible: false, confirmLoading: false });
+            this.props.refresh();
+            notification.success({ message: '保存成功' });
+        } catch (err) {
+            this.setState({ confirmLoading: false });
+            notification.error({ message: '保存失败', description: String(err) });
+        }
     };
 
     handleCancel = () => {
@@ -60,6 +113,7 @@ class EditCookieDialog extends React.Component<IProps> {
     render() {
         const { visible, confirmLoading, textView, Host, Platform_cn_name } = this.state;
         const isBili = Host === 'live.bilibili.com';
+        const isSoop = Host === 'play.sooplive.co.kr';
 
         return (
             <div>
@@ -70,10 +124,10 @@ class EditCookieDialog extends React.Component<IProps> {
                     onOk={this.handleOk}
                     confirmLoading={confirmLoading}
                     onCancel={this.handleCancel}
-                    width={isBili ? 720 : 520}
+                    width={(isBili || isSoop) ? 720 : 520}
                     okText="保存并生效"
                     cancelText="取消"
-                    destroyOnClose // Important to reset BiliLoginPanel state
+                    destroyOnClose
                 >
                     {isBili ? (
                         <BiliLoginPanel
@@ -81,6 +135,15 @@ class EditCookieDialog extends React.Component<IProps> {
                             initialCookie={textView}
                             api={this.api}
                             onCookieChange={this.handleCookieChange}
+                        />
+                    ) : isSoop ? (
+                        <SoopLoginPanel
+                            key={this.state.modalKey}
+                            initialCookie={textView}
+                            api={this.api}
+                            onCookieChange={this.handleCookieChange}
+                            onPersistStateChange={this.handleSoopPersistStateChange}
+                            onAuthDraftChange={this.handleSoopAuthDraftChange}
                         />
                     ) : (
                         <div style={{ marginTop: 10, padding: '8px' }}>
@@ -105,7 +168,7 @@ class EditCookieDialog extends React.Component<IProps> {
                                 <ol style={{ paddingLeft: '20px' }}>
                                     <li>在浏览器登录 <b>{Platform_cn_name}</b> 官网。</li>
                                     <li>按 <b>F12</b> 查看控制台 - <b>网络 (Network)</b>。</li>
-                                    <li>复制请求标头中的 <b>Cookie</b> 字段并粘贴到上方。</li>
+                                    <li>复制请求头中的 <b>Cookie</b> 字段并粘贴到上方。</li>
                                 </ol>
                             </div>
                         </div>

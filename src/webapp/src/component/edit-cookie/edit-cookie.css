@@ -18,6 +18,15 @@
     align-items: center;
     gap: 24px;
   }
+
+  .soop-account-section {
+    width: 100%;
+    flex-basis: auto;
+  }
+
+  .soop-account-actions {
+    flex-direction: column;
+  }
 }
 
 /* QR Code Section */
@@ -90,6 +99,49 @@
 .bili-manual-section {
   flex: 1;
   width: 100%;
+}
+
+.soop-account-section {
+  flex: 0 0 280px;
+  background: #fafafa;
+  padding: 20px;
+  border-radius: 12px;
+  border: 1px solid #f0f0f0;
+}
+
+.soop-account-status {
+  text-align: left;
+  margin-bottom: 16px;
+}
+
+.soop-account-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.soop-account-input {
+  border-radius: 8px !important;
+}
+
+.soop-account-checkbox {
+  color: #434343;
+}
+
+.soop-account-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.soop-account-actions .ant-btn {
+  flex: 1;
+  height: 36px;
+  font-weight: 600;
+}
+
+.soop-account-tip {
+  line-height: 1.7;
 }
 
 .section-label {
