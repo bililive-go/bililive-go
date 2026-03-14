@@ -134,6 +134,16 @@ func (m *Migrator) Run() (*MigrationResult, error) {
 	result.FromVersion = currentVersion
 	result.WasDirty = dirty
 
+	if dirty {
+		dirtyErr := &DirtyDatabaseError{
+			DBPath:   m.config.DBPath,
+			Version:  currentVersion,
+			Category: m.config.Schema.Category,
+		}
+		result.Error = dirtyErr
+		return result, dirtyErr
+	}
+
 	// 检查是否需要迁移
 	// 先尝试获取目标版本（最新版本）
 	// migrate库没有直接获取最新版本的方法，我们通过尝试迁移来判断
