@@ -4,6 +4,7 @@ package recorders
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/instance"
+	"github.com/bililive-go/bililive-go/src/listeners"
 	"github.com/bililive-go/bililive-go/src/live"
 	"github.com/bililive-go/bililive-go/src/notify"
 	"github.com/bililive-go/bililive-go/src/pipeline"
@@ -279,6 +281,9 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		}
 	}
 	if err != nil || len(streamInfos) == 0 {
+		if err != nil && r.stopRetryForExplicitOffline(err) {
+			return
+		}
 		r.getLogger().WithError(err).Warn("failed to get stream url, will retry after 5s...")
 		// 使用可中断的等待，确保 Ctrl+C 能立即响应
 		select {
@@ -617,6 +622,17 @@ func (r *recorder) tryRecord(ctx context.Context) {
 			r.getLogger().Infof("pipeline task enqueued: %d files, %d stages", len(outputFiles), len(pipelineConfig.Stages))
 		}
 	}
+}
+
+// stopRetryForExplicitOffline 在平台已明确给出“已下播”信号时补发一次 LiveEnd，
+// 让 recorder manager 走正常回收流程，避免 recorder 永久停留在“录制准备中”。
+func (r *recorder) stopRetryForExplicitOffline(err error) bool {
+	if !errors.Is(err, live.ErrLiveOffline) {
+		return false
+	}
+	r.getLogger().WithError(err).Info("stream source explicitly reported offline, dispatching LiveEnd")
+	r.ed.DispatchEvent(events.NewEvent(listeners.LiveEnd, r.Live))
+	return true
 }
 
 func (r *recorder) selectPreferredStream(streamInfos []*live.StreamUrlInfo) (ret *live.StreamUrlInfo) {

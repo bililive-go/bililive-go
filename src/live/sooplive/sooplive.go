@@ -60,14 +60,14 @@ type Live struct {
 // pageMeta 表示从播放页 HTML 中直接提取的最小元信息。
 // 这一步不依赖 Soop API，主要用于：
 // 1. 在接口异常时提供基础房间信息；
-// 2. 区分页面是“明确离线（nBroadNo=null）”还是“字段缺失”；
+// 2. 区分页面是“明确离线（nBroadNo=null 或最终 URL 为 /null）”还是“字段缺失”；
 // 3. 仅在页面字段缺失时，回退使用 URL 路径中的 broadNo 继续尝试后续 API。
 //
 // 字段语义：
-// - PathBroadNo: URL 路径里携带的 broadNo（/channel/bno）。
+// - PathBroadNo: 最终响应 URL 路径里携带的 broadNo（/channel/bno）。
 // - PageBroadNo: 页面脚本里解析出的 broadNo，仅当页面给出数字时非空。
 // - PageBroadNoFound: 页面是否出现过 window.nBroadNo 字段。
-// - PageExplicitlyOffline: 页面是否明确给出 nBroadNo=null。
+// - PageExplicitlyOffline: 页面是否明确给出 nBroadNo=null，或最终 URL 已落到 /null。
 // - BroadNo: 当前后续 API 实际使用的最终 broadNo。
 // - IsLiving: 当前是否存在“可继续请求后续 API 的在线候选”。
 type pageMeta struct {
@@ -120,7 +120,7 @@ func (l *Live) GetInfo() (*live.Info, error) {
 		AudioOnly: l.Options.AudioOnly,
 	}
 
-	// 页面明确离线（nBroadNo=null）或既没有页面 broadNo 也没有路径 broadNo 时，
+	// 页面明确离线（nBroadNo=null 或 /null）或既没有页面 broadNo 也没有路径 broadNo 时，
 	// 当前请求不会继续访问 Soop 播放信息接口，而是直接返回离线状态。
 	if !meta.IsLiving {
 		l.GetLogger().Debugf("Soop GetInfo 完成：页面判定离线 channel=%s pathBroadNo=%s pageBroadNo=%s pageBroadNoFound=%v explicitOffline=%v resolvedBroadNo=%s",
@@ -159,7 +159,7 @@ func (l *Live) GetInfo() (*live.Info, error) {
 // 5. 将 view_url 与 aid 组合成最终可录制的 m3u8 地址。
 //
 // 注意：
-// - 页面明确离线（nBroadNo=null）时，这里会直接返回“当前无可录制流”；
+// - 页面明确离线（nBroadNo=null 或 /null）时，这里会直接返回“当前无可录制流”；
 // - 页面缺失 nBroadNo 字段但路径里带有 broadNo 时，仍会回退使用路径 broadNo 继续请求 API；
 // - 因此这里返回的“无法获取播放流”既可能表示离线，也可能表示登录态不足或页面/API 结构变化。
 func (l *Live) GetStreamInfos() ([]*live.StreamUrlInfo, error) {
@@ -172,6 +172,9 @@ func (l *Live) GetStreamInfos() ([]*live.StreamUrlInfo, error) {
 	if !meta.IsLiving {
 		l.GetLogger().Debugf("Soop GetStreamInfos 结束：页面判定无有效 broadNo channel=%s pathBroadNo=%s pageBroadNo=%s pageBroadNoFound=%v explicitOffline=%v resolvedBroadNo=%s",
 			meta.Channel, meta.PathBroadNo, meta.PageBroadNo, meta.PageBroadNoFound, meta.PageExplicitlyOffline, meta.BroadNo)
+		if meta.PageExplicitlyOffline {
+			return nil, fmt.Errorf("%w: Soop 页面已明确显示下播，当前无可录制流", live.ErrLiveOffline)
+		}
 		return nil, fmt.Errorf("未从 Soop 播放页解析到有效直播场次号，可能未开播、需要登录或页面结构已变更，暂时无法获取播放流")
 	}
 
@@ -290,7 +293,7 @@ func (l *Live) UpdateLiveOptionsbyConfig(ctx context.Context, room *configs.Live
 //
 // 解析规则：
 // 1. 页面给出有效 nBroadNo 时，优先使用页面值；
-// 2. 页面明确给出 nBroadNo=null 时，视为页面确认离线，不再回退到路径 broadNo；
+// 2. 页面明确给出 nBroadNo=null，或最终 URL 已变为 /null 时，视为页面确认离线，不再回退到路径 broadNo；
 // 3. 只有页面字段缺失时，才允许回退到 URL 路径中的 broadNo。
 func (l *Live) fetchPageMeta() (*pageMeta, error) {
 	l.GetLogger().Debugf("Soop 请求播放页: url=%s", l.GetRawUrl())
@@ -311,12 +314,18 @@ func (l *Live) fetchPageMeta() (*pageMeta, error) {
 		return nil, fmt.Errorf("读取 Soop 播放页响应失败: %w", err)
 	}
 
-	channel, pathBroadNo, err := parseChannelAndBroadNoFromURL(l.Url)
+	channel, pathBroadNo, pathExplicitlyOffline, err := parseChannelAndBroadNoStateFromURL(l.Url)
 	if err != nil {
 		return nil, fmt.Errorf("解析 Soop 房间 URL 失败: %w", err)
 	}
+	if finalURL := getFinalResponseURL(resp); finalURL != nil {
+		if finalChannel, finalPathBroadNo, finalPathExplicitlyOffline, finalErr := parseChannelAndBroadNoStateFromURL(finalURL); finalErr == nil && finalChannel == channel {
+			pathBroadNo = finalPathBroadNo
+			pathExplicitlyOffline = finalPathExplicitlyOffline
+		}
+	}
 	pageBroadNo, pageBroadNoFound := parseBroadNoFromPage(body)
-	broadNo, isLiving, pageExplicitlyOffline := resolvePageBroadNo(pathBroadNo, pageBroadNo, pageBroadNoFound)
+	broadNo, isLiving, pageExplicitlyOffline := resolvePageBroadNo(pathBroadNo, pageBroadNo, pageBroadNoFound, pathExplicitlyOffline)
 
 	hostName := parseWindowString(body, "szBjNick")
 	roomName := parseWindowString(body, "szBroadTitle")
@@ -742,20 +751,29 @@ func buildCookieStringFromCookies(cookies []*http.Cookie) string {
 // - /channel
 // - /channel/123456789
 func parseChannelAndBroadNoFromURL(u *url.URL) (string, string, error) {
+	channel, broadNo, _, err := parseChannelAndBroadNoStateFromURL(u)
+	return channel, broadNo, err
+}
+
+// parseChannelAndBroadNoStateFromURL 额外识别 Soop 的 /channel/null 下播路径。
+func parseChannelAndBroadNoStateFromURL(u *url.URL) (string, string, bool, error) {
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
 	if len(parts) == 0 || parts[0] == "" {
-		return "", "", live.ErrRoomUrlIncorrect
+		return "", "", false, live.ErrRoomUrlIncorrect
 	}
 
 	channel := parts[0]
 	broadNo := ""
 	if len(parts) > 1 {
+		if strings.EqualFold(parts[1], "null") {
+			return channel, "", true, nil
+		}
 		if _, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
 			broadNo = parts[1]
 		}
 	}
 
-	return channel, broadNo, nil
+	return channel, broadNo, false, nil
 }
 
 // parseBroadNoFromPage 从页面脚本中的 window.nBroadNo 提取直播场次号。
@@ -777,18 +795,27 @@ func parseBroadNoFromPage(body string) (string, bool) {
 // 返回值含义：
 // 1. resolvedBroadNo: 当前后续 API 应使用的 broadNo；
 // 2. isLiving: 当前是否仍存在“可继续请求后续 API 的在线候选”；
-// 3. explicitlyOffline: 页面是否明确给出 nBroadNo=null。
-func resolvePageBroadNo(pathBroadNo, pageBroadNo string, pageBroadNoFound bool) (string, bool, bool) {
+// 3. explicitlyOffline: 页面是否明确给出 nBroadNo=null，或最终 URL 已落到 /null。
+func resolvePageBroadNo(pathBroadNo, pageBroadNo string, pageBroadNoFound, pathExplicitlyOffline bool) (string, bool, bool) {
 	switch {
 	case pageBroadNoFound && pageBroadNo != "":
 		return pageBroadNo, true, false
 	case pageBroadNoFound:
+		return "", false, true
+	case pathExplicitlyOffline:
 		return "", false, true
 	case pathBroadNo != "":
 		return pathBroadNo, true, false
 	default:
 		return "", false, false
 	}
+}
+
+func getFinalResponseURL(resp *requests.Response) *url.URL {
+	if resp == nil || resp.Request == nil || resp.Request.URL == nil {
+		return nil
+	}
+	return resp.Request.URL
 }
 
 // parseWindowString 从页面脚本中的 window.xxx = '...'/ "..." 提取字符串变量。

@@ -9,4 +9,5 @@ var (
 	ErrRoomUrlIncorrect = errors.New("room url incorrect")
 	ErrInternalError    = errors.New("internal error")
 	ErrNotImplemented   = errors.New("not implemented")
+	ErrLiveOffline      = errors.New("live is offline")
 )

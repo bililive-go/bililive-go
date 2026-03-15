@@ -62,28 +62,35 @@ func TestParseBroadNoFromPage(t *testing.T) {
 
 func TestResolvePageBroadNo(t *testing.T) {
 	t.Run("页面给出有效场次号时优先使用页面值", func(t *testing.T) {
-		broadNo, isLiving, explicitlyOffline := resolvePageBroadNo("292100000", "292157719", true)
+		broadNo, isLiving, explicitlyOffline := resolvePageBroadNo("292100000", "292157719", true, false)
 		assert.Equal(t, "292157719", broadNo)
 		assert.True(t, isLiving)
 		assert.False(t, explicitlyOffline)
 	})
 
 	t.Run("页面明确为 null 时不能回退到路径场次号", func(t *testing.T) {
-		broadNo, isLiving, explicitlyOffline := resolvePageBroadNo("292157719", "", true)
+		broadNo, isLiving, explicitlyOffline := resolvePageBroadNo("292157719", "", true, false)
 		assert.Empty(t, broadNo)
 		assert.False(t, isLiving)
 		assert.True(t, explicitlyOffline)
 	})
 
 	t.Run("页面字段缺失时允许回退到路径场次号", func(t *testing.T) {
-		broadNo, isLiving, explicitlyOffline := resolvePageBroadNo("292157719", "", false)
+		broadNo, isLiving, explicitlyOffline := resolvePageBroadNo("292157719", "", false, false)
 		assert.Equal(t, "292157719", broadNo)
 		assert.True(t, isLiving)
 		assert.False(t, explicitlyOffline)
 	})
 
+	t.Run("最终 URL 为 null 时视为明确离线", func(t *testing.T) {
+		broadNo, isLiving, explicitlyOffline := resolvePageBroadNo("292157719", "", false, true)
+		assert.Empty(t, broadNo)
+		assert.False(t, isLiving)
+		assert.True(t, explicitlyOffline)
+	})
+
 	t.Run("页面字段缺失且路径也没有场次号时视为离线", func(t *testing.T) {
-		broadNo, isLiving, explicitlyOffline := resolvePageBroadNo("", "", false)
+		broadNo, isLiving, explicitlyOffline := resolvePageBroadNo("", "", false, false)
 		assert.Empty(t, broadNo)
 		assert.False(t, isLiving)
 		assert.False(t, explicitlyOffline)
@@ -194,6 +201,97 @@ window.szBroadTitle = 'missing nBroadNo';
 	assert.Empty(t, meta.PageBroadNo)
 	assert.Equal(t, "292157719", meta.BroadNo)
 	assert.True(t, meta.IsLiving)
+}
+
+func TestFetchPageMetaTreatsRedirectToNullAsExplicitOffline(t *testing.T) {
+	configs.SetCurrentConfig(configs.NewConfig())
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/mbntv/292157719":
+			http.Redirect(w, r, "/mbntv/null", http.StatusFound)
+		case "/mbntv/null":
+			_, _ = w.Write([]byte(`
+window.szBjNick = 'host';
+window.szBroadTitle = 'offline by null path';
+`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	u, err := url.Parse(server.URL + "/mbntv/292157719")
+	assert.NoError(t, err)
+
+	l := &Live{
+		BaseLive: internal.NewBaseLive(u),
+	}
+	l.Options = livepkg.MustNewOptions()
+
+	meta, err := l.fetchPageMeta()
+	assert.NoError(t, err)
+	assert.Equal(t, "mbntv", meta.Channel)
+	assert.Empty(t, meta.PathBroadNo)
+	assert.True(t, meta.PageExplicitlyOffline)
+	assert.Empty(t, meta.BroadNo)
+	assert.False(t, meta.IsLiving)
+}
+
+func TestGetStreamInfosReturnsOfflineSentinelWhenPageExplicitlyOffline(t *testing.T) {
+	configs.SetCurrentConfig(configs.NewConfig())
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`
+window.nBroadNo = null;
+window.szBjNick = 'host';
+window.szBroadTitle = 'offline';
+`))
+	}))
+	defer server.Close()
+
+	u, err := url.Parse(server.URL + "/mbntv/292157719")
+	assert.NoError(t, err)
+
+	l := &Live{
+		BaseLive: internal.NewBaseLive(u),
+	}
+	l.Options = livepkg.MustNewOptions()
+
+	_, err = l.GetStreamInfos()
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, livepkg.ErrLiveOffline)
+}
+
+func TestGetStreamInfosReturnsOfflineSentinelWhenRedirectedToNull(t *testing.T) {
+	configs.SetCurrentConfig(configs.NewConfig())
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/mbntv/292157719":
+			http.Redirect(w, r, "/mbntv/null", http.StatusFound)
+		case "/mbntv/null":
+			_, _ = w.Write([]byte(`
+window.szBjNick = 'host';
+window.szBroadTitle = 'offline by null path';
+`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	u, err := url.Parse(server.URL + "/mbntv/292157719")
+	assert.NoError(t, err)
+
+	l := &Live{
+		BaseLive: internal.NewBaseLive(u),
+	}
+	l.Options = livepkg.MustNewOptions()
+
+	_, err = l.GetStreamInfos()
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, livepkg.ErrLiveOffline)
 }
 
 func TestMapCDNType(t *testing.T) {
