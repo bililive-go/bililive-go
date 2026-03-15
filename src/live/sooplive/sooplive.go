@@ -67,11 +67,15 @@ type Live struct {
 // 当前 IsLiving 只是基于页面里是否拿到了 nBroadNo 的启发式判断，
 // 不能等价理解为“平台最终确认未开播”。
 type pageMeta struct {
-	Channel  string
-	BroadNo  string
-	HostName string
-	RoomName string
-	IsLiving bool
+	Channel               string
+	BroadNo               string
+	PathBroadNo           string
+	PageBroadNo           string
+	PageBroadNoFound      bool
+	PageExplicitlyOffline bool
+	HostName              string
+	RoomName              string
+	IsLiving              bool
 }
 
 type channelInfo struct {
@@ -108,7 +112,7 @@ func (l *Live) GetInfo() (*live.Info, error) {
 		Live:      l,
 		HostName:  meta.HostName,
 		RoomName:  meta.RoomName,
-		Status:    meta.IsLiving,
+		Status:    false,
 		AudioOnly: l.Options.AudioOnly,
 	}
 
@@ -301,20 +305,21 @@ func (l *Live) fetchPageMeta() (*pageMeta, error) {
 		return nil, fmt.Errorf("解析 Soop 房间 URL 失败: %w", err)
 	}
 	pageBroadNo, pageBroadNoFound := parseBroadNoFromPage(body)
-	broadNo := pathBroadNo
-	if pageBroadNoFound {
-		broadNo = pageBroadNo
-	}
+	broadNo, isLiving, pageExplicitlyOffline := resolvePageBroadNo(pathBroadNo, pageBroadNo, pageBroadNoFound)
 
 	hostName := parseWindowString(body, "szBjNick")
 	roomName := parseWindowString(body, "szBroadTitle")
 
 	meta := &pageMeta{
-		Channel:  channel,
-		BroadNo:  broadNo,
-		HostName: hostName,
-		RoomName: roomName,
-		IsLiving: broadNo != "",
+		Channel:               channel,
+		BroadNo:               broadNo,
+		PathBroadNo:           pathBroadNo,
+		PageBroadNo:           pageBroadNo,
+		PageBroadNoFound:      pageBroadNoFound,
+		PageExplicitlyOffline: pageExplicitlyOffline,
+		HostName:              hostName,
+		RoomName:              roomName,
+		IsLiving:              isLiving,
 	}
 	l.GetLogger().Debugf("Soop 页面元信息: channel=%s pathBroadNo=%s pageBroadNo=%s pageBroadNoFound=%v host=%s room=%s living=%v",
 		channel, pathBroadNo, pageBroadNo, pageBroadNoFound, hostName, roomName, meta.IsLiving)
@@ -758,6 +763,19 @@ func parseBroadNoFromPage(body string) (string, bool) {
 }
 
 // parseWindowString 从页面脚本中的 window.xxx = '...'/ "..." 提取字符串变量。
+func resolvePageBroadNo(pathBroadNo, pageBroadNo string, pageBroadNoFound bool) (string, bool, bool) {
+	switch {
+	case pageBroadNoFound && pageBroadNo != "":
+		return pageBroadNo, true, false
+	case pageBroadNoFound:
+		return "", false, true
+	case pathBroadNo != "":
+		return pathBroadNo, true, false
+	default:
+		return "", false, false
+	}
+}
+
 func parseWindowString(body, varName string) string {
 	doubleQuotePattern := fmt.Sprintf(`window\.%s\s*=\s*"((?:\\.|[^"\\])*)"`, regexp.QuoteMeta(varName))
 	if matched := utils.Match1(doubleQuotePattern, body); matched != "" {

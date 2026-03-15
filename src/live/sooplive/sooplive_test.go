@@ -60,6 +60,36 @@ func TestParseBroadNoFromPage(t *testing.T) {
 	assert.Empty(t, broadNo)
 }
 
+func TestResolvePageBroadNo(t *testing.T) {
+	t.Run("页面给出有效场次号时优先使用页面值", func(t *testing.T) {
+		broadNo, isLiving, explicitlyOffline := resolvePageBroadNo("292100000", "292157719", true)
+		assert.Equal(t, "292157719", broadNo)
+		assert.True(t, isLiving)
+		assert.False(t, explicitlyOffline)
+	})
+
+	t.Run("页面明确为 null 时不能回退到路径场次号", func(t *testing.T) {
+		broadNo, isLiving, explicitlyOffline := resolvePageBroadNo("292157719", "", true)
+		assert.Empty(t, broadNo)
+		assert.False(t, isLiving)
+		assert.True(t, explicitlyOffline)
+	})
+
+	t.Run("页面字段缺失时允许回退到路径场次号", func(t *testing.T) {
+		broadNo, isLiving, explicitlyOffline := resolvePageBroadNo("292157719", "", false)
+		assert.Equal(t, "292157719", broadNo)
+		assert.True(t, isLiving)
+		assert.False(t, explicitlyOffline)
+	})
+
+	t.Run("页面字段缺失且路径也没有场次号时视为离线", func(t *testing.T) {
+		broadNo, isLiving, explicitlyOffline := resolvePageBroadNo("", "", false)
+		assert.Empty(t, broadNo)
+		assert.False(t, isLiving)
+		assert.False(t, explicitlyOffline)
+	})
+}
+
 func TestParseWindowString(t *testing.T) {
 	body := `
 window.szBjNick = 'MBN공식';
@@ -95,10 +125,75 @@ window.szBroadTitle = '标题';
 	assert.NoError(t, err)
 	assert.True(t, meta.IsLiving)
 	assert.Equal(t, "292157719", meta.BroadNo)
+	assert.Empty(t, meta.PathBroadNo)
+	assert.Equal(t, "292157719", meta.PageBroadNo)
+	assert.True(t, meta.PageBroadNoFound)
+	assert.False(t, meta.PageExplicitlyOffline)
 	assert.Equal(t, "主播", meta.HostName)
 	assert.Equal(t, "标题", meta.RoomName)
 	assert.True(t, strings.Contains(receivedCookie, "SESS=valid"))
 	assert.True(t, strings.Contains(receivedCookie, "AUTH=ok"))
+}
+
+func TestFetchPageMetaDoesNotFallbackToPathBroadNoWhenPageExplicitlyOffline(t *testing.T) {
+	configs.SetCurrentConfig(configs.NewConfig())
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`
+window.nBroadNo = null;
+window.szBjNick = 'host';
+window.szBroadTitle = 'offline';
+`))
+	}))
+	defer server.Close()
+
+	u, err := url.Parse(server.URL + "/mbntv/292157719")
+	assert.NoError(t, err)
+
+	l := &Live{
+		BaseLive: internal.NewBaseLive(u),
+	}
+	l.Options = livepkg.MustNewOptions()
+
+	meta, err := l.fetchPageMeta()
+	assert.NoError(t, err)
+	assert.Equal(t, "mbntv", meta.Channel)
+	assert.Equal(t, "292157719", meta.PathBroadNo)
+	assert.True(t, meta.PageBroadNoFound)
+	assert.True(t, meta.PageExplicitlyOffline)
+	assert.Empty(t, meta.PageBroadNo)
+	assert.Empty(t, meta.BroadNo)
+	assert.False(t, meta.IsLiving)
+}
+
+func TestFetchPageMetaFallsBackToPathBroadNoWhenPageFieldMissing(t *testing.T) {
+	configs.SetCurrentConfig(configs.NewConfig())
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`
+window.szBjNick = 'host';
+window.szBroadTitle = 'missing nBroadNo';
+`))
+	}))
+	defer server.Close()
+
+	u, err := url.Parse(server.URL + "/mbntv/292157719")
+	assert.NoError(t, err)
+
+	l := &Live{
+		BaseLive: internal.NewBaseLive(u),
+	}
+	l.Options = livepkg.MustNewOptions()
+
+	meta, err := l.fetchPageMeta()
+	assert.NoError(t, err)
+	assert.Equal(t, "mbntv", meta.Channel)
+	assert.Equal(t, "292157719", meta.PathBroadNo)
+	assert.False(t, meta.PageBroadNoFound)
+	assert.False(t, meta.PageExplicitlyOffline)
+	assert.Empty(t, meta.PageBroadNo)
+	assert.Equal(t, "292157719", meta.BroadNo)
+	assert.True(t, meta.IsLiving)
 }
 
 func TestMapCDNType(t *testing.T) {
