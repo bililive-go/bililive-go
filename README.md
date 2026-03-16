@@ -117,7 +117,7 @@ Bililive-go是一个支持多种直播平台的直播录制工具
     <tr align="center">
         <td>SOOP</td>
         <td>play.sooplive.co.kr</td>
-        <td>✅ 支持（密码房除外）</td>
+        <td>✅ 支持</td>
         <td>✅ 支持</td>
     </tr>
 </table>

@@ -46,6 +46,8 @@ const (
 	stopped
 )
 
+const soopRetryWarnInterval = time.Minute
+
 // for test
 var (
 	// newParser 根据配置的下载器类型创建 parser，并实现回退逻辑：
@@ -235,6 +237,11 @@ type recorder struct {
 	done chan struct{}
 	// suppressSummary 为 true 时，run() 退出不推送摘要（分段重启场景）
 	suppressSummary bool
+
+	retryLogMu              sync.Mutex
+	lastRetryLogKey         string
+	lastRetryLogAt          time.Time
+	suppressedRetryLogCount int
 }
 
 func NewRecorder(ctx context.Context, live live.Live) (Recorder, error) {
@@ -284,7 +291,7 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		if err != nil && r.stopRetryForExplicitOffline(err) {
 			return
 		}
-		r.getLogger().WithError(err).Warn("failed to get stream url, will retry after 5s...")
+		r.logStreamURLRetry(err)
 		// 使用可中断的等待，确保 Ctrl+C 能立即响应
 		select {
 		case <-ctx.Done():
@@ -293,6 +300,7 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		}
 		return
 	}
+	r.resetRetryLogState()
 
 	obj, _ := r.cache.Get(r.Live)
 	info := obj.(*live.Info)
@@ -764,6 +772,69 @@ func (r *recorder) sendAccumulatedSummary() {
 
 	r.getLogger().Infof("推送录制摘要：%d 个文件", len(r.recordedFiles))
 	notify.SendRecordingSummary(r.getLogger(), info.HostName, r.Live.GetPlatformCNName(), r.recordedFiles, outputPath)
+}
+
+func (r *recorder) logStreamURLRetry(err error) {
+	if configs.IsDebug() || !strings.EqualFold(r.Live.GetPlatformCNName(), "SOOP") {
+		r.warnStreamURLRetry(err, "failed to get stream url, will retry after 5s...", 0)
+		return
+	}
+
+	key := ""
+	if err != nil {
+		key = err.Error()
+	}
+
+	now := time.Now()
+
+	r.retryLogMu.Lock()
+	if key != r.lastRetryLogKey || r.lastRetryLogAt.IsZero() {
+		r.lastRetryLogKey = key
+		r.lastRetryLogAt = now
+		r.suppressedRetryLogCount = 0
+		r.retryLogMu.Unlock()
+		r.warnStreamURLRetry(err, "failed to get stream url, will retry after 5s...", 0)
+		return
+	}
+
+	if now.Sub(r.lastRetryLogAt) >= soopRetryWarnInterval {
+		suppressed := r.suppressedRetryLogCount
+		r.lastRetryLogAt = now
+		r.suppressedRetryLogCount = 0
+		r.retryLogMu.Unlock()
+		r.warnStreamURLRetry(err, "failed to get stream url, still retrying every 5s...", suppressed)
+		return
+	}
+
+	r.suppressedRetryLogCount++
+	r.retryLogMu.Unlock()
+}
+
+func (r *recorder) warnStreamURLRetry(err error, msg string, suppressed int) {
+	logger := r.getLogger()
+	if suppressed > 0 {
+		entry := logger.WithField("suppressed", suppressed)
+		if err != nil {
+			entry = entry.WithError(err)
+		}
+		entry.Warn(msg)
+		return
+	}
+
+	if err != nil {
+		logger.WithError(err).Warn(msg)
+		return
+	}
+	logger.Warn(msg)
+}
+
+func (r *recorder) resetRetryLogState() {
+	r.retryLogMu.Lock()
+	defer r.retryLogMu.Unlock()
+
+	r.lastRetryLogKey = ""
+	r.lastRetryLogAt = time.Time{}
+	r.suppressedRetryLogCount = 0
 }
 
 func (r *recorder) getParser() parser.Parser {

@@ -57,6 +57,23 @@ type Live struct {
 	stateMu            sync.RWMutex
 }
 
+func (l *Live) logRetryDetail(err error, format string, args ...interface{}) {
+	if configs.IsDebug() {
+		if err != nil {
+			l.GetLogger().WithError(err).Warnf(format, args...)
+			return
+		}
+		l.GetLogger().Warnf(format, args...)
+		return
+	}
+
+	if err != nil {
+		l.GetLogger().WithError(err).Debugf(format, args...)
+		return
+	}
+	l.GetLogger().Debugf(format, args...)
+}
+
 // pageMeta 表示从播放页 HTML 中直接提取的最小元信息。
 // 这一步不依赖 Soop API，主要用于：
 // 1. 在接口异常时提供基础房间信息；
@@ -202,43 +219,43 @@ func (l *Live) GetStreamInfos() ([]*live.StreamUrlInfo, error) {
 
 		aid, result, err := l.fetchAid(meta.Channel, channelInfo.BroadNo, preset.Name)
 		if err != nil {
-			l.GetLogger().WithError(err).Warnf("获取 Soop AID 失败: quality=%s", preset.Name)
+			l.logRetryDetail(err, "获取 Soop AID 失败: quality=%s", preset.Name)
 			continue
 		}
 		if result == channelResultLogin {
-			l.GetLogger().Warnf("Soop AID 申请提示需要登录，准备自动重登后重试: quality=%s", preset.Name)
+			l.logRetryDetail(nil, "Soop AID 申请提示需要登录，准备自动重登后重试: quality=%s", preset.Name)
 			if err = l.tryAutoLogin(); err != nil {
-				l.GetLogger().WithError(err).Warnf("Soop 自动重登失败，无法重试 AID: quality=%s", preset.Name)
+				l.logRetryDetail(err, "Soop 自动重登失败，无法重试 AID: quality=%s", preset.Name)
 				continue
 			}
 			aid, result, err = l.fetchAid(meta.Channel, channelInfo.BroadNo, preset.Name)
 			if err != nil {
-				l.GetLogger().WithError(err).Warnf("Soop 重登后再次获取 AID 失败: quality=%s", preset.Name)
+				l.logRetryDetail(err, "Soop 重登后再次获取 AID 失败: quality=%s", preset.Name)
 				continue
 			}
 		}
 		if result != channelResultOK || aid == "" {
-			l.GetLogger().Warnf("Soop AID 申请失败: quality=%s, reason=%s, aid_empty=%v", preset.Name, explainChannelResult(result), aid == "")
+			l.logRetryDetail(nil, "Soop AID 申请失败: quality=%s, reason=%s, aid_empty=%v", preset.Name, explainChannelResult(result), aid == "")
 			continue
 		}
 		l.GetLogger().Debugf("Soop AID 申请成功: quality=%s aid_length=%d", preset.Name, len(aid))
 
 		viewURL, err := l.fetchViewURL(channelInfo.RMD, channelInfo.CDN, channelInfo.BroadNo, preset.Name)
 		if err != nil {
-			l.GetLogger().WithError(err).Warnf("获取 Soop 播放地址失败: quality=%s", preset.Name)
+			l.logRetryDetail(err, "获取 Soop 播放地址失败: quality=%s", preset.Name)
 			continue
 		}
 		l.GetLogger().Debugf("Soop 调度成功: quality=%s view_url_host=%s", preset.Name, parseHostQuiet(viewURL))
 
 		streamURL, err := appendQuery(viewURL, "aid", aid)
 		if err != nil {
-			l.GetLogger().WithError(err).Warnf("拼接 Soop 播放地址失败: quality=%s", preset.Name)
+			l.logRetryDetail(err, "拼接 Soop 播放地址失败: quality=%s", preset.Name)
 			continue
 		}
 
 		u, err := url.Parse(streamURL)
 		if err != nil {
-			l.GetLogger().WithError(err).Warnf("解析 Soop 播放地址失败: quality=%s", preset.Name)
+			l.logRetryDetail(err, "解析 Soop 播放地址失败: quality=%s", preset.Name)
 			continue
 		}
 
@@ -550,7 +567,7 @@ func (l *Live) getCookieMap() map[string]string {
 func (l *Live) resolveChannelInfo(channel, broadNo string) (*channelInfo, error) {
 	l.GetLogger().Debugf("Soop 开始解析频道信息: channel=%s broadNo=%s", channel, broadNo)
 	if err := l.tryVerifyAndReloginIfNeeded(); err != nil {
-		l.GetLogger().WithError(err).Warn("Soop 登录态预检失败")
+		l.logRetryDetail(err, "Soop 登录态预检失败")
 	}
 
 	info, err := l.fetchChannelInfo(channel, broadNo)
