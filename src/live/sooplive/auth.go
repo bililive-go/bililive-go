@@ -89,7 +89,7 @@ func VerifyCookieString(cookie string) (*CookieVerifyResult, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Soop 登录态校验接口返回异常状态码: %d", resp.StatusCode)
+		return nil, fmt.Errorf("soop 登录态校验接口返回异常状态码: %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -115,7 +115,7 @@ func VerifyCookieStringCached(cookie string) (*CookieVerifyResult, error) {
 // 如果返回错误，既可能是认证失败，也可能是平台接口异常或登录后校验未通过。
 func LoginAndGetCookie(username, password string) (*LoginResult, error) {
 	if strings.TrimSpace(username) == "" || strings.TrimSpace(password) == "" {
-		return nil, fmt.Errorf("Soop 登录失败：账号或密码为空")
+		return nil, fmt.Errorf("soop 登录失败：账号或密码为空")
 	}
 
 	jar, err := cookiejar.New(nil)
@@ -159,25 +159,25 @@ func LoginAndGetCookie(username, password string) (*LoginResult, error) {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Soop 登录接口返回异常状态码: %d", resp.StatusCode)
+		return nil, fmt.Errorf("soop 登录接口返回异常状态码: %d", resp.StatusCode)
 	}
 
 	resultCode := int(gjson.GetBytes(body, "RESULT").Int())
 	if resultCode != loginOKCode {
-		return nil, fmt.Errorf("Soop 登录失败，平台返回业务码: %d", resultCode)
+		return nil, fmt.Errorf("soop 登录失败，平台返回业务码: %d", resultCode)
 	}
 
 	cookie := buildCookieStringFromJar(jar)
 	if cookie == "" {
-		return nil, fmt.Errorf("Soop 登录成功，但未从响应中提取到有效 Cookie")
+		return nil, fmt.Errorf("soop 登录成功，但未从响应中提取到有效 Cookie")
 	}
 
 	verify, err := VerifyCookieString(cookie)
 	if err != nil {
-		return nil, fmt.Errorf("Soop 登录成功，但登录态二次校验失败: %w", err)
+		return nil, fmt.Errorf("soop 登录成功，但登录态二次校验失败: %w", err)
 	}
 	if verify == nil || !verify.IsLogin {
-		return nil, fmt.Errorf("Soop 登录成功，但登录态二次校验未通过")
+		return nil, fmt.Errorf("soop 登录成功，但登录态二次校验未通过")
 	}
 
 	return &LoginResult{

@@ -205,7 +205,7 @@ func (l *Live) GetStreamInfos() ([]*live.StreamUrlInfo, error) {
 	}
 
 	if channelInfo.BroadNo == "" || channelInfo.RMD == "" {
-		return nil, fmt.Errorf("Soop 播放信息不完整：缺少 broadcast id 或调度节点地址")
+		return nil, fmt.Errorf("soop 播放信息不完整：缺少 broadcast id 或调度节点地址")
 	}
 
 	headers := l.getHeadersForDownloader()
@@ -283,9 +283,9 @@ func (l *Live) GetStreamInfos() ([]*live.StreamUrlInfo, error) {
 
 	if len(streams) == 0 {
 		if channelInfo.NeedPwd {
-			return nil, fmt.Errorf("Soop 房间开启了直播密码，当前版本尚未填写密码，无法获取播放流")
+			return nil, fmt.Errorf("soop 房间开启了直播密码，当前版本尚未填写密码，无法获取播放流")
 		}
-		return nil, fmt.Errorf("Soop 未返回任何可用流，可能是接口变更、登录态不足或调度节点异常")
+		return nil, fmt.Errorf("soop 未返回任何可用流，可能是接口变更、登录态不足或调度节点异常")
 	}
 
 	l.GetLogger().Debugf("Soop GetStreamInfos 完成：streams=%d selected_default=%s", len(streams), streams[0].Quality)
@@ -323,7 +323,7 @@ func (l *Live) fetchPageMeta() (*pageMeta, error) {
 		return nil, fmt.Errorf("请求 Soop 播放页失败: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Soop 播放页返回异常状态码: %d", resp.StatusCode)
+		return nil, fmt.Errorf("soop 播放页返回异常状态码: %d", resp.StatusCode)
 	}
 
 	body, err := resp.Text()
@@ -368,7 +368,7 @@ func (l *Live) fetchPageMeta() (*pageMeta, error) {
 // 当前版本未实现密码房输入，因此这里固定以空密码请求。
 func (l *Live) fetchChannelInfo(channel, broadNo string) (*channelInfo, error) {
 	if channel == "" || broadNo == "" {
-		return nil, fmt.Errorf("Soop 房间标识不完整：channel=%q broadNo=%q", channel, broadNo)
+		return nil, fmt.Errorf("soop 房间标识不完整：channel=%q broadNo=%q", channel, broadNo)
 	}
 
 	l.GetLogger().Debugf("Soop 请求播放信息接口: type=live channel=%s broadNo=%s cookie_count=%d",
@@ -392,7 +392,7 @@ func (l *Live) fetchChannelInfo(channel, broadNo string) (*channelInfo, error) {
 		return nil, fmt.Errorf("请求 Soop 播放信息接口失败: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Soop 播放信息接口返回异常状态码: %d", resp.StatusCode)
+		return nil, fmt.Errorf("soop 播放信息接口返回异常状态码: %d", resp.StatusCode)
 	}
 
 	body, err := resp.Bytes()
@@ -454,7 +454,7 @@ func (l *Live) fetchAid(channel, broadNo, quality string) (string, int, error) {
 		return "", 0, fmt.Errorf("请求 Soop AID 接口失败: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", 0, fmt.Errorf("Soop AID 接口返回异常状态码: %d", resp.StatusCode)
+		return "", 0, fmt.Errorf("soop AID 接口返回异常状态码: %d", resp.StatusCode)
 	}
 
 	body, err := resp.Bytes()
@@ -470,7 +470,7 @@ func (l *Live) fetchAid(channel, broadNo, quality string) (string, int, error) {
 // fetchViewURL 根据 RMD 调度节点、CDN 类型和 quality 获取最终 m3u8 地址。
 func (l *Live) fetchViewURL(rmd, cdn, broadNo, quality string) (string, error) {
 	if rmd == "" {
-		return "", fmt.Errorf("Soop 调度节点为空，无法获取播放地址")
+		return "", fmt.Errorf("soop 调度节点为空，无法获取播放地址")
 	}
 
 	l.GetLogger().Debugf("Soop 请求调度接口: rmd=%s cdn=%s broadNo=%s quality=%s return_type=%s",
@@ -486,7 +486,7 @@ func (l *Live) fetchViewURL(rmd, cdn, broadNo, quality string) (string, error) {
 		return "", fmt.Errorf("请求 Soop 调度接口失败: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Soop 调度接口返回异常状态码: %d", resp.StatusCode)
+		return "", fmt.Errorf("soop 调度接口返回异常状态码: %d", resp.StatusCode)
 	}
 
 	body, err := resp.Bytes()
@@ -496,7 +496,7 @@ func (l *Live) fetchViewURL(rmd, cdn, broadNo, quality string) (string, error) {
 
 	viewURL := gjson.GetBytes(body, "view_url").String()
 	if viewURL == "" {
-		return "", fmt.Errorf("Soop 调度接口未返回 view_url，当前 CDN=%q quality=%q", cdn, quality)
+		return "", fmt.Errorf("soop 调度接口未返回 view_url，当前 CDN=%q quality=%q", cdn, quality)
 	}
 	l.GetLogger().Debugf("Soop 调度接口响应成功: quality=%s stream_status=%s view_url_host=%s",
 		quality, gjson.GetBytes(body, "stream_status").String(), parseHostQuiet(viewURL))
@@ -577,7 +577,7 @@ func (l *Live) resolveChannelInfo(channel, broadNo string) (*channelInfo, error)
 	if info.Result == channelResultLogin {
 		l.GetLogger().Debugf("Soop 播放信息提示需要登录，准备自动重登: channel=%s broadNo=%s", channel, broadNo)
 		if err := l.tryAutoLogin(); err != nil {
-			return nil, fmt.Errorf("Soop 需要登录态，但自动重登失败: %w", err)
+			return nil, fmt.Errorf("soop 需要登录态，但自动重登失败: %w", err)
 		}
 		info, err = l.fetchChannelInfo(channel, broadNo)
 		if err != nil {
@@ -656,13 +656,13 @@ func (l *Live) tryAutoLogin() error {
 		return err
 	}
 	if result == nil {
-		return fmt.Errorf("Soop 自动登录未返回结果")
+		return fmt.Errorf("soop 自动登录未返回结果")
 	}
 	if result.Cookie == "" {
-		return fmt.Errorf("Soop 自动登录成功，但未获得可用 Cookie")
+		return fmt.Errorf("soop 自动登录成功，但未获得可用 Cookie")
 	}
 	if !result.Verify.IsLogin {
-		return fmt.Errorf("Soop 自动登录成功，但登录态校验未通过")
+		return fmt.Errorf("soop 自动登录成功，但登录态校验未通过")
 	}
 
 	if err := persistSoopCookieWithSingleflight(result.Cookie); err != nil {
