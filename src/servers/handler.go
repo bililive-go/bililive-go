@@ -2398,7 +2398,6 @@ func getSoopLiveAuthConfig(writer http.ResponseWriter, _ *http.Request) {
 	writeJSON(writer, commonResp{
 		Data: map[string]any{
 			"username":              cfg.SoopLiveAuth.Username,
-			"password":              cfg.SoopLiveAuth.Password,
 			"has_saved_credentials": cfg.SoopLiveAuth.Username != "" || cfg.SoopLiveAuth.Password != "",
 			"cookie_status":         cookieStatus,
 			// verify 为空通常表示：

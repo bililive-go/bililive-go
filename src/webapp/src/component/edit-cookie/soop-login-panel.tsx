@@ -92,7 +92,7 @@ const SoopLoginPanel: React.FC<SoopLoginPanelProps> = ({
                 if (!isMounted.current) return;
                 if (rsp?.err_no === 0 && rsp?.data) {
                     setUsername(rsp.data.username || '');
-                    setPassword(rsp.data.password || '');
+                    setPassword('');
                     setHasSavedCredentials(Boolean(rsp.data.has_saved_credentials));
                     setSaveCredentials(Boolean(rsp.data.has_saved_credentials));
                     if (rsp.data.cookie_status === 'valid' && rsp.data.verify?.isLogin) {

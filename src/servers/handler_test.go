@@ -10,7 +10,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/configs"
 )
 
-func TestGetSoopLiveAuthConfigReturnsSavedPassword(t *testing.T) {
+func TestGetSoopLiveAuthConfigDoesNotExposeSavedPassword(t *testing.T) {
 	cfg := configs.NewConfig()
 	cfg.SoopLiveAuth.Username = "tester"
 	cfg.SoopLiveAuth.Password = "secret"
@@ -28,6 +28,7 @@ func TestGetSoopLiveAuthConfigReturnsSavedPassword(t *testing.T) {
 	data, ok := resp.Data.(map[string]any)
 	assert.True(t, ok)
 	assert.Equal(t, "tester", data["username"])
-	assert.Equal(t, "secret", data["password"])
 	assert.Equal(t, true, data["has_saved_credentials"])
+	_, exists := data["password"]
+	assert.False(t, exists)
 }
