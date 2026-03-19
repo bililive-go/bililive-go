@@ -2357,8 +2357,8 @@ func putLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// getSoopLiveAuthConfig 返回 Soop 凭证状态和当前已保存的账号字段，供 WebUI 面板初始化使用。
-// 注意：当前实现仍会把已保存密码原样返回给前端用于回填，这只是现有行为描述，不代表推荐的安全策略。
+// getSoopLiveAuthConfig 返回 Soop 凭证状态和当前已保存的账号字段（仅用户名与是否存在已保存凭证标记），供 WebUI 面板初始化使用。
+// 注意：当前实现不会返回密码等敏感字段，只会返回 username 与 has_saved_credentials，避免将明文密码暴露给前端。
 func getSoopLiveAuthConfig(writer http.ResponseWriter, _ *http.Request) {
 	cfg := configs.GetCurrentConfig()
 	if cfg == nil {
