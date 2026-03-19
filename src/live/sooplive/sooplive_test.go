@@ -489,6 +489,48 @@ func TestTryVerifyAndReloginIfNeededAutoLoginWhenCredentialsExist(t *testing.T) 
 	assert.Equal(t, "fresh", l.getCookieMap()["SESS"])
 }
 
+func TestTryVerifyAndReloginIfNeededFallsBackToAnonymousWhenAutoLoginFails(t *testing.T) {
+	oldVerify := verifyCookieFunc
+	oldLogin := loginAndGetCookie
+	defer func() {
+		verifyCookieFunc = oldVerify
+		loginAndGetCookie = oldLogin
+	}()
+	resetVerifyCookieCacheForTest()
+
+	cfg := configs.NewConfig()
+	cfg.Cookies = map[string]string{
+		domainPlaySoop: "SESS=config-expired",
+	}
+	cfg.SoopLiveAuth.Username = "tester"
+	cfg.SoopLiveAuth.Password = "wrong-password"
+	configs.SetCurrentConfig(cfg)
+
+	verifyCookieFunc = func(cookie string) (*CookieVerifyResult, error) {
+		assert.Equal(t, "SESS=runtime-expired; AUTH=stale", cookie)
+		return &CookieVerifyResult{IsLogin: false}, nil
+	}
+	loginAndGetCookie = func(username, password string) (*LoginResult, error) {
+		assert.Equal(t, "tester", username)
+		assert.Equal(t, "wrong-password", password)
+		return nil, assert.AnError
+	}
+
+	u, err := url.Parse("https://play.sooplive.co.kr/mbntv")
+	assert.NoError(t, err)
+	l := &Live{
+		BaseLive:      internal.NewBaseLive(u),
+		runtimeCookie: "SESS=runtime-expired; AUTH=stale",
+	}
+	l.Options = livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=option-expired"))
+
+	err = l.tryVerifyAndReloginIfNeeded()
+	assert.NoError(t, err)
+	assert.True(t, l.ignoreStoredCookie)
+	assert.Empty(t, l.runtimeCookie)
+	assert.Empty(t, l.getCookieMap())
+}
+
 func TestGetCookieMapPrefersLatestConfigCookieOverStaleOptions(t *testing.T) {
 	cfg := configs.NewConfig()
 	cfg.Cookies = map[string]string{

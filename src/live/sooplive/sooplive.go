@@ -630,7 +630,12 @@ func (l *Live) tryVerifyAndReloginIfNeeded() error {
 	}
 	l.setIgnoreStoredCookie(false)
 	l.GetLogger().Debug("Soop Cookie 无效，但已配置账号密码，准备自动登录")
-	return l.tryAutoLogin()
+	if err := l.tryAutoLogin(); err != nil {
+		l.setRuntimeState("", true)
+		l.GetLogger().WithError(err).Warn("Soop 自动登录失败，当前运行态将忽略失效 Cookie 并降级为匿名访问")
+		return nil
+	}
+	return nil
 }
 
 // tryAutoLogin 使用配置文件中的 Soop 账号密码重新换取 Cookie。
