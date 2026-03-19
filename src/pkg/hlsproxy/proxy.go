@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	applog "github.com/bililive-go/bililive-go/src/log"
@@ -22,6 +23,8 @@ type Proxy struct {
 	upstreamURL      *url.URL
 	headers          map[string]string
 	filterPreloading bool
+	client           *http.Client
+	clientOnce       sync.Once
 }
 
 // New 创建一个 HLS 本地代理。
@@ -86,6 +89,9 @@ func (p *Proxy) Start(ctx context.Context) error {
 // Stop 停止本地 HLS 代理并释放监听端口。
 func (p *Proxy) Stop() error {
 	applog.GetLogger().Debugf("HLS 代理停止: local=%s", p.localURL.String())
+	if p.client != nil {
+		p.client.CloseIdleConnections()
+	}
 	if p.server != nil {
 		_ = p.server.Close()
 	}
@@ -188,12 +194,19 @@ func (p *Proxy) doUpstreamRequest(ctx context.Context, targetURL *url.URL) (*htt
 		req.Header.Set(key, value)
 	}
 
-	client := utils.CreateDownloadClient()
+	client := p.getHTTPClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("请求 HLS 上游资源失败: %w", err)
 	}
 	return resp, nil
+}
+
+func (p *Proxy) getHTTPClient() *http.Client {
+	p.clientOnce.Do(func() {
+		p.client = utils.CreateDownloadClient()
+	})
+	return p.client
 }
 
 func copyResponseHeaders(dst, src http.Header) {

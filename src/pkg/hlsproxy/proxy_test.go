@@ -81,3 +81,13 @@ func TestProxyRawStreamsUpstreamResponse(t *testing.T) {
 	assert.Equal(t, "no-cache", recorder.Header().Get("Cache-Control"))
 	assert.Equal(t, "segment-data", recorder.Body.String())
 }
+
+func TestProxyReusesDownloadClient(t *testing.T) {
+	proxy := &Proxy{}
+
+	client1 := proxy.getHTTPClient()
+	client2 := proxy.getHTTPClient()
+
+	assert.NotNil(t, client1)
+	assert.Same(t, client1, client2)
+}
