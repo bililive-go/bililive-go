@@ -1,6 +1,16 @@
 rpc:
   enable: true
   bind: :8080
+  # 身份验证配置
+  authentication:
+    # 是否启用身份验证（启用后需要用户名密码才能访问Web界面，API需要密钥）
+    enable: false
+    # Web界面登录用户名
+    web_username: ""
+    # Web界面登录密码
+    web_password: ""
+    # API访问密钥（通过请求头 X-API-Key 传递）
+    api_key: ""
 debug: false
 interval: 20
 out_put_path: /srv/bililive
