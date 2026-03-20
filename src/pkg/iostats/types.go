@@ -22,7 +22,7 @@ const (
 
 // IOStat IO 统计数据点
 type IOStat struct {
-	ID         int64    `json:"id"`
+	ID         int64    `json:"id,omitempty"`
 	Timestamp  int64    `json:"timestamp"`             // Unix 毫秒
 	StatType   StatType `json:"stat_type"`             // 统计类型
 	LiveID     string   `json:"live_id,omitempty"`     // 直播间 ID（空表示全局）
@@ -68,7 +68,7 @@ type IOStatsQuery struct {
 	StatTypes   []StatType `json:"stat_types,omitempty"`  // 统计类型列表
 	LiveID      string     `json:"live_id,omitempty"`     // 直播间 ID
 	Platform    string     `json:"platform,omitempty"`    // 平台名称
-	Aggregation string     `json:"aggregation,omitempty"` // 聚合粒度: none/minute/hour
+	Aggregation string     `json:"aggregation,omitempty"` // 聚合粒度: auto/raw/minute/hour
 }
 
 // RequestStatusQuery 请求状态查询参数
@@ -88,7 +88,9 @@ type FiltersResponse struct {
 
 // IOStatsResponse IO 统计响应
 type IOStatsResponse struct {
-	Stats []IOStat `json:"stats"`
+	Stats              []IOStat `json:"stats"`
+	AppliedAggregation string   `json:"applied_aggregation,omitempty"`
+	BucketMs           int64    `json:"bucket_ms,omitempty"`
 }
 
 // RequestStatusResponse 请求状态响应

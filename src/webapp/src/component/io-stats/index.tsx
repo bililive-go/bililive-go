@@ -7,33 +7,11 @@ import DiskIOChart from './DiskIOChart';
 import RequestStatusChart from './RequestStatusChart';
 import MemoryStats from './MemoryStats';
 import MemoryHistoryChart from './MemoryHistoryChart';
+import { IOStat, RequestStatusResponse } from './types';
 import './index.css';
 
 const { RangePicker } = DatePicker;
 const { TabPane } = Tabs;
-
-// 类型定义
-interface IOStat {
-  id: number;
-  timestamp: number;
-  stat_type: string;
-  live_id: string;
-  platform: string;
-  speed: number;
-  total_bytes: number;
-}
-
-interface RequestStatusSegment {
-  start_time: number;
-  end_time: number;
-  success: boolean;
-  count: number;
-}
-
-interface RequestStatusResponse {
-  segments: RequestStatusSegment[];
-  grouped_segments?: Record<string, RequestStatusSegment[]>;
-}
 
 interface FiltersResponse {
   live_ids: string[];
@@ -128,7 +106,7 @@ const IOStatsPage: React.FC = () => {
   const [requestStatusData, setRequestStatusData] = useState<RequestStatusResponse>({ segments: [], grouped_segments: {} });
 
   // 数据聚合粒度
-  const [aggregation, setAggregation] = useState<string>('none');
+  const [aggregation, setAggregation] = useState<string>('auto');
 
   // 加载筛选器选项
   useEffect(() => {
@@ -152,15 +130,14 @@ const IOStatsPage: React.FC = () => {
           start_time: startTime,
           end_time: endTime,
           stat_types: ['network_download'],
-          live_id: selectedLiveId || undefined,
-          aggregation: aggregation === 'none' ? undefined : aggregation,
+          aggregation: aggregation === 'auto' ? undefined : aggregation,
         }),
         fetchIOStats({
           start_time: startTime,
           end_time: endTime,
           stat_types: ['disk_record_write', 'disk_fix_read', 'disk_fix_write', 'disk_convert_read', 'disk_convert_write'],
           live_id: selectedLiveId || undefined,
-          aggregation: aggregation === 'none' ? undefined : aggregation,
+          aggregation: aggregation === 'auto' ? undefined : aggregation,
         }),
         fetchRequestStatus({
           start_time: startTime,
@@ -230,7 +207,8 @@ const IOStatsPage: React.FC = () => {
             value={aggregation}
             onChange={setAggregation}
             options={[
-              { value: 'none', label: '原始数据' },
+              { value: 'auto', label: '自动' },
+              { value: 'raw', label: '原始数据' },
               { value: 'minute', label: '按分钟' },
               { value: 'hour', label: '按小时' },
             ]}

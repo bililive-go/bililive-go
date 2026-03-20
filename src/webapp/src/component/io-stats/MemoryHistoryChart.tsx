@@ -17,7 +17,7 @@ import dayjs from 'dayjs';
 const { Text } = Typography;
 
 interface MemoryStat {
-  id: number;
+  id?: number;
   timestamp: number;
   category: string;
   rss: number;
@@ -29,8 +29,9 @@ interface MemoryStat {
 }
 
 interface MemoryStatsResponse {
-  stats: MemoryStat[];
   grouped_stats: Record<string, MemoryStat[]>;
+  applied_aggregation?: string;
+  bucket_ms?: number;
 }
 
 interface Props {
@@ -111,7 +112,7 @@ const MemoryHistoryChart: React.FC<Props> = ({ startTime, endTime }) => {
   const [visibleCategories, setVisibleCategories] = useState<Set<string>>(
     new Set(['self', 'total', 'ffmpeg', 'bililive-tools'])
   );
-  const [aggregation, setAggregation] = useState<string>('none');
+  const [aggregation, setAggregation] = useState<string>('auto');
   const [showGoroutines, setShowGoroutines] = useState(false);
 
   // 获取数据
@@ -122,7 +123,7 @@ const MemoryHistoryChart: React.FC<Props> = ({ startTime, endTime }) => {
         start_time: startTime.toString(),
         end_time: endTime.toString(),
       });
-      if (aggregation && aggregation !== 'none') {
+      if (aggregation && aggregation !== 'auto') {
         params.append('aggregation', aggregation);
       }
 
@@ -244,7 +245,8 @@ const MemoryHistoryChart: React.FC<Props> = ({ startTime, endTime }) => {
           onChange={setAggregation}
           style={{ width: 100 }}
           options={[
-            { label: '无', value: 'none' },
+            { label: '自动', value: 'auto' },
+            { label: '原始', value: 'raw' },
             { label: '分钟', value: 'minute' },
             { label: '小时', value: 'hour' },
           ]}

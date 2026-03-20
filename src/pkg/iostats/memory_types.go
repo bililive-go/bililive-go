@@ -2,7 +2,7 @@ package iostats
 
 // MemoryStat 内存统计数据点
 type MemoryStat struct {
-	ID           int64  `json:"id"`
+	ID           int64  `json:"id,omitempty"`
 	Timestamp    int64  `json:"timestamp"`               // Unix 毫秒
 	Category     string `json:"category"`                // 类别: self, ffmpeg, bililive-tools, klive, bililive-recorder, container
 	RSS          uint64 `json:"rss"`                     // Resident Set Size (bytes) - 实际物理内存
@@ -18,15 +18,17 @@ type MemoryStatsQuery struct {
 	StartTime   int64    `json:"start_time"`            // 开始时间 Unix 毫秒
 	EndTime     int64    `json:"end_time"`              // 结束时间 Unix 毫秒
 	Categories  []string `json:"categories,omitempty"`  // 类别列表（空表示全部）
-	Aggregation string   `json:"aggregation,omitempty"` // 聚合粒度: none/minute/hour
+	Aggregation string   `json:"aggregation,omitempty"` // 聚合粒度: auto/raw/minute/hour
 }
 
 // MemoryStatsResponse 内存统计响应
 type MemoryStatsResponse struct {
-	// Stats 按时间排序的统计数据
-	Stats []MemoryStat `json:"stats"`
+	// Stats 按时间排序的统计数据（保留兼容旧响应结构）
+	Stats []MemoryStat `json:"stats,omitempty"`
 	// GroupedStats 按类别分组的统计数据（用于曲线图）
-	GroupedStats map[string][]MemoryStat `json:"grouped_stats,omitempty"`
+	GroupedStats       map[string][]MemoryStat `json:"grouped_stats,omitempty"`
+	AppliedAggregation string                  `json:"applied_aggregation,omitempty"`
+	BucketMs           int64                   `json:"bucket_ms,omitempty"`
 }
 
 // 预定义的内存统计类别

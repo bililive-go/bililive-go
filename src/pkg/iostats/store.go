@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,7 +29,7 @@ type Store interface {
 	// SaveIOStats 批量保存 IO 统计数据
 	SaveIOStats(ctx context.Context, stats []*IOStat) error
 	// QueryIOStats 查询 IO 统计数据
-	QueryIOStats(ctx context.Context, query IOStatsQuery) ([]IOStat, error)
+	QueryIOStats(ctx context.Context, query IOStatsQuery) (*IOStatsResponse, error)
 
 	// SaveRequestStatus 保存请求状态
 	SaveRequestStatus(ctx context.Context, status *RequestStatus) error
@@ -68,14 +69,7 @@ type SQLiteStore struct {
 	mu     sync.RWMutex
 }
 
-// NewSQLiteStore 创建 SQLite 存储
-func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
-	// 确保目录存在
-	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create directory: %w", err)
-	}
-
+func openSQLiteDB(dbPath string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
@@ -84,6 +78,21 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 	// 设置连接池参数
 	db.SetMaxOpenConns(1) // SQLite 单写入
 	db.SetMaxIdleConns(1)
+	return db, nil
+}
+
+// NewSQLiteStore 创建 SQLite 存储
+func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
+	// 确保目录存在
+	dir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	db, err := openSQLiteDB(dbPath)
+	if err != nil {
+		return nil, err
+	}
 
 	store := &SQLiteStore{
 		db:     db,
@@ -118,12 +127,9 @@ func (s *SQLiteStore) runMigrations() error {
 	}
 	if recovered {
 		logrus.Info("IO 统计数据库从未完成的迁移中恢复")
-		s.db.Close()
-		db, err := sql.Open("sqlite", s.dbPath)
-		if err != nil {
+		if err := s.reopenDB(); err != nil {
 			return fmt.Errorf("恢复后重新打开数据库失败: %w", err)
 		}
-		s.db = db
 		config.DB = s.db
 		migrator, err = migration.NewMigrator(config)
 		if err != nil {
@@ -133,7 +139,21 @@ func (s *SQLiteStore) runMigrations() error {
 
 	result, err := migrator.Run()
 	if err != nil {
-		return fmt.Errorf("迁移失败: %w", err)
+		var dirtyErr *migration.DirtyDatabaseError
+		if errors.As(err, &dirtyErr) && dirtyErr.Category == migration.CategoryDisposable {
+			if err := s.rebuildDirtyDatabase(dirtyErr); err != nil {
+				return err
+			}
+			config.DB = s.db
+			migrator, err = migration.NewMigrator(config)
+			if err != nil {
+				return fmt.Errorf("重建后创建迁移器失败: %w", err)
+			}
+			result, err = migrator.Run()
+		}
+		if err != nil {
+			return fmt.Errorf("迁移失败: %w", err)
+		}
 	}
 
 	if result.BackupPath != "" {
@@ -141,6 +161,82 @@ func (s *SQLiteStore) runMigrations() error {
 	}
 
 	return nil
+}
+
+func (s *SQLiteStore) reopenDB() error {
+	if s.db != nil {
+		if err := s.db.Close(); err != nil {
+			return err
+		}
+	}
+
+	db, err := openSQLiteDB(s.dbPath)
+	if err != nil {
+		return err
+	}
+	s.db = db
+	return nil
+}
+
+func (s *SQLiteStore) rebuildDirtyDatabase(dirtyErr *migration.DirtyDatabaseError) error {
+	if dirtyErr == nil {
+		return fmt.Errorf("dirty database error is nil")
+	}
+
+	if s.db != nil {
+		if err := s.db.Close(); err != nil {
+			return fmt.Errorf("关闭 dirty 数据库失败: %w", err)
+		}
+		s.db = nil
+	}
+
+	archivedPath, err := quarantineSQLiteFiles(s.dbPath)
+	if err != nil {
+		return fmt.Errorf("隔离 dirty 数据库失败: %w", err)
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"db_path":       s.dbPath,
+		"dirty_version": dirtyErr.Version,
+		"archived_path": archivedPath,
+	}).Warn("IO 统计数据库处于 dirty 状态，已隔离旧库并重建")
+
+	db, err := openSQLiteDB(s.dbPath)
+	if err != nil {
+		return fmt.Errorf("重建 IO 统计数据库失败: %w", err)
+	}
+	s.db = db
+	return nil
+}
+
+func quarantineSQLiteFiles(dbPath string) (string, error) {
+	suffix := fmt.Sprintf(".dirty-%d", time.Now().UnixNano())
+	paths := []string{
+		dbPath,
+		dbPath + "-wal",
+		dbPath + "-shm",
+		dbPath + "-journal",
+	}
+
+	var archivedPath string
+	for _, path := range paths {
+		if _, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return "", err
+		}
+
+		targetPath := path + suffix
+		if err := os.Rename(path, targetPath); err != nil {
+			return "", err
+		}
+		if path == dbPath {
+			archivedPath = targetPath
+		}
+	}
+
+	return archivedPath, nil
 }
 
 // SaveIOStat 保存单条 IO 统计数据
@@ -191,40 +287,139 @@ func (s *SQLiteStore) SaveIOStats(ctx context.Context, stats []*IOStat) error {
 }
 
 // QueryIOStats 查询 IO 统计数据
-func (s *SQLiteStore) QueryIOStats(ctx context.Context, query IOStatsQuery) ([]IOStat, error) {
+func (s *SQLiteStore) QueryIOStats(ctx context.Context, query IOStatsQuery) (*IOStatsResponse, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// 构建查询
-	sqlQuery := `SELECT id, timestamp, stat_type, live_id, platform, speed, total_bytes 
-				 FROM io_stats WHERE timestamp >= ? AND timestamp <= ?`
-	args := []interface{}{query.StartTime, query.EndTime}
+	plan := buildDownsamplePlan(query.StartTime, query.EndTime, query.Aggregation)
 
-	if len(query.StatTypes) > 0 {
-		sqlQuery += " AND stat_type IN ("
-		for i, st := range query.StatTypes {
-			if i > 0 {
-				sqlQuery += ","
-			}
-			sqlQuery += "?"
-			args = append(args, st)
-		}
-		sqlQuery += ")"
-	}
+	var (
+		stats []IOStat
+		err   error
+	)
 
 	if query.LiveID != "" {
-		sqlQuery += " AND live_id = ?"
-		args = append(args, query.LiveID)
+		stats, err = s.queryLiveIOStats(ctx, query, plan)
+	} else {
+		stats, err = s.queryGlobalIOStats(ctx, query, plan)
+	}
+	if err != nil {
+		return nil, err
 	}
 
+	return &IOStatsResponse{
+		Stats:              stats,
+		AppliedAggregation: plan.applied,
+		BucketMs:           plan.bucketMs,
+	}, nil
+}
+
+func (s *SQLiteStore) queryLiveIOStats(ctx context.Context, query IOStatsQuery, plan downsamplePlan) ([]IOStat, error) {
+	rawQuery := strings.Builder{}
+	rawQuery.WriteString(`SELECT timestamp, stat_type, live_id, platform, speed, total_bytes
+		FROM io_stats WHERE timestamp >= ? AND timestamp <= ? AND live_id = ?`)
+
+	args := []interface{}{query.StartTime, query.EndTime, query.LiveID}
+	appendStatTypeFilter(&rawQuery, &args, query.StatTypes)
+
 	if query.Platform != "" {
-		sqlQuery += " AND platform = ?"
+		rawQuery.WriteString(" AND platform = ?")
 		args = append(args, query.Platform)
 	}
 
-	sqlQuery += " ORDER BY timestamp ASC"
+	return s.queryIOStatsFromRaw(ctx, rawQuery.String(), args, plan, "MAX(total_bytes)")
+}
 
-	rows, err := s.db.QueryContext(ctx, sqlQuery, args...)
+func (s *SQLiteStore) queryGlobalIOStats(ctx context.Context, query IOStatsQuery, plan downsamplePlan) ([]IOStat, error) {
+	globalOnlyTypes, aggregatedTypes := splitGlobalStatTypes(query.StatTypes)
+	if len(globalOnlyTypes) == 0 && len(aggregatedTypes) == 0 {
+		return []IOStat{}, nil
+	}
+
+	rawQuery := strings.Builder{}
+	rawQuery.WriteString(`SELECT timestamp, stat_type, '' AS live_id, '' AS platform, speed, total_bytes
+		FROM io_stats WHERE timestamp >= ? AND timestamp <= ?`)
+
+	args := []interface{}{query.StartTime, query.EndTime}
+
+	if query.Platform != "" {
+		rawQuery.WriteString(" AND platform = ?")
+		args = append(args, query.Platform)
+	}
+
+	var clauses []string
+	if len(globalOnlyTypes) > 0 {
+		clauses = append(clauses, buildStatTypePredicate("stat_type", "COALESCE(live_id, '') = ''", globalOnlyTypes, &args))
+	}
+	if len(aggregatedTypes) > 0 {
+		clauses = append(clauses, buildStatTypePredicate("stat_type", "COALESCE(live_id, '') != ''", aggregatedTypes, &args))
+	}
+
+	if len(clauses) > 0 {
+		rawQuery.WriteString(" AND (")
+		rawQuery.WriteString(strings.Join(clauses, " OR "))
+		rawQuery.WriteString(")")
+	}
+
+	return s.queryIOStatsFromRaw(ctx, rawQuery.String(), args, plan, "SUM(total_bytes)")
+}
+
+func (s *SQLiteStore) queryIOStatsFromRaw(ctx context.Context, rawQuery string, args []interface{}, plan downsamplePlan, totalBytesExpr string) ([]IOStat, error) {
+	var sqlQuery string
+	queryArgs := append([]interface{}{}, args...)
+
+	if plan.bucketMs > 0 {
+		sqlQuery = fmt.Sprintf(`
+			WITH filtered AS (%s),
+			series_points AS (
+				SELECT timestamp, stat_type, live_id, platform,
+					CAST(SUM(speed) AS INTEGER) AS speed,
+					%s AS total_bytes
+				FROM filtered
+				GROUP BY timestamp, stat_type, live_id, platform
+			),
+			bucketed AS (
+				SELECT (timestamp / ?) * ? AS bucket_timestamp,
+					timestamp, stat_type, live_id, platform, speed, total_bytes
+				FROM series_points
+			),
+			aggregated AS (
+				SELECT bucket_timestamp AS timestamp, stat_type, live_id, platform,
+					CAST(AVG(speed) AS INTEGER) AS speed
+				FROM bucketed
+				GROUP BY bucket_timestamp, stat_type, live_id, platform
+			),
+			latest_totals AS (
+				SELECT bucket_timestamp AS timestamp, stat_type, live_id, platform, total_bytes,
+					ROW_NUMBER() OVER (
+						PARTITION BY bucket_timestamp, stat_type, live_id, platform
+						ORDER BY timestamp DESC
+					) AS row_num
+				FROM bucketed
+			)
+			SELECT aggregated.timestamp, aggregated.stat_type, aggregated.live_id, aggregated.platform,
+				aggregated.speed, COALESCE(latest_totals.total_bytes, 0) AS total_bytes
+			FROM aggregated
+			LEFT JOIN latest_totals
+				ON latest_totals.timestamp = aggregated.timestamp
+				AND latest_totals.stat_type = aggregated.stat_type
+				AND latest_totals.live_id = aggregated.live_id
+				AND latest_totals.platform = aggregated.platform
+				AND latest_totals.row_num = 1
+			ORDER BY aggregated.timestamp ASC`, rawQuery, totalBytesExpr)
+		queryArgs = append(queryArgs, plan.bucketMs, plan.bucketMs)
+	} else {
+		sqlQuery = fmt.Sprintf(`
+			WITH filtered AS (%s)
+			SELECT timestamp, stat_type, live_id, platform,
+				CAST(SUM(speed) AS INTEGER) AS speed,
+				%s AS total_bytes
+			FROM filtered
+			GROUP BY timestamp, stat_type, live_id, platform
+			ORDER BY timestamp ASC`, rawQuery, totalBytesExpr)
+	}
+
+	rows, err := s.db.QueryContext(ctx, sqlQuery, queryArgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +429,7 @@ func (s *SQLiteStore) QueryIOStats(ctx context.Context, query IOStatsQuery) ([]I
 	for rows.Next() {
 		var stat IOStat
 		var liveID, platform sql.NullString
-		if err := rows.Scan(&stat.ID, &stat.Timestamp, &stat.StatType, &liveID, &platform, &stat.Speed, &stat.TotalBytes); err != nil {
+		if err := rows.Scan(&stat.Timestamp, &stat.StatType, &liveID, &platform, &stat.Speed, &stat.TotalBytes); err != nil {
 			return nil, err
 		}
 		stat.LiveID = liveID.String
@@ -242,79 +437,58 @@ func (s *SQLiteStore) QueryIOStats(ctx context.Context, query IOStatsQuery) ([]I
 		stats = append(stats, stat)
 	}
 
-	// 如果需要聚合
-	if query.Aggregation != "" && query.Aggregation != "none" {
-		stats = s.aggregateStats(stats, query.Aggregation)
-	}
-
 	return stats, rows.Err()
 }
 
-// aggregateStats 聚合统计数据
-func (s *SQLiteStore) aggregateStats(stats []IOStat, aggregation string) []IOStat {
-	if len(stats) == 0 {
-		return stats
+func appendStatTypeFilter(builder *strings.Builder, args *[]interface{}, statTypes []StatType) {
+	if len(statTypes) == 0 {
+		return
 	}
 
-	var interval int64
-	switch aggregation {
-	case "minute":
-		interval = 60 * 1000 // 1 分钟（毫秒）
-	case "hour":
-		interval = 3600 * 1000 // 1 小时（毫秒）
-	default:
-		return stats
-	}
-
-	// 按 stat_type + live_id + platform + 时间段分组
-	type groupKey struct {
-		statType StatType
-		liveID   string
-		platform string
-		bucket   int64
-	}
-
-	groups := make(map[groupKey]*struct {
-		count      int
-		speedSum   int64
-		totalBytes int64
-	})
-
-	for _, stat := range stats {
-		bucket := stat.Timestamp / interval
-		key := groupKey{
-			statType: stat.StatType,
-			liveID:   stat.LiveID,
-			platform: stat.Platform,
-			bucket:   bucket,
+	builder.WriteString(" AND stat_type IN (")
+	for i, statType := range statTypes {
+		if i > 0 {
+			builder.WriteString(",")
 		}
+		builder.WriteString("?")
+		*args = append(*args, statType)
+	}
+	builder.WriteString(")")
+}
 
-		if groups[key] == nil {
-			groups[key] = &struct {
-				count      int
-				speedSum   int64
-				totalBytes int64
-			}{}
+func buildStatTypePredicate(column, suffix string, statTypes []StatType, args *[]interface{}) string {
+	builder := strings.Builder{}
+	builder.WriteString("(")
+	builder.WriteString(column)
+	builder.WriteString(" IN (")
+	for i, statType := range statTypes {
+		if i > 0 {
+			builder.WriteString(",")
 		}
-		groups[key].count++
-		groups[key].speedSum += stat.Speed
-		groups[key].totalBytes = stat.TotalBytes // 使用最后一个值
+		builder.WriteString("?")
+		*args = append(*args, statType)
+	}
+	builder.WriteString(") AND ")
+	builder.WriteString(suffix)
+	builder.WriteString(")")
+	return builder.String()
+}
+
+func splitGlobalStatTypes(requested []StatType) ([]StatType, []StatType) {
+	if len(requested) == 0 {
+		requested = allQueryableStatTypes()
 	}
 
-	// 转换回切片
-	result := make([]IOStat, 0, len(groups))
-	for key, group := range groups {
-		result = append(result, IOStat{
-			Timestamp:  key.bucket * interval,
-			StatType:   key.statType,
-			LiveID:     key.liveID,
-			Platform:   key.platform,
-			Speed:      group.speedSum / int64(group.count), // 平均速度
-			TotalBytes: group.totalBytes,
-		})
+	globalOnlyTypes := make([]StatType, 0, len(requested))
+	aggregatedTypes := make([]StatType, 0, len(requested))
+	for _, statType := range requested {
+		if globalOnlyStatType(statType) {
+			globalOnlyTypes = append(globalOnlyTypes, statType)
+			continue
+		}
+		aggregatedTypes = append(aggregatedTypes, statType)
 	}
-
-	return result
+	return globalOnlyTypes, aggregatedTypes
 }
 
 // SaveRequestStatus 保存请求状态
@@ -707,141 +881,78 @@ func (s *SQLiteStore) QueryMemoryStats(ctx context.Context, query MemoryStatsQue
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	sqlQuery := `SELECT id, timestamp, category, rss, vms, alloc, sys, num_gc, num_goroutine
-				 FROM memory_stats WHERE timestamp >= ? AND timestamp <= ?`
+	plan := buildDownsamplePlan(query.StartTime, query.EndTime, query.Aggregation)
+
+	filteredQuery := strings.Builder{}
+	filteredQuery.WriteString(`SELECT timestamp, category, rss, vms, alloc, sys, num_gc, num_goroutine
+		FROM memory_stats WHERE timestamp >= ? AND timestamp <= ?`)
 	args := []interface{}{query.StartTime, query.EndTime}
 
 	if len(query.Categories) > 0 {
-		sqlQuery += " AND category IN ("
-		for i, cat := range query.Categories {
+		filteredQuery.WriteString(" AND category IN (")
+		for i, category := range query.Categories {
 			if i > 0 {
-				sqlQuery += ","
+				filteredQuery.WriteString(",")
 			}
-			sqlQuery += "?"
-			args = append(args, cat)
+			filteredQuery.WriteString("?")
+			args = append(args, category)
 		}
-		sqlQuery += ")"
+		filteredQuery.WriteString(")")
 	}
 
-	sqlQuery += " ORDER BY timestamp ASC"
+	sqlQuery := fmt.Sprintf(`
+		WITH filtered AS (%s)
+		SELECT timestamp, category, rss, vms, alloc, sys, num_gc, num_goroutine
+		FROM filtered
+		ORDER BY timestamp ASC`, filteredQuery.String())
+	queryArgs := append([]interface{}{}, args...)
 
-	rows, err := s.db.QueryContext(ctx, sqlQuery, args...)
+	if plan.bucketMs > 0 {
+		sqlQuery = fmt.Sprintf(`
+			WITH filtered AS (%s)
+			SELECT (timestamp / ?) * ? AS timestamp, category,
+				CAST(AVG(rss) AS INTEGER) AS rss,
+				CAST(AVG(vms) AS INTEGER) AS vms,
+				CAST(AVG(alloc) AS INTEGER) AS alloc,
+				CAST(AVG(sys) AS INTEGER) AS sys,
+				MAX(num_gc) AS num_gc,
+				CAST(AVG(num_goroutine) AS INTEGER) AS num_goroutine
+			FROM filtered
+			GROUP BY (timestamp / ?) * ?, category
+			ORDER BY timestamp ASC`, filteredQuery.String())
+		queryArgs = append(queryArgs, plan.bucketMs, plan.bucketMs, plan.bucketMs, plan.bucketMs)
+	}
+
+	rows, err := s.db.QueryContext(ctx, sqlQuery, queryArgs...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var stats []MemoryStat
+	response := &MemoryStatsResponse{
+		Stats:              make([]MemoryStat, 0),
+		GroupedStats:       make(map[string][]MemoryStat),
+		AppliedAggregation: plan.applied,
+		BucketMs:           plan.bucketMs,
+	}
+
 	for rows.Next() {
 		var stat MemoryStat
 		if err := rows.Scan(
-			&stat.ID, &stat.Timestamp, &stat.Category,
+			&stat.Timestamp, &stat.Category,
 			&stat.RSS, &stat.VMS, &stat.Alloc, &stat.Sys, &stat.NumGC, &stat.NumGoroutine,
 		); err != nil {
 			return nil, err
 		}
-		stats = append(stats, stat)
+		response.Stats = append(response.Stats, stat)
+		response.GroupedStats[stat.Category] = append(response.GroupedStats[stat.Category], stat)
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
-	// 如果需要聚合
-	if query.Aggregation != "" && query.Aggregation != "none" {
-		stats = s.aggregateMemoryStats(stats, query.Aggregation)
-	}
-
-	// 按类别分组
-	response := &MemoryStatsResponse{
-		Stats:        stats,
-		GroupedStats: make(map[string][]MemoryStat),
-	}
-
-	for _, stat := range stats {
-		response.GroupedStats[stat.Category] = append(response.GroupedStats[stat.Category], stat)
-	}
-
 	return response, nil
-}
-
-// aggregateMemoryStats 聚合内存统计数据
-func (s *SQLiteStore) aggregateMemoryStats(stats []MemoryStat, aggregation string) []MemoryStat {
-	if len(stats) == 0 {
-		return stats
-	}
-
-	var interval int64
-	switch aggregation {
-	case "minute":
-		interval = 60 * 1000 // 1 分钟（毫秒）
-	case "hour":
-		interval = 3600 * 1000 // 1 小时（毫秒）
-	default:
-		return stats
-	}
-
-	// 按 category + 时间段分组
-	type groupKey struct {
-		category string
-		bucket   int64
-	}
-
-	groups := make(map[groupKey]*struct {
-		count        int
-		rss          uint64
-		vms          uint64
-		alloc        uint64
-		sys          uint64
-		numGC        uint32
-		numGoroutine int
-	})
-
-	for _, stat := range stats {
-		bucket := stat.Timestamp / interval
-		key := groupKey{
-			category: stat.Category,
-			bucket:   bucket,
-		}
-
-		if groups[key] == nil {
-			groups[key] = &struct {
-				count        int
-				rss          uint64
-				vms          uint64
-				alloc        uint64
-				sys          uint64
-				numGC        uint32
-				numGoroutine int
-			}{}
-		}
-		groups[key].count++
-		groups[key].rss += stat.RSS
-		groups[key].vms += stat.VMS
-		groups[key].alloc += stat.Alloc
-		groups[key].sys += stat.Sys
-		if stat.NumGC > groups[key].numGC {
-			groups[key].numGC = stat.NumGC // 使用最大值
-		}
-		groups[key].numGoroutine += stat.NumGoroutine
-	}
-
-	// 转换回切片
-	result := make([]MemoryStat, 0, len(groups))
-	for key, group := range groups {
-		result = append(result, MemoryStat{
-			Timestamp:    key.bucket * interval,
-			Category:     key.category,
-			RSS:          group.rss / uint64(group.count), // 平均值
-			VMS:          group.vms / uint64(group.count),
-			Alloc:        group.alloc / uint64(group.count),
-			Sys:          group.sys / uint64(group.count),
-			NumGC:        group.numGC,
-			NumGoroutine: group.numGoroutine / group.count, // 平均值
-		})
-	}
-
-	return result
 }
 
 // GetMemoryCategories 获取可用的内存统计类别列表
