@@ -1059,10 +1059,26 @@ func getPlatformStats(writer http.ResponseWriter, r *http.Request) {
 		if liveInstance, ok := inst.Lives.Get(room.LiveId); ok {
 			if obj, err := inst.Cache.Get(liveInstance); err == nil {
 				if info, ok := obj.(*live.Info); ok && info != nil {
-					roomInfo["host_name"] = info.HostName
-					roomInfo["room_name"] = info.RoomName
+					hostName := info.HostName
+					if hostName == "" {
+						if info.Initializing {
+							hostName = "初始化中..."
+						} else {
+							hostName = "获取失败"
+						}
+					}
+					roomInfo["host_name"] = hostName
+					roomName := info.RoomName
+					if roomName == "" {
+						roomName = room.Url
+					}
+					roomInfo["room_name"] = roomName
 					roomInfo["status"] = info.Status
 				}
+			} else {
+				// 直播间在 inst.Lives 中但缓存中没有信息，说明正在初始化
+				roomInfo["host_name"] = "初始化中..."
+				roomInfo["room_name"] = room.Url
 			}
 		}
 
