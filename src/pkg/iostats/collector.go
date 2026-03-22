@@ -165,6 +165,9 @@ func (c *Collector) collectNetworkStats(timestamp int64, elapsed float64) []*IOS
 	c.lastNetworkBytesLock.Lock()
 	defer c.lastNetworkBytesLock.Unlock()
 
+	// 准备新映射以清理不再活跃的主机
+	newLastNetworkBytes := make(map[string]int64, len(allStats))
+
 	for _, connStat := range allStats {
 		// 计算速度
 		lastBytes, exists := c.lastNetworkBytes[connStat.Host]
@@ -175,10 +178,13 @@ func (c *Collector) collectNetworkStats(timestamp int64, elapsed float64) []*IOS
 			speed = int64(float64(currentBytes-lastBytes) / elapsed)
 		}
 
-		c.lastNetworkBytes[connStat.Host] = currentBytes
+		newLastNetworkBytes[connStat.Host] = currentBytes
 		totalBytes += currentBytes
 		totalSpeed += speed
 	}
+
+	// 替换旧映射，实现过期清理
+	c.lastNetworkBytes = newLastNetworkBytes
 
 	// 记录全局网络统计
 	if totalBytes > 0 || totalSpeed > 0 {
@@ -198,15 +204,15 @@ func (c *Collector) collectNetworkStats(timestamp int64, elapsed float64) []*IOS
 // collectRecordStats 收集录制统计数据
 func (c *Collector) collectRecordStats(timestamp int64, elapsed float64) []*IOStat {
 	recorderStatuses := getRecorderStatuses()
-	if len(recorderStatuses) == 0 {
-		return nil
-	}
 
 	var stats []*IOStat
 	var totalWriteSpeed int64
 
 	c.lastRecordBytesLock.Lock()
 	defer c.lastRecordBytesLock.Unlock()
+
+	// 准备新映射以清理不再录制的直播间
+	newLastRecordBytes := make(map[string]int64, len(recorderStatuses))
 
 	for _, rs := range recorderStatuses {
 		// 使用 TotalSize 或 FileSize
@@ -223,7 +229,7 @@ func (c *Collector) collectRecordStats(timestamp int64, elapsed float64) []*IOSt
 			speed = int64(float64(currentBytes-lastBytes) / elapsed)
 		}
 
-		c.lastRecordBytes[key] = currentBytes
+		newLastRecordBytes[key] = currentBytes
 		totalWriteSpeed += speed
 
 		// 记录单个直播间的统计
@@ -238,6 +244,9 @@ func (c *Collector) collectRecordStats(timestamp int64, elapsed float64) []*IOSt
 			})
 		}
 	}
+
+	// 替换旧映射，实现过期清理
+	c.lastRecordBytes = newLastRecordBytes
 
 	// 记录全局录制写入速度
 	if totalWriteSpeed > 0 {
