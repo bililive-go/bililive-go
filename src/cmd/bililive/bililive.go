@@ -695,13 +695,22 @@ func main() {
 	servers.SetShutdownFunc(func() {
 		c <- os.Interrupt
 	})
+
 	bilisentryPkg.Go(func() {
 		<-msgChan
 		logger.Info("Received shutdown signal, closing...")
-		// 取消根 context，这会导致所有派生的 context 被取消
-		// 包括：WrappedLive 的调度器、非监听直播间的初始化循环等
+		// 1. 取消根 context，通知所有模块停止工作
+		// 这会导致所有派生的 context 被取消，包括：WrappedLive 的调度器、初始化循环等
 		rootCancel()
-		// 关闭 HTTP 服务器
+
+		// 2. 立即终止所有已注册的子进程（bililive-tools、klive 等）
+		// 必须在等待管理器关闭前调用，以防子进程持有管道导致 WaitGroup.Wait() 挂起
+		// 同时释放端口，以便新版本能够快速启动。
+		// 注意：FFmpeg 进程不在此处终止，而是在稍后调用 RecorderManager.Close() 时关闭。
+		logger.Info("正在清理子进程...")
+		tools.Cleanup()
+
+		// 3. 关闭网络服务器
 		if cfg := configs.GetCurrentConfig(); cfg != nil && cfg.RPC.Enable {
 			inst.Server.Close(ctx)
 		}
@@ -744,8 +753,7 @@ func main() {
 		logger.Infof("====== 版本切换: 所有服务已关闭，正在进入 Launcher 模式 (AppDataPath=%s) ======", configs.GetCurrentConfig().AppDataPath)
 		// 取消根 context，确保日志文件句柄被关闭（避免新版本清理时文件冲突）
 		rootCancel()
-		// 在进入 launcher 模式前，终止所有子进程（btools、klive 等）并关闭 remotetools WebUI
-		// 确保端口被释放，否则新版本 bgo 启动时会遇到 EADDRINUSE
+		// 再次执行清理，确保无论何种方式触发的切换，子进程（如 bililive-tools）都已关闭
 		tools.Cleanup()
 
 		// 如果当前进程是由父 Launcher 启动的（BILILIVE_LAUNCHER=1），
