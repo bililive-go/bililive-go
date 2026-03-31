@@ -3,6 +3,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/bililive-go/bililive-go)](https://goreportcard.com/report/github.com/bililive-go/bililive-go)
 [![Github release](https://img.shields.io/github/release/bililive-go/bililive-go.svg)](https://github.com/bililive-go/bililive-go/releases/latest)
 [![Docker Pulls](https://img.shields.io/docker/pulls/chigusa/bililive-go.svg)](https://hub.docker.com/r/chigusa/bililive-go/)
+[![GHCR](https://img.shields.io/badge/GHCR-ghcr.io%2Fbililive--go%2Fbililive--go-blue)](https://ghcr.io/bililive-go/bililive-go)
 [![Bilibili](https://img.shields.io/badge/%E5%93%94%E5%93%A9%E5%93%94%E5%93%A9-%E6%9C%AA%E6%9D%A5%E7%A7%91%E6%8A%80%E7%8E%8B%E8%80%81%E8%8F%8A%E5%BD%95%E6%92%AD%E7%BB%84-ebb8d0.svg)](https://space.bilibili.com/18578203/)
 
 Bililive-go是一个支持多种直播平台的直播录制工具   
@@ -175,11 +176,16 @@ https://github.com/bililive-go/bililive-go/wiki/Install-Linux
 
 ### docker
 
-使用 https://hub.docker.com/r/chigusa/bililive-go 镜像创建容器运行。
+使用 https://hub.docker.com/r/chigusa/bililive-go 镜像创建容器运行。也可使用 GHCR 镜像 `ghcr.io/bililive-go/bililive-go`。
 
 例如：
 ```
 docker run --restart=always -v ~/config.yml:/etc/bililive-go/config.yml -v ~/Videos:/srv/bililive -p 8080:8080 -d chigusa/bililive-go
+```
+
+如果无法访问 Docker Hub，可使用 GHCR 镜像：
+```
+docker run --restart=always -v ~/config.yml:/etc/bililive-go/config.yml -v ~/Videos:/srv/bililive -p 8080:8080 -d ghcr.io/bililive-go/bililive-go
 ```
 
 ### docker compose
