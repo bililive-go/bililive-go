@@ -141,6 +141,9 @@ jobs:
   #   3. bgo 二进制直接从 artifact 获取，不再从 GitHub Releases curl 下载
   release-docker-images:
     needs: [publish-release]
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -164,6 +167,8 @@ jobs:
           else
             echo "GIT_TAG=`echo $(git describe --tags --abbrev=0)`" >> $GITHUB_ENV
           fi
+      - name: Set REPO_LOWER
+        run: echo "REPO_LOWER=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
 
       # 下载编译好的二进制 artifact（从 release-bins-sharded 产物中提取）
       - name: Download build artifacts
@@ -212,6 +217,14 @@ jobs:
       - name: Docker Setup Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Log in to GHCR
+        if: ${{ env.IS_DRY_RUN != 'true' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Log in to Docker Hub
         if: ${{ env.IS_DRY_RUN != 'true' }}
         uses: docker/login-action@v3
@@ -230,7 +243,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: ${{ env.IS_DRY_RUN != 'true' }}
           tags: ""
-          outputs: ${{ env.IS_DRY_RUN != 'true' && 'type=image,name=chigusa/bililive-go,push-by-digest=true,name-canonical=true' || '' }}
+          outputs: ${{ env.IS_DRY_RUN != 'true' && format('type=image,name=chigusa/bililive-go,name=ghcr.io/{0},push-by-digest=true,name-canonical=true', env.REPO_LOWER) || '' }}
           cache-from: type=gha,scope=docker-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=docker-${{ matrix.arch }}
 
@@ -259,18 +272,26 @@ jobs:
   merge-docker-manifest:
     runs-on: ubuntu-latest
     needs: [release-docker-images]
+    permissions:
+      contents: read
+      packages: write
     # dry-run 模式下跳过 manifest 合并（没有推送 digest）
     if: ${{ !(github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true') }}
     steps:
       - uses: actions/checkout@v4
       - run: echo "GIT_TAG=`echo $(git describe --tags --abbrev=0)`" >> $GITHUB_ENV
       - run: |
+          REPO_LOWER="${GITHUB_REPOSITORY,,}"
           if ! echo $GIT_TAG | grep "rc" >/dev/null; then
             DOCKER_TAGS="chigusa/bililive-go:$GIT_TAG,chigusa/bililive-go:latest"
+            GHCR_TAGS="ghcr.io/$REPO_LOWER:$GIT_TAG,ghcr.io/$REPO_LOWER:latest"
           else
             DOCKER_TAGS="chigusa/bililive-go:$GIT_TAG"
+            GHCR_TAGS="ghcr.io/$REPO_LOWER:$GIT_TAG"
           fi
           echo "DOCKER_TAGS=$DOCKER_TAGS" >> $GITHUB_ENV
+          echo "GHCR_TAGS=$GHCR_TAGS" >> $GITHUB_ENV
+          echo "REPO_LOWER=$REPO_LOWER" >> $GITHUB_ENV
 
       - name: Download all digests
         uses: actions/download-artifact@v4
@@ -281,6 +302,13 @@ jobs:
 
       - name: Docker Setup Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -294,22 +322,33 @@ jobs:
           # 构建 digest 参数列表
           # 验证文件名是否为 SHA256 格式（64个十六进制字符），跳过非 digest 文件
           # 原因：actions/download-artifact 合并多个 artifact 时可能引入元数据文件
-          DIGEST_ARGS=""
+          DOCKER_DIGEST_ARGS=""
+          GHCR_DIGEST_ARGS=""
           for dgst in *; do
             if echo "$dgst" | grep -qE '^[0-9a-f]{64}$'; then
-              DIGEST_ARGS="$DIGEST_ARGS chigusa/bililive-go@sha256:$dgst"
+              DOCKER_DIGEST_ARGS="$DOCKER_DIGEST_ARGS chigusa/bililive-go@sha256:$dgst"
+              GHCR_DIGEST_ARGS="$GHCR_DIGEST_ARGS ghcr.io/$REPO_LOWER@sha256:$dgst"
             else
               echo "警告: 跳过非 digest 文件: $dgst"
             fi
           done
 
-          # 为每个 tag 创建 manifest
+          # 为每个 Docker Hub tag 创建 manifest
           IFS=',' read -ra TAGS <<< "$DOCKER_TAGS"
           for tag in "${TAGS[@]}"; do
-            echo "创建 manifest: $tag"
-            docker buildx imagetools create -t "$tag" $DIGEST_ARGS
+            echo "创建 Docker Hub manifest: $tag"
+            docker buildx imagetools create -t "$tag" $DOCKER_DIGEST_ARGS
+          done
+
+          # 为每个 GHCR tag 创建 manifest
+          IFS=',' read -ra TAGS <<< "$GHCR_TAGS"
+          for tag in "${TAGS[@]}"; do
+            echo "创建 GHCR manifest: $tag"
+            docker buildx imagetools create -t "$tag" $GHCR_DIGEST_ARGS
           done
 
       - name: Inspect final image
-        run: docker buildx imagetools inspect "chigusa/bililive-go:$GIT_TAG"
+        run: |
+          docker buildx imagetools inspect "chigusa/bililive-go:$GIT_TAG"
+          docker buildx imagetools inspect "ghcr.io/$REPO_LOWER:$GIT_TAG"
 
