@@ -206,7 +206,7 @@ function downloadFile(url, destPath) {
  * 下载并解压工具到目标目录
  * 模拟 remotetools 的 extractDownloadedFile() 行为
  * @param {string} url
- * @param {string} dest - 最终目标目录（例如 tools/ffmpeg/n8.0-latest）
+ * @param {string} dest - 最终目标目录（例如 tools/ffmpeg/n8.1-latest）
  */
 async function downloadAndExtract(url, dest) {
   const filename = basename(new URL(url).pathname);
