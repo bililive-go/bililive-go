@@ -129,7 +129,7 @@ func TestGetPlatformKeyFromUrl(t *testing.T) {
 		{"https://live.douyin.com/789", "douyin"},
 		{"https://v.douyin.com/abc", "douyin"},
 		{"https://www.douyu.com/room/123", "douyu"},
-		{"https://play.sooplive.co.kr/mbntv", "sooplive"},
+		{"https://play.sooplive.com/mbntv", "sooplive"},
 		{"https://unknown.domain.com/room", "unknown.domain.com"},
 		{"invalid-url", ""},
 	}
@@ -143,14 +143,14 @@ func TestGetPlatformKeyFromUrl(t *testing.T) {
 func TestSetCookieDeletesEmptyCookie(t *testing.T) {
 	cfg := NewConfig()
 	cfg.Cookies = map[string]string{
-		"play.sooplive.co.kr": "SESS=abc",
+		"play.sooplive.com": "SESS=abc",
 	}
 	SetCurrentConfig(cfg)
 
-	newCfg, err := SetCookie("play.sooplive.co.kr", "")
+	newCfg, err := SetCookie("play.sooplive.com", "")
 	assert.NoError(t, err)
 	assert.NotNil(t, newCfg)
-	_, exists := newCfg.Cookies["play.sooplive.co.kr"]
+	_, exists := newCfg.Cookies["play.sooplive.com"]
 	assert.False(t, exists)
 }
 

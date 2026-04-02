@@ -75,7 +75,7 @@ class EditCookieDialog extends React.Component<IProps> {
     };
 
     handleOk = async () => {
-        if (this.state.Host === 'play.sooplive.co.kr' && this.state.soopPersisted) {
+        if (this.state.Host === 'play.sooplive.com' && this.state.soopPersisted) {
             this.setState({ visible: false, confirmLoading: false });
             this.props.refresh();
             return;
@@ -84,7 +84,7 @@ class EditCookieDialog extends React.Component<IProps> {
         this.setState({ confirmLoading: true });
 
         try {
-            const isSoop = this.state.Host === 'play.sooplive.co.kr';
+            const isSoop = this.state.Host === 'play.sooplive.com';
             const soopAuthUpdate = isSoop ? this.buildSoopAuthUpdate() : null;
             const cookieChanged = this.state.textView !== this.state.initialTextView;
 
@@ -113,7 +113,7 @@ class EditCookieDialog extends React.Component<IProps> {
     render() {
         const { visible, confirmLoading, textView, Host, Platform_cn_name } = this.state;
         const isBili = Host === 'live.bilibili.com';
-        const isSoop = Host === 'play.sooplive.co.kr';
+        const isSoop = Host === 'play.sooplive.com';
 
         return (
             <div>

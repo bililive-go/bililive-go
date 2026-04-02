@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	authCheckURL = "https://afevent2.sooplive.co.kr/api/get_private_info.php"
-	loginURL     = "https://login.sooplive.co.kr/app/LoginAction.php"
+	authCheckURL = "https://afevent2.sooplive.com/api/get_private_info.php"
+	loginURL     = "https://login.sooplive.com/app/LoginAction.php"
 	loginOKCode  = 1
 )
 
@@ -40,10 +40,10 @@ var (
 	verifyCookieGroup    singleflight.Group
 	loginGroup           singleflight.Group
 
-	playSoopURL, _    = url.Parse("https://play.sooplive.co.kr/")
-	loginSoopURL, _   = url.Parse("https://login.sooplive.co.kr/")
-	liveSoopURL, _    = url.Parse("https://live.sooplive.co.kr/")
-	afeventSoopURL, _ = url.Parse("https://afevent2.sooplive.co.kr/")
+	playSoopURL, _    = url.Parse("https://play.sooplive.com/")
+	loginSoopURL, _   = url.Parse("https://login.sooplive.com/")
+	liveSoopURL, _    = url.Parse("https://live.sooplive.com/")
+	afeventSoopURL, _ = url.Parse("https://afevent2.sooplive.com/")
 )
 
 type cachedVerifyResult struct {

@@ -269,7 +269,7 @@ const SoopLoginPanel: React.FC<SoopLoginPanelProps> = ({
                     </div>
 
                     <div className="manual-tip soop-account-tip">
-                        登录成功后，后端会返回 Cookie，并写入 `play.sooplive.co.kr` 的配置。
+                        登录成功后，后端会返回 Cookie，并写入 `play.sooplive.com` 的配置。
                     </div>
                 </div>
 

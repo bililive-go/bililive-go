@@ -26,7 +26,7 @@ func resetVerifyCookieCacheForTest() {
 
 func TestParseChannelAndBroadNoFromURL(t *testing.T) {
 	t.Run("仅频道", func(t *testing.T) {
-		u, err := url.Parse("https://play.sooplive.co.kr/mbntv")
+		u, err := url.Parse("https://play.sooplive.com/mbntv")
 		assert.NoError(t, err)
 
 		channel, broadNo, err := parseChannelAndBroadNoFromURL(u)
@@ -36,7 +36,7 @@ func TestParseChannelAndBroadNoFromURL(t *testing.T) {
 	})
 
 	t.Run("频道加场次", func(t *testing.T) {
-		u, err := url.Parse("https://play.sooplive.co.kr/mbntv/292157719")
+		u, err := url.Parse("https://play.sooplive.com/mbntv/292157719")
 		assert.NoError(t, err)
 
 		channel, broadNo, err := parseChannelAndBroadNoFromURL(u)
@@ -354,7 +354,7 @@ func TestTryVerifyAndReloginIfNeededKeepsCookieWhenVerifyEndpointFails(t *testin
 		return nil, nil
 	}
 
-	u, err := url.Parse("https://play.sooplive.co.kr/mbntv")
+	u, err := url.Parse("https://play.sooplive.com/mbntv")
 	assert.NoError(t, err)
 	l := &Live{
 		BaseLive: internal.NewBaseLive(u),
@@ -393,7 +393,7 @@ func TestTryVerifyAndReloginIfNeededIgnoreInvalidCookieForPublicRoom(t *testing.
 		return nil, nil
 	}
 
-	u, err := url.Parse("https://play.sooplive.co.kr/mbntv")
+	u, err := url.Parse("https://play.sooplive.com/mbntv")
 	assert.NoError(t, err)
 	l := &Live{
 		BaseLive: internal.NewBaseLive(u),
@@ -432,7 +432,7 @@ func TestTryVerifyAndReloginIfNeededSkipsAutoLoginWhenVerifyEndpointFails(t *tes
 		return nil, nil
 	}
 
-	u, err := url.Parse("https://play.sooplive.co.kr/mbntv")
+	u, err := url.Parse("https://play.sooplive.com/mbntv")
 	assert.NoError(t, err)
 	l := &Live{
 		BaseLive: internal.NewBaseLive(u),
@@ -475,7 +475,7 @@ func TestTryVerifyAndReloginIfNeededAutoLoginWhenCredentialsExist(t *testing.T) 
 		}, nil
 	}
 
-	u, err := url.Parse("https://play.sooplive.co.kr/mbntv")
+	u, err := url.Parse("https://play.sooplive.com/mbntv")
 	assert.NoError(t, err)
 	l := &Live{
 		BaseLive: internal.NewBaseLive(u),
@@ -516,7 +516,7 @@ func TestTryVerifyAndReloginIfNeededFallsBackToAnonymousWhenAutoLoginFails(t *te
 		return nil, assert.AnError
 	}
 
-	u, err := url.Parse("https://play.sooplive.co.kr/mbntv")
+	u, err := url.Parse("https://play.sooplive.com/mbntv")
 	assert.NoError(t, err)
 	l := &Live{
 		BaseLive:      internal.NewBaseLive(u),
@@ -538,7 +538,7 @@ func TestGetCookieMapPrefersLatestConfigCookieOverStaleOptions(t *testing.T) {
 	}
 	configs.SetCurrentConfig(cfg)
 
-	u, err := url.Parse("https://play.sooplive.co.kr/mbntv")
+	u, err := url.Parse("https://play.sooplive.com/mbntv")
 	assert.NoError(t, err)
 
 	l := &Live{
@@ -558,7 +558,7 @@ func TestGetPrimaryCookieStringPrefersRuntimeCookie(t *testing.T) {
 	}
 	configs.SetCurrentConfig(cfg)
 
-	u, err := url.Parse("https://play.sooplive.co.kr/mbntv")
+	u, err := url.Parse("https://play.sooplive.com/mbntv")
 	assert.NoError(t, err)
 
 	l := &Live{
@@ -577,7 +577,7 @@ func TestUpdateLiveOptionsbyConfigClearsRuntimeState(t *testing.T) {
 	}
 	configs.SetCurrentConfig(cfg)
 
-	u, err := url.Parse("https://play.sooplive.co.kr/mbntv")
+	u, err := url.Parse("https://play.sooplive.com/mbntv")
 	assert.NoError(t, err)
 
 	l := &Live{
@@ -606,7 +606,7 @@ func TestUpdateLiveOptionsbyConfigKeepsClearActionEffective(t *testing.T) {
 	cfg.Cookies = map[string]string{}
 	configs.SetCurrentConfig(cfg)
 
-	u, err := url.Parse("https://play.sooplive.co.kr/mbntv")
+	u, err := url.Parse("https://play.sooplive.com/mbntv")
 	assert.NoError(t, err)
 
 	l := &Live{
@@ -626,7 +626,7 @@ func TestUpdateLiveOptionsbyConfigKeepsClearActionEffective(t *testing.T) {
 }
 
 func TestRuntimeStateHelpersConcurrentAccess(t *testing.T) {
-	u, err := url.Parse("https://play.sooplive.co.kr/mbntv")
+	u, err := url.Parse("https://play.sooplive.com/mbntv")
 	assert.NoError(t, err)
 
 	l := &Live{
@@ -682,7 +682,7 @@ func TestTryVerifyAndReloginIfNeededCachesVerifyResult(t *testing.T) {
 		return &CookieVerifyResult{IsLogin: true, LoginID: "tester"}, nil
 	}
 
-	u, err := url.Parse("https://play.sooplive.co.kr/mbntv")
+	u, err := url.Parse("https://play.sooplive.com/mbntv")
 	assert.NoError(t, err)
 	l := &Live{BaseLive: internal.NewBaseLive(u)}
 	l.Options = livepkg.MustNewOptions()
@@ -739,7 +739,7 @@ func TestTryVerifyAndReloginIfNeededDeduplicatesAutoLogin(t *testing.T) {
 	}
 
 	makeLive := func() *Live {
-		u, err := url.Parse("https://play.sooplive.co.kr/mbntv")
+		u, err := url.Parse("https://play.sooplive.com/mbntv")
 		assert.NoError(t, err)
 		l := &Live{BaseLive: internal.NewBaseLive(u)}
 		l.Options = livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=expired"))
@@ -798,7 +798,7 @@ func TestTryAutoLoginDeduplicatesCookiePersistence(t *testing.T) {
 	}
 
 	makeLive := func() *Live {
-		u, err := url.Parse("https://play.sooplive.co.kr/mbntv")
+		u, err := url.Parse("https://play.sooplive.com/mbntv")
 		assert.NoError(t, err)
 		l := &Live{BaseLive: internal.NewBaseLive(u)}
 		l.Options = livepkg.MustNewOptions()
@@ -851,7 +851,7 @@ func TestTryAutoLoginRejectsUnverifiedLoginResult(t *testing.T) {
 		return nil, nil
 	}
 
-	u, err := url.Parse("https://play.sooplive.co.kr/mbntv")
+	u, err := url.Parse("https://play.sooplive.com/mbntv")
 	assert.NoError(t, err)
 	l := &Live{BaseLive: internal.NewBaseLive(u)}
 	l.Options = livepkg.MustNewOptions()

@@ -1076,7 +1076,7 @@ func GetPlatformKeyFromUrl(urlStr string) string {
 		"www.twitch.tv":       "twitch",
 		"egame.qq.com":        "qq",
 		"www.huajiao.com":     "huajiao",
-		"play.sooplive.co.kr": "sooplive",
+		"play.sooplive.com":   "sooplive",
 	}
 
 	if platform, exists := domainToPlatformMap[u.Host]; exists {

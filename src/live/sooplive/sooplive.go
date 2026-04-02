@@ -22,10 +22,10 @@ import (
 )
 
 const (
-	domainPlaySoop     = "play.sooplive.co.kr"
+	domainPlaySoop     = "play.sooplive.com"
 	cnName             = "SOOP"
-	channelAPIURL      = "https://live.sooplive.co.kr/afreeca/player_live_api.php"
-	defaultOrigin      = "https://play.sooplive.co.kr"
+	channelAPIURL      = "https://live.sooplive.com/afreeca/player_live_api.php"
+	defaultOrigin      = "https://play.sooplive.com"
 	channelResultOK    = 1
 	channelResultLogin = -6
 	channelResultEmpty = 0
@@ -704,7 +704,7 @@ func persistSoopCookieWithSingleflight(cookie string) error {
 // getPrimaryCookieString 返回当前最优先使用的 Soop Cookie 字符串。
 // 优先级：
 // 1. 当前房间 host 对应的 Cookie；
-// 2. play.sooplive.co.kr；
+// 2. play.sooplive.com；
 // 3. 无。
 func (l *Live) getPrimaryCookieString() string {
 	if cookie := strings.TrimSpace(l.getRuntimeCookie()); cookie != "" {

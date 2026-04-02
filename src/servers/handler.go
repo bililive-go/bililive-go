@@ -2374,7 +2374,7 @@ func getSoopLiveAuthConfig(writer http.ResponseWriter, _ *http.Request) {
 	cookieStatus := "missing"
 	storedCookie := ""
 	if cfg.Cookies != nil {
-		if cookie := strings.TrimSpace(cfg.Cookies["play.sooplive.co.kr"]); cookie != "" {
+		if cookie := strings.TrimSpace(cfg.Cookies["play.sooplive.com"]); cookie != "" {
 			storedCookie = cookie
 		}
 	}
@@ -2418,7 +2418,7 @@ func clearSoopLiveAuthConfig(writer http.ResponseWriter, r *http.Request) {
 		c.SoopLiveAuth.Username = ""
 		c.SoopLiveAuth.Password = ""
 		if c.Cookies != nil {
-			delete(c.Cookies, "play.sooplive.co.kr")
+			delete(c.Cookies, "play.sooplive.com")
 		}
 		return nil
 	}, 3, 10*time.Millisecond)
@@ -2430,7 +2430,7 @@ func clearSoopLiveAuthConfig(writer http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	applyCookiesToLives(r.Context(), newCfg, "play.sooplive.co.kr")
+	applyCookiesToLives(r.Context(), newCfg, "play.sooplive.com")
 	applog.GetLogger().Debug("Soop 清空账号密码与 Cookie 请求完成")
 	writeJSON(writer, commonResp{Data: "OK"})
 }
@@ -2470,7 +2470,7 @@ func loginSoopLive(writer http.ResponseWriter, r *http.Request) {
 		if c.Cookies == nil {
 			c.Cookies = make(map[string]string)
 		}
-		c.Cookies["play.sooplive.co.kr"] = result.Cookie
+		c.Cookies["play.sooplive.com"] = result.Cookie
 		if req.SaveCredentials {
 			c.SoopLiveAuth.Username = req.Username
 			c.SoopLiveAuth.Password = req.Password
@@ -2488,7 +2488,7 @@ func loginSoopLive(writer http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	applyCookiesToLives(r.Context(), newCfg, "play.sooplive.co.kr")
+	applyCookiesToLives(r.Context(), newCfg, "play.sooplive.com")
 	applog.GetLogger().Debugf("Soop Web 登录成功: username=%s cookieLength=%d loginID=%s", req.Username, len(result.Cookie), result.Verify.LoginID)
 
 	writeJSON(writer, commonResp{

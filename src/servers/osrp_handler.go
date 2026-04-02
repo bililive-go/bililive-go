@@ -602,7 +602,7 @@ func osrpBuildURLFromPlatform(platform, streamID string) string {
 	case "twitch":
 		return "https://www.twitch.tv/" + streamID
 	case "sooplive", "soop":
-		return "https://play.sooplive.co.kr/" + streamID
+		return "https://play.sooplive.com/" + streamID
 	case "youtube":
 		return "https://www.youtube.com/watch?v=" + streamID
 	case "langlive", "浪live":
