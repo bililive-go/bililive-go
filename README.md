@@ -7,9 +7,11 @@
 
 Bililive-go是一个支持多种直播平台的直播录制工具   
 
-### Tampermonkey 一键添加直播间插件
+### 第三方生态
 
-安装地址：[Bililive-go Live Room Sender](https://greasyfork.org/zh-CN/scripts/569635-bililive-go-live-room-sender)
+> 安全提示：Bililive-go 未审计任何第三方代码的安全性、合规性和可用性。是否安装或使用来自第三方的脚本、插件、扩展等内容，请自行判断并承担相应风险。
+>
+> 社区维护的第三方生态项目列表见：[docs/third-party.md](docs/third-party.md)
 
 ![image](docs/screenshot.webp)
 
