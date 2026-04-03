@@ -4,6 +4,7 @@ package recorders
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -22,10 +23,12 @@ import (
 
 	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/instance"
+	"github.com/bililive-go/bililive-go/src/listeners"
 	"github.com/bililive-go/bililive-go/src/live"
 	"github.com/bililive-go/bililive-go/src/notify"
 	"github.com/bililive-go/bililive-go/src/pipeline"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
+	"github.com/bililive-go/bililive-go/src/pkg/hlsproxy"
 	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 	"github.com/bililive-go/bililive-go/src/pkg/parser"
 	"github.com/bililive-go/bililive-go/src/pkg/parser/bililive_recorder"
@@ -42,6 +45,8 @@ const (
 	running
 	stopped
 )
+
+const soopRetryWarnInterval = time.Minute
 
 // for test
 var (
@@ -232,6 +237,11 @@ type recorder struct {
 	done chan struct{}
 	// suppressSummary 为 true 时，run() 退出不推送摘要（分段重启场景）
 	suppressSummary bool
+
+	retryLogMu              sync.Mutex
+	lastRetryLogKey         string
+	lastRetryLogAt          time.Time
+	suppressedRetryLogCount int
 }
 
 func NewRecorder(ctx context.Context, live live.Live) (Recorder, error) {
@@ -278,7 +288,10 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		}
 	}
 	if err != nil || len(streamInfos) == 0 {
-		r.getLogger().WithError(err).Warn("failed to get stream url, will retry after 5s...")
+		if err != nil && r.stopRetryForExplicitOffline(err) {
+			return
+		}
+		r.logStreamURLRetry(err)
 		// 使用可中断的等待，确保 Ctrl+C 能立即响应
 		select {
 		case <-ctx.Done():
@@ -287,6 +300,7 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		}
 		return
 	}
+	r.resetRetryLogState()
 
 	obj, _ := r.cache.Get(r.Live)
 	info := obj.(*live.Info)
@@ -406,6 +420,35 @@ func (r *recorder) tryRecord(ctx context.Context) {
 			url = probe.LocalURL()
 		}
 	} else if streamprobe.IsStreamHLS(url) {
+		if r.Live.GetPlatformCNName() == "SOOP" {
+			hlsFilterProxy, proxyErr := hlsproxy.New(url, streamInfo.HeadersForDownloader, true)
+			if proxyErr != nil {
+				r.getLogger().WithError(proxyErr).Warn("Soop HLS 过滤代理启动失败，将直接使用上游 m3u8")
+			} else if proxyErr = hlsFilterProxy.Start(ctx); proxyErr != nil {
+				r.getLogger().WithError(proxyErr).Warn("Soop HLS 过滤代理运行失败，将直接使用上游 m3u8")
+			} else {
+				defer hlsFilterProxy.Stop()
+				streamInfo = &live.StreamUrlInfo{
+					Url:                       hlsFilterProxy.LocalURL(),
+					HeadersForDownloader:      nil,
+					Format:                    streamInfo.Format,
+					Quality:                   streamInfo.Quality,
+					Description:               streamInfo.Description,
+					Codec:                     streamInfo.Codec,
+					Width:                     streamInfo.Width,
+					Height:                    streamInfo.Height,
+					Bitrate:                   streamInfo.Bitrate,
+					Vbitrate:                  streamInfo.Vbitrate,
+					FrameRate:                 streamInfo.FrameRate,
+					Name:                      streamInfo.Name,
+					AudioCodec:                streamInfo.AudioCodec,
+					AttributesForStreamSelect: streamInfo.AttributesForStreamSelect,
+				}
+				url = hlsFilterProxy.LocalURL()
+				r.getLogger().Info("Soop HLS 过滤代理已启用，将自动跳过 preloading 分片")
+			}
+		}
+
 		// HLS 流：不使用代理，异步探测第一个 TS 分段的头部信息
 		// 使用 tryRecord 的 ctx，当录制结束/重试时自动取消探测
 		go func(probeCtx context.Context) {
@@ -589,6 +632,17 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	}
 }
 
+// stopRetryForExplicitOffline 在平台已明确给出“已下播”信号时补发一次 LiveEnd，
+// 让 recorder manager 走正常回收流程，避免 recorder 永久停留在“录制准备中”。
+func (r *recorder) stopRetryForExplicitOffline(err error) bool {
+	if !errors.Is(err, live.ErrLiveOffline) {
+		return false
+	}
+	r.getLogger().WithError(err).Info("stream source explicitly reported offline, dispatching LiveEnd")
+	r.ed.DispatchEvent(events.NewEvent(listeners.LiveEnd, r.Live))
+	return true
+}
+
 func (r *recorder) selectPreferredStream(streamInfos []*live.StreamUrlInfo) (ret *live.StreamUrlInfo) {
 	// 如果没有可用流，直接返回 nil
 	if len(streamInfos) == 0 {
@@ -718,6 +772,69 @@ func (r *recorder) sendAccumulatedSummary() {
 
 	r.getLogger().Infof("推送录制摘要：%d 个文件", len(r.recordedFiles))
 	notify.SendRecordingSummary(r.getLogger(), info.HostName, r.Live.GetPlatformCNName(), r.recordedFiles, outputPath)
+}
+
+func (r *recorder) logStreamURLRetry(err error) {
+	if configs.IsDebug() || !strings.EqualFold(r.Live.GetPlatformCNName(), "SOOP") {
+		r.warnStreamURLRetry(err, "failed to get stream url, will retry after 5s...", 0)
+		return
+	}
+
+	key := ""
+	if err != nil {
+		key = err.Error()
+	}
+
+	now := time.Now()
+
+	r.retryLogMu.Lock()
+	if key != r.lastRetryLogKey || r.lastRetryLogAt.IsZero() {
+		r.lastRetryLogKey = key
+		r.lastRetryLogAt = now
+		r.suppressedRetryLogCount = 0
+		r.retryLogMu.Unlock()
+		r.warnStreamURLRetry(err, "failed to get stream url, will retry after 5s...", 0)
+		return
+	}
+
+	if now.Sub(r.lastRetryLogAt) >= soopRetryWarnInterval {
+		suppressed := r.suppressedRetryLogCount
+		r.lastRetryLogAt = now
+		r.suppressedRetryLogCount = 0
+		r.retryLogMu.Unlock()
+		r.warnStreamURLRetry(err, "failed to get stream url, still retrying every 5s...", suppressed)
+		return
+	}
+
+	r.suppressedRetryLogCount++
+	r.retryLogMu.Unlock()
+}
+
+func (r *recorder) warnStreamURLRetry(err error, msg string, suppressed int) {
+	logger := r.getLogger()
+	if suppressed > 0 {
+		entry := logger.WithField("suppressed", suppressed)
+		if err != nil {
+			entry = entry.WithError(err)
+		}
+		entry.Warn(msg)
+		return
+	}
+
+	if err != nil {
+		logger.WithError(err).Warn(msg)
+		return
+	}
+	logger.Warn(msg)
+}
+
+func (r *recorder) resetRetryLogState() {
+	r.retryLogMu.Lock()
+	defer r.retryLogMu.Unlock()
+
+	r.lastRetryLogKey = ""
+	r.lastRetryLogAt = time.Time{}
+	r.suppressedRetryLogCount = 0
 }
 
 func (r *recorder) getParser() parser.Parser {

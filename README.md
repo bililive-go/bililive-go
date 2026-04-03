@@ -7,6 +7,12 @@
 
 Bililive-go是一个支持多种直播平台的直播录制工具   
 
+### 第三方生态
+
+> 安全提示：Bililive-go 未审计任何第三方代码的安全性、合规性和可用性。是否安装或使用来自第三方的脚本、插件、扩展等内容，请自行判断并承担相应风险。
+>
+> 社区维护的第三方生态项目列表见：[docs/third-party.md](docs/third-party.md)
+
 ![image](docs/screenshot.webp)
 
 ## 支持网站
@@ -21,98 +27,104 @@ Bililive-go是一个支持多种直播平台的直播录制工具
     <tr align="center">
         <td>Acfun直播</td>
         <td>live.acfun.cn</td>
-        <td>滋瓷</td>
+        <td>✅ 支持</td>
         <td></td>
     </tr>
     <tr align="center">
         <td>哔哩哔哩直播</td>
         <td>live.bilibili.com</td>
-        <td>滋瓷</td>
-        <td>滋瓷</td>
+        <td>✅ 支持</td>
+        <td>✅ 支持</td>
     </tr>
     <tr align="center">
         <td>战旗直播</td>
         <td>www.zhanqi.tv</td>
-        <td>滋瓷</td>
+        <td>✅ 支持</td>
         <td></td>
     </tr>
     <tr align="center">
         <td>斗鱼直播</td>
         <td>www.douyu.com</td>
-        <td>滋瓷</td>
+        <td>✅ 支持</td>
         <td></td>
     </tr>
     <tr align="center">
         <td>虎牙直播</td>
         <td>www.huya.com</td>
-        <td>滋瓷</td>
+        <td>✅ 支持</td>
         <td></td>
     </tr>
     <tr align="center">
         <td>CC直播</td>
         <td>cc.163.com</td>
-        <td>滋瓷</td>
+        <td>✅ 支持</td>
         <td></td>
     </tr>
     <tr align="center">
         <td>一直播</td>
         <td>www.yizhibo.com</td>
-        <td>滋瓷</td>
+        <td>✅ 支持</td>
         <td></td>
     </tr>
     <tr align="center">
         <td>OPENREC</td>
         <td>www.openrec.tv</td>
-        <td>滋瓷</td>
+        <td>✅ 支持</td>
         <td></td>
     </tr>
     <tr align="center">
         <td>企鹅电竞</td>
         <td>egame.qq.com</td>
-        <td>滋瓷</td>
+        <td>✅ 支持</td>
         <td></td>
     </tr>
     <tr align="center">
         <td>浪live</td>
         <td>play.lang.live & www.lang.live</td>
-        <td>滋瓷</td>
+        <td>✅ 支持</td>
         <td></td>
     </tr>
     <tr align="center">
         <td>花椒</td>
         <td>www.huajiao.com</td>
-        <td>滋瓷</td>
+        <td>✅ 支持</td>
         <td></td>
     </tr>
     <tr align="center">
         <td>抖音直播</td>
         <td>live.douyin.com</td>
-        <td>滋瓷</td>
-        <td>滋瓷</td>
+        <td>✅ 支持</td>
+        <td>✅ 支持</td>
     </tr>
     <tr align="center">
         <td>猫耳</td>
         <td>fm.missevan.com</td>
-        <td>滋瓷</td>
+        <td>✅ 支持</td>
         <td></td>
     </tr>
     <tr align="center">
         <td>克拉克拉</td>
         <td>www.hongdoufm.com</td>
-        <td>滋瓷</td>
+        <td>✅ 支持</td>
         <td></td>
     </tr>
     <tr align="center">
         <td>YY直播</td>
         <td>www.yy.com</td>
-        <td>滋瓷</td>
+        <td>✅ 支持</td>
         <td></td>
     </tr>
     <tr align="center">
         <td>微博直播</td>
         <td>weibo.com</td>
-        <td>滋瓷</td>
+        <td>✅ 支持</td>
         <td></td>
+    </tr>
+    <tr align="center">
+        <td>SOOP</td>
+        <td>play.sooplive.com</td>
+        <td>✅ 支持</td>
+        <td>✅ 支持</td>
     </tr>
 </table>
 

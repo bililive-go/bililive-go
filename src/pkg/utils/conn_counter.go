@@ -266,6 +266,20 @@ func CreateDefaultClient() *http.Client {
 	return &http.Client{Transport: transport}
 }
 
+func CreateDownloadClient() *http.Client {
+	dialer := &net.Dialer{
+		Timeout: 10 * time.Second,
+	}
+
+	transport := newProductionTransport()
+	transport.DialContext = dialer.DialContext
+	transport.DialTLSContext = createTLSDialer(dialer, false, "")
+
+	proxy.ApplyDownloadProxyToTransport(transport)
+
+	return &http.Client{Transport: transport}
+}
+
 func CreateConnCounterClient() (*http.Client, error) {
 	dialer := &net.Dialer{
 		Timeout: 10 * time.Second,

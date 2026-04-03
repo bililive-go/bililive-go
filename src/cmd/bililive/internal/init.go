@@ -15,6 +15,7 @@ import (
 	_ "github.com/bililive-go/bililive-go/src/live/missevan"
 	_ "github.com/bililive-go/bililive-go/src/live/openrec"
 	_ "github.com/bililive-go/bililive-go/src/live/qq"
+	_ "github.com/bililive-go/bililive-go/src/live/sooplive"
 	_ "github.com/bililive-go/bililive-go/src/live/system"
 	_ "github.com/bililive-go/bililive-go/src/live/twitch"
 	_ "github.com/bililive-go/bililive-go/src/live/weibolive"

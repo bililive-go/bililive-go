@@ -124,7 +124,7 @@ func osrpGetCapabilities(w http.ResponseWriter, r *http.Request) {
 	platforms := []string{
 		"bilibili", "douyin", "huya", "douyu", "kuaishou",
 		"twitch", "youtube", "langlive", "xiaohongshu",
-		"acfun", "yizhibo", "openrec", "missevan",
+		"acfun", "yizhibo", "openrec", "missevan", "sooplive",
 	}
 
 	osrpWriteSuccess(w, OSRPCapabilities{
@@ -601,6 +601,8 @@ func osrpBuildURLFromPlatform(platform, streamID string) string {
 		return "https://live.kuaishou.com/u/" + streamID
 	case "twitch":
 		return "https://www.twitch.tv/" + streamID
+	case "sooplive", "soop":
+		return "https://play.sooplive.com/" + streamID
 	case "youtube":
 		return "https://www.youtube.com/watch?v=" + streamID
 	case "langlive", "浪live":

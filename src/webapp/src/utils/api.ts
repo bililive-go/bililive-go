@@ -311,6 +311,38 @@ class API {
     }
 
     /**
+     * 获取 SoopLive 已保存的账号密码配置
+     */
+    getSoopLiveAuth() {
+        return utils.requestGet(`${BASE_URL}/sooplive/auth`);
+    }
+
+    /**
+     * 清空 SoopLive 已保存的账号密码与 Cookie
+     */
+    clearSoopLiveAuth() {
+        return utils.requestDelete(`${BASE_URL}/sooplive/auth`);
+    }
+
+    /**
+     * 使用账号密码登录 SoopLive 并换取 Cookie
+     */
+    loginSoopLive(username: string, password: string, saveCredentials: boolean = true) {
+        return utils.requestPost(`${BASE_URL}/sooplive/login`, {
+            username,
+            password,
+            save_credentials: saveCredentials,
+        });
+    }
+
+    /**
+     * 验证 SoopLive Cookie
+     */
+    verifySoopLiveCookie(cookie: string) {
+        return utils.requestPost(`${BASE_URL}/sooplive/cookie/verify`, { cookie });
+    }
+
+    /**
      * 切换直播间的流设置
      * 更新直播间的流配置并重启录制（如果正在录制中）
      * @param liveId 直播间ID

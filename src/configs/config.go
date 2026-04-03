@@ -265,6 +265,11 @@ type Bark struct {
 	Level     string `yaml:"level" json:"level"`         // 通知级别: active/timeSensitive/passive/critical
 }
 
+type SoopLiveAuth struct {
+	Username string `yaml:"username,omitempty" json:"username,omitempty"`
+	Password string `yaml:"password,omitempty" json:"password,omitempty"`
+}
+
 // Config content all config info.
 type Config struct {
 	// 核心配置
@@ -292,6 +297,9 @@ type Config struct {
 
 	// Cookies 配置
 	Cookies map[string]string `yaml:"cookies" json:"cookies"`
+
+	// SoopLive 账号配置
+	SoopLiveAuth SoopLiveAuth `yaml:"sooplive_auth,omitempty" json:"sooplive_auth,omitempty"`
 
 	// 通知服务配置
 	Notify Notify `yaml:"notify" json:"notify"`
@@ -500,7 +508,27 @@ func SetCookie(host, cookie string) (*Config, error) {
 		if c.Cookies == nil {
 			c.Cookies = make(map[string]string)
 		}
+		if strings.TrimSpace(cookie) == "" {
+			delete(c.Cookies, host)
+			return nil
+		}
 		c.Cookies[host] = cookie
+		return nil
+	}, 3, 10*time.Millisecond)
+}
+
+func SetCookies(hostCookies map[string]string) (*Config, error) {
+	return UpdateWithRetry(func(c *Config) error {
+		if c.Cookies == nil {
+			c.Cookies = make(map[string]string)
+		}
+		for host, cookie := range hostCookies {
+			if strings.TrimSpace(cookie) == "" {
+				delete(c.Cookies, host)
+				continue
+			}
+			c.Cookies[host] = cookie
+		}
 		return nil
 	}, 3, 10*time.Millisecond)
 }
@@ -1048,6 +1076,7 @@ func GetPlatformKeyFromUrl(urlStr string) string {
 		"www.twitch.tv":       "twitch",
 		"egame.qq.com":        "qq",
 		"www.huajiao.com":     "huajiao",
+		"play.sooplive.com":   "sooplive",
 	}
 
 	if platform, exists := domainToPlatformMap[u.Host]; exists {
