@@ -76,7 +76,7 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -119,10 +119,12 @@ func (s *SQLiteStore) runMigrations() error {
 	if recovered {
 		logrus.Info("IO 统计数据库从未完成的迁移中恢复")
 		s.db.Close()
-		db, err := sql.Open("sqlite", s.dbPath)
+		db, err := sql.Open("sqlite", s.dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 		if err != nil {
 			return fmt.Errorf("恢复后重新打开数据库失败: %w", err)
 		}
+		db.SetMaxOpenConns(1)
+		db.SetMaxIdleConns(1)
 		s.db = db
 		config.DB = s.db
 		migrator, err = migration.NewMigrator(config)

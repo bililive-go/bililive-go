@@ -309,8 +309,15 @@ func main() {
 				logger.Infof("收到启动器关闭请求，优雅期 %d 秒", gracePeriod)
 				// 发送关闭确认
 				updateManager.AckShutdown()
-				// 触发主程序关闭
-				rootCancel()
+				// 触发完整关闭流程（包括 tools.Cleanup），而非仅 rootCancel。
+				// 确保 bililive-tools 等子进程在 Launcher 超时重启时被正确清理，
+				// 避免端口占用导致下次启动失败（issue #1129）。
+				select {
+				case c <- syscall.SIGTERM:
+				default:
+					// 通道已有待处理信号，关闭流程已在进行，直接取消 context 作为兜底
+					rootCancel()
+				}
 			})
 		}
 	}
@@ -728,6 +735,9 @@ func main() {
 		}
 		// 停止自动更新器
 		servers.StopAutoUpdater()
+		// 终止所有子进程（bililive-tools 等）并关闭 remotetools WebUI。
+		// 在所有关闭路径下执行，确保端口被释放（issue #1129）。
+		tools.Cleanup()
 		logger.Info("Shutdown complete")
 	})
 
