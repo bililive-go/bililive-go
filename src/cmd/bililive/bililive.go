@@ -319,9 +319,9 @@ func main() {
 				select {
 				case c <- syscall.SIGTERM:
 				default:
-					// 通道已有待处理信号，关闭流程已在进行，直接取消 context 作为兜底
-					rootCancel()
 				}
+				// 立即取消 context，确保关闭请求即时生效（即使关闭 goroutine 尚未启动也能中断初始化流程）
+				rootCancel()
 			})
 		}
 	}
@@ -701,7 +701,10 @@ func main() {
 
 	// 注册关闭回调，供更新系统在热重启时触发优雅关闭
 	servers.SetShutdownFunc(func() {
-		c <- os.Interrupt
+		select {
+		case c <- os.Interrupt:
+		default:
+		}
 	})
 	bilisentryPkg.Go(func() {
 		<-msgChan

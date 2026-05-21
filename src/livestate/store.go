@@ -73,9 +73,13 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("创建数据库目录失败: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("打开数据库失败: %w", err)
+	}
+	if _, err := db.Exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("设置数据库 PRAGMA 失败: %w", err)
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
@@ -121,9 +125,13 @@ func (s *SQLiteStore) runMigrations() error {
 	if recovered {
 		logrus.Info("从未完成的迁移中恢复")
 		s.db.Close()
-		db, err := sql.Open("sqlite", s.dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
+		db, err := sql.Open("sqlite", s.dbPath)
 		if err != nil {
 			return fmt.Errorf("恢复后重新打开数据库失败: %w", err)
+		}
+		if _, err := db.Exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;"); err != nil {
+			db.Close()
+			return fmt.Errorf("恢复后设置数据库 PRAGMA 失败: %w", err)
 		}
 		db.SetMaxOpenConns(1)
 		db.SetMaxIdleConns(1)
