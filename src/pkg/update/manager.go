@@ -447,12 +447,15 @@ func (m *Manager) mergeVersionToRemotetools(info *ReleaseInfo) (remotetools.Tool
 
 // launcherState 启动器状态（与 launcher 包保持一致）
 type launcherState struct {
-	ActiveVersion    string `json:"active_version"`
-	ActiveBinaryPath string `json:"active_binary_path,omitempty"`
-	BackupVersion    string `json:"backup_version,omitempty"`
-	BackupBinaryPath string `json:"backup_binary_path,omitempty"`
-	StartupTimeout   int    `json:"startup_timeout"`
-	MaxRetries       int    `json:"max_retries"`
+	ActiveVersion     string `json:"active_version"`
+	ActiveBinaryPath  string `json:"active_binary_path,omitempty"`
+	BackupVersion     string `json:"backup_version,omitempty"`
+	BackupBinaryPath  string `json:"backup_binary_path,omitempty"`
+	StartupTimeout    int    `json:"startup_timeout"`
+	MaxRetries        int    `json:"max_retries"`
+	LastFailureReason string `json:"last_failure_reason,omitempty"`
+	LastFailureTime   int64  `json:"last_failure_time,omitempty"`
+	FailureCount      int    `json:"failure_count,omitempty"`
 }
 
 // saveLauncherState 保存启动器状态

@@ -258,20 +258,19 @@ func NewServer(ctx context.Context) *Server {
 
 func (s *Server) Start(ctx context.Context) error {
 	inst := instance.GetInstance(ctx)
+	listener, err := net.Listen("tcp4", s.server.Addr)
+	if err != nil {
+		return err
+	}
 	inst.WaitGroup.Add(1)
 	bilisentry.Go(func() {
-		listener, err := net.Listen("tcp4", s.server.Addr)
-		if err != nil {
-			applog.GetLogger().Error(err)
-			return
-		}
 		switch err := s.server.Serve(listener); err {
 		case nil, http.ErrServerClosed:
 		default:
 			applog.GetLogger().Error(err)
 		}
 	})
-	applog.GetLogger().Infof("Server start at %s", s.server.Addr)
+	applog.GetLogger().Infof("Server start at %s", listener.Addr().String())
 	return nil
 }
 
