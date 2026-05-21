@@ -273,6 +273,10 @@ func main() {
 	logger.Debugf("%+v", consts.GetAppInfo())
 	logger.Debugf("%+v", configs.GetCurrentConfig())
 
+	// 提前声明信号通道，以便后续 OnShutdownRequest 闭包可以引用它
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+
 	// 初始化更新管理器并尝试连接到启动器（如果由启动器启动）
 	var updateManager *update.Manager
 	if os.Getenv("BILILIVE_LAUNCHER") != "" {
@@ -693,9 +697,6 @@ func main() {
 	logger.Infof("Created %d live rooms (%d listening, %d not listening)",
 		inst.Lives.Len(), len(listeningRooms), len(nonListeningRooms))
 
-	c := make(chan os.Signal, 1)
-	// 使用 os.Interrupt 更跨平台，在 Windows 上 SIGHUP 可能不被支持
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	msgChan := c
 
 	// 注册关闭回调，供更新系统在热重启时触发优雅关闭

@@ -374,8 +374,7 @@ func (r *Runner) startMainProgram(ctx context.Context, args []string) error {
 		fmt.Sprintf("BILILIVE_LAUNCHER_PID=%d", os.Getpid()),
 		fmt.Sprintf("BILILIVE_LAUNCHER_EXE=%s", launcherExe),
 	)
-	// 设置独立进程组，使强制终止时可通过 kill(-pgid) 同时清理所有子进程（如 bililive-tools）
-	r.mainProcess.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	setProcAttr(r.mainProcess)
 
 	if err := r.mainProcess.Start(); err != nil {
 		return fmt.Errorf("启动进程失败: %w", err)
@@ -429,10 +428,7 @@ func (r *Runner) stopMainProgram() {
 		r.log("主程序已正常退出")
 	case <-time.After(35 * time.Second):
 		r.log("主程序未响应，强制终止")
-		// 杀掉整个进程组（包含 bililive-tools 等子进程），避免端口残留（issue #1129）
-		if r.mainPID > 0 {
-			syscall.Kill(-r.mainPID, syscall.SIGKILL)
-		}
+		killProcessGroup(r.mainPID)
 		r.mainProcess.Process.Kill()
 	}
 }
