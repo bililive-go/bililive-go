@@ -264,6 +264,8 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 	inst.WaitGroup.Add(1)
 	bilisentry.Go(func() {
+		// Start 只保证监听端口成功，后续 Serve 期间的运行时错误通过日志暴露。
+		// 这样可以避免在热更新启动确认阶段误把“尚未绑定端口”当成启动成功。
 		switch err := s.server.Serve(listener); err {
 		case nil, http.ErrServerClosed:
 		default:

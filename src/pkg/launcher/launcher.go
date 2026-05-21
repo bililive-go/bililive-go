@@ -473,7 +473,7 @@ func (r *Runner) handleMessage(conn ipc.Conn, msg *ipc.Message) {
 		var payload ipc.StartupFailedPayload
 		if err := msg.ParsePayload(&payload); err == nil {
 			r.log("主程序启动失败: %s", payload.Error)
-			r.noteStartupFailure(payload.Error)
+			r.updateLastFailureInfo(payload.Error)
 		}
 
 	case ipc.MsgTypeUpdateRequest:
@@ -522,7 +522,7 @@ func (r *Runner) recordStartupFailure(reason string) {
 	r.state.Save(r.statePath)
 }
 
-func (r *Runner) noteStartupFailure(reason string) {
+func (r *Runner) updateLastFailureInfo(reason string) {
 	r.startupOK = false
 	r.state.LastFailureReason = reason
 	r.state.LastFailureTime = time.Now().Unix()
