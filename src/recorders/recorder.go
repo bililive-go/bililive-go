@@ -580,11 +580,24 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	}
 
 	if err != nil {
-		r.getLogger().WithError(err).Error("failed to parse live stream")
-		return
+		select {
+		case <-r.stop:
+			// Intentional stop (segment split or graceful shutdown): continue to post-processing
+			// if the output file has content. The stop channel being closed means this was
+			// triggered by CloseForRestart or Close, not a genuine recording failure.
+			r.getLogger().WithError(err).Debug("parse live stream stopped")
+		default:
+			r.getLogger().WithError(err).Error("failed to parse live stream")
+			return
+		}
 	}
 	r.getLogger().Debugln("End ParseLiveStream(" + url.String() + ", " + fileName + ")")
 	removeEmptyFile(fileName)
+
+	// Skip post-processing if the output file doesn't exist (was empty or never created)
+	if _, statErr := os.Stat(fileName); statErr != nil {
+		return
+	}
 
 	// 使用层级配置的 OnRecordFinished
 	cmdStr := strings.Trim(resolvedConfig.OnRecordFinished.CustomCommandline, "")
