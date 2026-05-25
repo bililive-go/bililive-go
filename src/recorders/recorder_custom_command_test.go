@@ -36,6 +36,32 @@ func TestResolveRecordedOutputFilesReturnsAllBililiveRecorderParts(t *testing.T)
 	}, outputFiles)
 }
 
+func TestResolveRecordedOutputFilesRenamesSingleBililiveRecorderPart(t *testing.T) {
+	dir := t.TempDir()
+	expectedFile := filepath.Join(dir, "video.flv")
+	partFile := filepath.Join(dir, "video_PART000.flv")
+	assert.NoError(t, os.WriteFile(partFile, []byte("test"), 0o644))
+
+	outputFiles := resolveRecordedOutputFiles(expectedFile, configs.DownloaderBililiveRecorder, false, nil)
+
+	assert.Equal(t, []string{expectedFile}, outputFiles)
+	_, err := os.Stat(expectedFile)
+	assert.NoError(t, err)
+	_, err = os.Stat(partFile)
+	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestResolveRecordedOutputFilesFallsBackToBaseFileForNonBililiveRecorder(t *testing.T) {
+	dir := t.TempDir()
+	expectedFile := filepath.Join(dir, "video.flv")
+	assert.NoError(t, os.WriteFile(expectedFile, []byte("test"), 0o644))
+
+	outputFiles := resolveRecordedOutputFiles(expectedFile, configs.DownloaderFFmpeg, false, nil)
+
+	assert.Equal(t, []string{expectedFile}, outputFiles)
+	assert.Nil(t, resolveRecordedOutputFiles(filepath.Join(dir, "missing.flv"), configs.DownloaderFFmpeg, false, nil))
+}
+
 func TestCustomCommandlineRunsForEveryOutputFile(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -74,4 +100,31 @@ func TestCustomCommandlineRunsForEveryOutputFile(t *testing.T) {
 		assert.Contains(t, got[1][2], outputFiles[1])
 		assert.Contains(t, got[1][2], "/usr/bin/ffmpeg")
 	}
+}
+
+func TestCustomCommandlineDeletesSourceOnSuccess(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	l := livemock.NewMockLive(ctrl)
+	l.EXPECT().GetLogger().Return(livelogger.New(0, nil)).AnyTimes()
+
+	r := &recorder{Live: l}
+	info := &live.Info{HostName: "host", RoomName: "room"}
+	cfg := &configs.Config{}
+
+	backupExecCommandFunc := execCommandFunc
+	defer func() { execCommandFunc = backupExecCommandFunc }()
+	execCommandFunc = func(name string, args []string, stdout, stderr io.Writer) error {
+		return nil
+	}
+
+	tempDir := t.TempDir()
+	outputFile := filepath.Join(tempDir, "segment-1.flv")
+	assert.NoError(t, os.WriteFile(outputFile, []byte("test"), 0o644))
+
+	r.runCustomCommandline(cfg, info, `echo "{{ .FileName }}"`, "/usr/bin/ffmpeg", []string{outputFile}, true)
+
+	_, err := os.Stat(outputFile)
+	assert.ErrorIs(t, err, os.ErrNotExist)
 }
