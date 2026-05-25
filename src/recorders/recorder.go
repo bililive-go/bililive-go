@@ -190,7 +190,7 @@ func (r *recorder) runCustomCommandline(cfg *configs.Config, info *live.Info, cm
 		bash = "cmd"
 		argsPrefix = []string{"/C"}
 	default:
-		r.getLogger().Warnln("Unsupport system ", runtime.GOOS)
+		r.getLogger().Warnln("Unsupported system ", runtime.GOOS)
 		return
 	}
 

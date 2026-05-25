@@ -15,7 +15,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 )
 
-func TestResolveRecordedOutputFilesReturnsAllBililiveRecorderParts(t *testing.T) {
+func TestResolveRecordedOutputFiles_BililiveRecorderMultipleParts(t *testing.T) {
 	dir := t.TempDir()
 	expectedFile := filepath.Join(dir, "video.flv")
 	partFiles := []string{
@@ -36,7 +36,7 @@ func TestResolveRecordedOutputFilesReturnsAllBililiveRecorderParts(t *testing.T)
 	}, outputFiles)
 }
 
-func TestResolveRecordedOutputFilesRenamesSingleBililiveRecorderPart(t *testing.T) {
+func TestResolveRecordedOutputFiles_BililiveRecorderSinglePartRename(t *testing.T) {
 	dir := t.TempDir()
 	expectedFile := filepath.Join(dir, "video.flv")
 	partFile := filepath.Join(dir, "video_PART000.flv")
@@ -51,7 +51,7 @@ func TestResolveRecordedOutputFilesRenamesSingleBililiveRecorderPart(t *testing.
 	assert.ErrorIs(t, err, os.ErrNotExist)
 }
 
-func TestResolveRecordedOutputFilesFallsBackToBaseFileForNonBililiveRecorder(t *testing.T) {
+func TestResolveRecordedOutputFiles_NonBililiveRecorderFallback(t *testing.T) {
 	dir := t.TempDir()
 	expectedFile := filepath.Join(dir, "video.flv")
 	assert.NoError(t, os.WriteFile(expectedFile, []byte("test"), 0o644))
@@ -62,7 +62,7 @@ func TestResolveRecordedOutputFilesFallsBackToBaseFileForNonBililiveRecorder(t *
 	assert.Nil(t, resolveRecordedOutputFiles(filepath.Join(dir, "missing.flv"), configs.DownloaderFFmpeg, false, nil))
 }
 
-func TestCustomCommandlineRunsForEveryOutputFile(t *testing.T) {
+func TestRunCustomCommandline_MultipleOutputFiles(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -102,7 +102,7 @@ func TestCustomCommandlineRunsForEveryOutputFile(t *testing.T) {
 	}
 }
 
-func TestCustomCommandlineDeletesSourceOnSuccess(t *testing.T) {
+func TestRunCustomCommandline_DeletesSourceOnSuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
