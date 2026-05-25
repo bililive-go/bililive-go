@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"os/exec"
@@ -72,6 +73,13 @@ var (
 			os.Remove(file)
 		}
 	}
+
+	execCommandFunc = func(name string, args []string, stdout, stderr io.Writer) error {
+		cmd := exec.Command(name, args...)
+		cmd.Stdout = stdout
+		cmd.Stderr = stderr
+		return cmd.Run()
+	}
 )
 
 // findBililiveRecorderOutputFiles 查找录播姬生成的分段文件
@@ -124,6 +132,95 @@ func findBililiveRecorderOutputFiles(expectedFileName string) []string {
 	}
 
 	return validFiles
+}
+
+func resolveRecordedOutputFiles(fileName string, downloaderType configs.DownloaderType, fixFlvAtFirst bool, logger *livelogger.LiveLogger) []string {
+	var outputFiles []string
+	if downloaderType == configs.DownloaderBililiveRecorder {
+		partFiles := findBililiveRecorderOutputFiles(fileName)
+		if len(partFiles) > 0 {
+			outputFiles = partFiles
+			if logger != nil {
+				logger.Infof("检测到录播姬分段文件: %d 个", len(partFiles))
+				for i, f := range partFiles {
+					logger.Debugf("  分段 %d: %s", i, f)
+				}
+			}
+
+			if len(partFiles) == 1 && !fixFlvAtFirst {
+				originalFileName := fileName
+				partFileName := partFiles[0]
+				if err := os.Rename(partFileName, originalFileName); err != nil {
+					if logger != nil {
+						logger.WithError(err).Warnf("无法将 %s 重命名为 %s，保留原文件名", partFileName, originalFileName)
+					}
+				} else {
+					if logger != nil {
+						logger.Infof("录播姬单文件重命名: %s -> %s", filepath.Base(partFileName), filepath.Base(originalFileName))
+					}
+					outputFiles = []string{originalFileName}
+				}
+			}
+		}
+	}
+
+	if len(outputFiles) == 0 {
+		if _, err := os.Stat(fileName); err == nil {
+			outputFiles = []string{fileName}
+		}
+	}
+
+	return outputFiles
+}
+
+func (r *recorder) runCustomCommandline(cfg *configs.Config, info *live.Info, cmdStr string, ffmpegPath string, outputFiles []string, deleteSource bool) {
+	customTmpl, errCmdTmpl := template.New("custom_commandline").Funcs(utils.GetFuncMap(cfg)).Parse(cmdStr)
+	if errCmdTmpl != nil {
+		r.getLogger().WithError(errCmdTmpl).Error("custom commandline parse failure")
+		return
+	}
+
+	bash := ""
+	argsPrefix := []string{}
+	switch runtime.GOOS {
+	case "linux":
+		bash = "sh"
+		argsPrefix = []string{"-c"}
+	case "windows":
+		bash = "cmd"
+		argsPrefix = []string{"/C"}
+	default:
+		r.getLogger().Warnln("Unsupported system ", runtime.GOOS)
+		return
+	}
+
+	stdout := utils.NewDebugControlledWriter(os.Stdout)
+	stderr := utils.NewDebugControlledWriter(os.Stderr)
+	for _, outputFile := range outputFiles {
+		buf := new(bytes.Buffer)
+		if execErr := customTmpl.Execute(buf, struct {
+			*live.Info
+			FileName string
+			Ffmpeg   string
+		}{
+			Info:     info,
+			FileName: outputFile,
+			Ffmpeg:   ffmpegPath,
+		}); execErr != nil {
+			r.getLogger().WithError(execErr).Errorln("failed to render custom commandline")
+			return
+		}
+		args := append(append([]string{}, argsPrefix...), buf.String())
+		r.getLogger().Debugf("start executing custom_commandline for %s: %s", filepath.Base(outputFile), args[1])
+		if execErr := execCommandFunc(bash, args, stdout, stderr); execErr != nil {
+			r.getLogger().WithError(execErr).Debugf("custom commandline execute failure (%s %s)\n", bash, strings.Join(args, " "))
+			continue
+		}
+		if deleteSource {
+			_ = os.Remove(outputFile)
+		}
+		r.getLogger().Debugf("end executing custom_commandline for %s: %s", filepath.Base(outputFile), args[1])
+	}
 }
 
 // resolveParserName 根据下载器类型返回实际使用的 parser 名称
@@ -579,107 +676,36 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		}
 	}
 
-	if err != nil {
-		r.getLogger().WithError(err).Error("failed to parse live stream")
-		return
-	}
 	r.getLogger().Debugln("End ParseLiveStream(" + url.String() + ", " + fileName + ")")
 	removeEmptyFile(fileName)
+	outputFiles := resolveRecordedOutputFiles(fileName, downloaderType, resolvedConfig.OnRecordFinished.FixFlvAtFirst, r.getLogger())
+	if err != nil {
+		if len(outputFiles) == 0 {
+			r.getLogger().WithError(err).Error("failed to parse live stream")
+			return
+		}
+		r.getLogger().WithError(err).Warnf("录制结束时发生错误，但检测到 %d 个输出文件，继续后处理", len(outputFiles))
+	}
 
 	// 使用层级配置的 OnRecordFinished
 	cmdStr := strings.Trim(resolvedConfig.OnRecordFinished.CustomCommandline, "")
 	if len(cmdStr) > 0 {
 		// 累积录制文件信息（legacy 路径），待录制结束后统一推送摘要
-		r.accumulateRecordedFiles(fileName)
+		if len(outputFiles) == 0 {
+			r.getLogger().Warn("没有找到任何输出文件，跳过后处理")
+			return
+		}
+		r.accumulateRecordedFiles(outputFiles...)
 
 		ffmpegPath, ffmpegErr := utils.GetFFmpegPathForLive(ctx, r.Live)
 		if ffmpegErr != nil {
 			r.getLogger().WithError(ffmpegErr).Error("failed to find ffmpeg")
 			return
 		}
-		customTmpl, errCmdTmpl := template.New("custom_commandline").Funcs(utils.GetFuncMap(cfg)).Parse(cmdStr)
-		if errCmdTmpl != nil {
-			r.getLogger().WithError(errCmdTmpl).Error("custom commandline parse failure")
-			return
-		}
-
-		buf := new(bytes.Buffer)
-		if execErr := customTmpl.Execute(buf, struct {
-			*live.Info
-			FileName string
-			Ffmpeg   string
-		}{
-			Info:     info,
-			FileName: fileName,
-			Ffmpeg:   ffmpegPath,
-		}); execErr != nil {
-			r.getLogger().WithError(execErr).Errorln("failed to render custom commandline")
-			return
-		}
-		bash := ""
-		args := []string{}
-		switch runtime.GOOS {
-		case "linux":
-			bash = "sh"
-			args = []string{"-c"}
-		case "windows":
-			bash = "cmd"
-			args = []string{"/C"}
-		default:
-			r.getLogger().Warnln("Unsupport system ", runtime.GOOS)
-		}
-		args = append(args, buf.String())
-		r.getLogger().Debugf("start executing custom_commandline: %s", args[1])
-		cmd := exec.Command(bash, args...)
-		// 跟随全局 Debug 开关输出
-		cmd.Stdout = utils.NewDebugControlledWriter(os.Stdout)
-		cmd.Stderr = utils.NewDebugControlledWriter(os.Stderr)
-		if err = cmd.Run(); err != nil {
-			r.getLogger().WithError(err).Debugf("custom commandline execute failure (%s %s)\n", bash, strings.Join(args, " "))
-		} else if resolvedConfig.OnRecordFinished.DeleteFlvAfterConvert {
-			os.Remove(fileName)
-		}
-		r.getLogger().Debugf("end executing custom_commandline: %s", args[1])
+		r.runCustomCommandline(cfg, info, cmdStr, ffmpegPath, outputFiles, resolvedConfig.OnRecordFinished.DeleteFlvAfterConvert)
 	} else {
 		// 使用新的 Pipeline 系统处理后处理任务
 		inst := instance.GetInstance(ctx)
-
-		// 确定实际输出的文件列表
-		// 如果使用录播姬下载器，检查是否有分段文件
-		var outputFiles []string
-		if downloaderType == configs.DownloaderBililiveRecorder {
-			partFiles := findBililiveRecorderOutputFiles(fileName)
-			if len(partFiles) > 0 {
-				outputFiles = partFiles
-				r.getLogger().Infof("检测到录播姬分段文件: %d 个", len(partFiles))
-				for i, f := range partFiles {
-					r.getLogger().Debugf("  分段 %d: %s", i, f)
-				}
-
-				// 单文件重命名逻辑：
-				// 1. 只有一个分段文件（_PART000）
-				// 2. 未启用 FixFlvAtFirst（因为录播姬会在修复时自动分段，修复后的文件名已经是正确的）
-				if len(partFiles) == 1 && !resolvedConfig.OnRecordFinished.FixFlvAtFirst {
-					originalFileName := fileName // 原始期望的文件名，不带 _PART000
-					partFileName := partFiles[0] // 录播姬实际输出的文件名，带 _PART000
-
-					// 尝试重命名
-					if err := os.Rename(partFileName, originalFileName); err != nil {
-						r.getLogger().WithError(err).Warnf("无法将 %s 重命名为 %s，保留原文件名", partFileName, originalFileName)
-					} else {
-						r.getLogger().Infof("录播姬单文件重命名: %s -> %s", filepath.Base(partFileName), filepath.Base(originalFileName))
-						outputFiles = []string{originalFileName}
-					}
-				}
-			}
-		}
-		// 如果没有检测到分段文件，使用原始文件名
-		if len(outputFiles) == 0 {
-			// 检查原始文件是否存在
-			if _, err := os.Stat(fileName); err == nil {
-				outputFiles = []string{fileName}
-			}
-		}
 
 		if len(outputFiles) == 0 {
 			r.getLogger().Warn("没有找到任何输出文件，跳过后处理")
