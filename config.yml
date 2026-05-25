@@ -46,45 +46,7 @@ on_record_finished:
     upload_path_tmpl: /录播归档/{{ .Platform }}/{{ .HostName }}/{{ .RoomName }}-{{ now | date "2006-01-02" }}.{{ .Ext }}
     delete_after_upload: false
   upload_timing: after_process
-  # 是否将 ASS 弹幕字幕硬编码（烧录）到视频中
-  # 开启后会使用 FFmpeg 重编码视频，将字幕叠加到画面上
-  # 需要同时开启弹幕录制（danmaku_enable）才有 ASS 文件可烧录
-  burn_subtitles: false
-  # 烧录字幕时使用的视频编码器
-  # 默认 libx264（H.264），兼容性最好
-  # 可选 libx265（H.265，压缩率更高但编码更慢）
-  burn_subtitles_codec: libx264
-  # 烧录字幕时的 CRF（恒定速率因子）质量值
-  # 范围 0-51，数值越小画质越好，文件越大
-  # 默认 18（视觉无损），推荐范围 15-23
-  burn_subtitles_crf: "18"
-  # 烧录字幕时的编码预设
-  # 影响编码速度和压缩率的平衡
-  # 可选: ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, veryslow
-  # 默认 medium，越慢画质越好但耗时越长
-  burn_subtitles_preset: medium
-  # 烧录完成后是否删除原始 ASS 字幕文件
-  # 默认 false（保留 ASS 文件）
-  burn_delete_ass: false
-  # 烧录完成后是否删除源视频文件（如 MP4/FLV）
-  # 默认 false（保留源文件，同时存在源文件和烧录后的 MKV）
-  # 开启后仅保留烧录完成的 MKV 文件
-  burn_delete_source: false
 timeout_in_us: 60000000
-danmaku_enable: false
-danmaku:
-  font_size: 36
-  font_name: Microsoft YaHei
-  scroll_area: full
-  scroll_time: 10
-  resolution: 1920x1080
-  outline: 1
-  opacity: 128
-  record_gift: true
-  record_guard: true
-  record_super_chat: true
-  guard_position: bottom-left
-  sc_position: bottom-left
 live_rooms:
   # quality参数目前仅B站启用，默认为0
   # (B站)0代表原画PRO(HEVC)优先, 其他数值为原画(AVC)
