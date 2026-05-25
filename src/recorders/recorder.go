@@ -74,7 +74,7 @@ var (
 		}
 	}
 
-	execCommand = func(name string, args []string, stdout, stderr io.Writer) error {
+	execCommandFunc = func(name string, args []string, stdout, stderr io.Writer) error {
 		cmd := exec.Command(name, args...)
 		cmd.Stdout = stdout
 		cmd.Stderr = stderr
@@ -194,6 +194,8 @@ func (r *recorder) runCustomCommandline(cfg *configs.Config, info *live.Info, cm
 		return
 	}
 
+	stdout := utils.NewDebugControlledWriter(os.Stdout)
+	stderr := utils.NewDebugControlledWriter(os.Stderr)
 	for _, outputFile := range outputFiles {
 		buf := new(bytes.Buffer)
 		if execErr := customTmpl.Execute(buf, struct {
@@ -210,7 +212,7 @@ func (r *recorder) runCustomCommandline(cfg *configs.Config, info *live.Info, cm
 		}
 		args := append(append([]string{}, argsPrefix...), buf.String())
 		r.getLogger().Debugf("start executing custom_commandline for %s: %s", filepath.Base(outputFile), args[1])
-		if execErr := execCommand(bash, args, utils.NewDebugControlledWriter(os.Stdout), utils.NewDebugControlledWriter(os.Stderr)); execErr != nil {
+		if execErr := execCommandFunc(bash, args, stdout, stderr); execErr != nil {
 			r.getLogger().WithError(execErr).Debugf("custom commandline execute failure (%s %s)\n", bash, strings.Join(args, " "))
 			continue
 		}

@@ -47,12 +47,12 @@ func TestCustomCommandlineRunsForEveryOutputFile(t *testing.T) {
 	info := &live.Info{HostName: "host", RoomName: "room"}
 	cfg := &configs.Config{}
 
-	backupExecCommand := execCommand
-	defer func() { execCommand = backupExecCommand }()
+	backupExecCommandFunc := execCommandFunc
+	defer func() { execCommandFunc = backupExecCommandFunc }()
 
 	var got [][]string
 	call := 0
-	execCommand = func(name string, args []string, stdout, stderr io.Writer) error {
+	execCommandFunc = func(name string, args []string, stdout, stderr io.Writer) error {
 		call++
 		got = append(got, append([]string{name}, args...))
 		if call == 1 {
@@ -61,7 +61,11 @@ func TestCustomCommandlineRunsForEveryOutputFile(t *testing.T) {
 		return nil
 	}
 
-	outputFiles := []string{"/tmp/segment-1.flv", "/tmp/segment-2.flv"}
+	tempDir := t.TempDir()
+	outputFiles := []string{
+		filepath.Join(tempDir, "segment-1.flv"),
+		filepath.Join(tempDir, "segment-2.flv"),
+	}
 	r.runCustomCommandline(cfg, info, `echo "{{ .FileName }}" "{{ .Ffmpeg }}"`, "/usr/bin/ffmpeg", outputFiles, false)
 
 	if assert.Len(t, got, 2) {
