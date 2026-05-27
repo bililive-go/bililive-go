@@ -273,6 +273,10 @@ func main() {
 	logger.Debugf("%+v", consts.GetAppInfo())
 	logger.Debugf("%+v", configs.GetCurrentConfig())
 
+	// 提前声明信号通道，以便后续 OnShutdownRequest 闭包可以引用它
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+
 	// 初始化更新管理器并尝试连接到启动器（如果由启动器启动）
 	var updateManager *update.Manager
 	if os.Getenv("BILILIVE_LAUNCHER") != "" {
@@ -309,7 +313,14 @@ func main() {
 				logger.Infof("收到启动器关闭请求，优雅期 %d 秒", gracePeriod)
 				// 发送关闭确认
 				updateManager.AckShutdown()
-				// 触发主程序关闭
+				// 触发完整关闭流程（包括 tools.Cleanup），而非仅 rootCancel。
+				// 确保 bililive-tools 等子进程在 Launcher 超时重启时被正确清理，
+				// 避免端口占用导致下次启动失败（issue #1129）。
+				select {
+				case c <- syscall.SIGTERM:
+				default:
+				}
+				// 立即取消 context，确保关闭请求即时生效（即使关闭 goroutine 尚未启动也能中断初始化流程）
 				rootCancel()
 			})
 		}
@@ -686,14 +697,14 @@ func main() {
 	logger.Infof("Created %d live rooms (%d listening, %d not listening)",
 		inst.Lives.Len(), len(listeningRooms), len(nonListeningRooms))
 
-	c := make(chan os.Signal, 1)
-	// 使用 os.Interrupt 更跨平台，在 Windows 上 SIGHUP 可能不被支持
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	msgChan := c
 
 	// 注册关闭回调，供更新系统在热重启时触发优雅关闭
 	servers.SetShutdownFunc(func() {
-		c <- os.Interrupt
+		select {
+		case c <- os.Interrupt:
+		default:
+		}
 	})
 	bilisentryPkg.Go(func() {
 		<-msgChan
@@ -728,6 +739,9 @@ func main() {
 		}
 		// 停止自动更新器
 		servers.StopAutoUpdater()
+		// 终止所有子进程（bililive-tools 等）并关闭 remotetools WebUI。
+		// 在所有关闭路径下执行，确保端口被释放（issue #1129）。
+		tools.Cleanup()
 		logger.Info("Shutdown complete")
 	})
 
