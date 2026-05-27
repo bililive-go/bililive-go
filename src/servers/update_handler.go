@@ -544,11 +544,22 @@ func getLauncherStatus(w http.ResponseWriter, r *http.Request) {
 		"graceful_update_version": pendingVersion,
 		"active_recordings":       getActiveRecordingsCount(r.Context()),
 		// 启动器和 bgo 进程信息
-		"is_launcher_managed": appInfo.IsLauncherManaged,
-		"launcher_pid":        appInfo.LauncherPID,
-		"launcher_exe_path":   appInfo.LauncherExePath,
-		"bgo_pid":             appInfo.Pid,
-		"bgo_exe_path":        appInfo.BgoExePath,
+		"is_launcher_managed":         appInfo.IsLauncherManaged,
+		"launcher_pid":                appInfo.LauncherPID,
+		"launcher_exe_path":           appInfo.LauncherExePath,
+		"bgo_pid":                     appInfo.Pid,
+		"bgo_exe_path":                appInfo.BgoExePath,
+		"pending_launcher_transition": PendingLauncherTransition(),
+	}
+
+	if cfg := configs.GetCurrentConfig(); cfg != nil {
+		statePath := filepath.Join(cfg.AppDataPath, "launcher-state.json")
+		if state, err := launcher.LoadState(statePath); err == nil {
+			resp["launcher_failure_count"] = state.FailureCount
+			resp["launcher_last_failure"] = state.LastFailureReason
+			resp["launcher_last_failure_time"] = state.LastFailureTime
+			resp["prefer_entry_binary"] = state.PreferEntryBinary
+		}
 	}
 
 	if info := manager.GetAvailableInfo(); info != nil {
