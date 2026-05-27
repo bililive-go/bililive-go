@@ -18,18 +18,35 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Authentication 身份验证配置
+type Authentication struct {
+	Enable      bool   `yaml:"enable" json:"enable"`             // 是否启用身份验证
+	WebUsername string `yaml:"web_username" json:"web_username"` // Web界面用户名
+	WebPassword string `yaml:"web_password" json:"web_password"` // Web界面密码
+	APIKey      string `yaml:"api_key" json:"api_key"`           // API访问密钥
+}
+
+var defaultAuthentication = Authentication{
+	Enable:      false,
+	WebUsername: "",
+	WebPassword: "",
+	APIKey:      "",
+}
+
 // RPC info.
 type RPC struct {
 	Enable bool   `yaml:"enable" json:"enable"`
 	Bind   string `yaml:"bind" json:"bind"`
 	// SSE 配置
-	SSEListThreshold int `yaml:"sse_list_threshold" json:"sse_list_threshold"` // 监控列表超过此阈值时仅为详情页启用SSE
+	SSEListThreshold int            `yaml:"sse_list_threshold" json:"sse_list_threshold"` // 监控列表超过此阈值时仅为详情页启用SSE
+	Authentication   Authentication `yaml:"authentication" json:"authentication"`         // 身份验证配置
 }
 
 var defaultRPC = RPC{
 	Enable:           true,
 	Bind:             ":8080",
 	SSEListThreshold: 50, // 默认50个直播间
+	Authentication:   defaultAuthentication,
 }
 
 func (r *RPC) verify() error {

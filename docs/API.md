@@ -1,5 +1,27 @@
 # Bililive-go API
 
+## 身份验证
+
+如果在配置文件中启用了 API 身份验证（`rpc.authentication.enable: true` 并设置了 `api_key`），则所有 API 请求都需要在请求头中携带 API 密钥。
+
+### 认证方式
+
+支持两种方式传递 API 密钥：
+
+1. **使用 X-API-Key 请求头**
+   ```bash
+   curl -H "X-API-Key: your-secret-api-key" http://127.0.0.1:8080/api/info
+   ```
+
+2. **使用 Authorization Bearer 格式**
+   ```bash
+   curl -H "Authorization: Bearer your-secret-api-key" http://127.0.0.1:8080/api/info
+   ```
+
+如果未启用身份验证或未配置 API 密钥，则可以直接访问 API 无需认证。
+
+---
+
 ## `GET /api/info` Get app info
 - Request:
     ```text
