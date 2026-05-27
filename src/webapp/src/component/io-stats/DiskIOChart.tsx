@@ -11,16 +11,7 @@ import {
 } from 'recharts';
 import { Checkbox, Space } from 'antd';
 import dayjs from 'dayjs';
-
-interface IOStat {
-  id: number;
-  timestamp: number;
-  stat_type: string;
-  live_id: string;
-  platform: string;
-  speed: number;
-  total_bytes: number;
-}
+import { IOStat } from './types';
 
 interface Props {
   data: IOStat[];
