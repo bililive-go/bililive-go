@@ -125,6 +125,7 @@ func TestListenerStartAndClose(t *testing.T) {
 	testLogger := livelogger.New(1024, logrus.Fields{"test": "listener"})
 	live.EXPECT().GetLogger().Return(testLogger).AnyTimes()
 	live.EXPECT().GetInfo().Return(&livepkg.Info{Status: false}, nil).AnyTimes()
+	live.EXPECT().GetInfoWithInterval(gomock.Any()).Return(&livepkg.Info{Status: false}, nil).AnyTimes()
 	live.EXPECT().GetPlatformCNName().Return("platform").AnyTimes()
 	live.EXPECT().GetRawUrl().Return("").AnyTimes() // 添加对GetRawUrl方法的期望调用
 	ed.EXPECT().DispatchEvent(gomock.Any()).Times(2)

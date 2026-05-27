@@ -313,6 +313,14 @@ func (w *WrappedLive) GetInfo() (*Info, error) {
 	// 不管成功还是失败，都通知所有等待的调用方
 	w.notifyWaiters(i, err)
 
+	// 更新最后请求时间
+	w.mu.Lock()
+	w.lastRequestAt = time.Now()
+	w.mu.Unlock()
+
+	// 发送调度器刷新完成事件，通知前端更新倒计时
+	w.dispatchSchedulerRefreshEvent()
+
 	if err != nil {
 		if info, err2 := w.cache.Get(w); err2 == nil {
 			// 将错误信息存到 LastError 而非 RoomName
@@ -326,14 +334,6 @@ func (w *WrappedLive) GetInfo() (*Info, error) {
 		i.LastError = ""
 		w.cache.Set(w, i)
 	}
-
-	// 更新最后请求时间
-	w.mu.Lock()
-	w.lastRequestAt = time.Now()
-	w.mu.Unlock()
-
-	// 发送调度器刷新完成事件，通知前端更新倒计时
-	w.dispatchSchedulerRefreshEvent()
 
 	return i, nil
 }
