@@ -316,11 +316,29 @@ func NewServer(ctx context.Context) *Server {
 	return server
 }
 
+// resolveNetwork returns the appropriate TCP network type based on the bind address.
+// An empty host (e.g. ":8080") uses "tcp" for dual-stack IPv4+IPv6 support.
+// An explicit IPv4 address uses "tcp4"; an explicit IPv6 address uses "tcp6".
+func resolveNetwork(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "tcp"
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return "tcp"
+	}
+	if ip.To4() != nil {
+		return "tcp4"
+	}
+	return "tcp6"
+}
+
 func (s *Server) Start(ctx context.Context) error {
 	inst := instance.GetInstance(ctx)
 	inst.WaitGroup.Add(1)
 	bilisentry.Go(func() {
-		listener, err := net.Listen("tcp4", s.server.Addr)
+		listener, err := net.Listen(resolveNetwork(s.server.Addr), s.server.Addr)
 		if err != nil {
 			applog.GetLogger().Error(err)
 			return
