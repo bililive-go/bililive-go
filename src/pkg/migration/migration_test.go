@@ -1,6 +1,8 @@
 package migration
 
 import (
+	"database/sql"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -8,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	_ "modernc.org/sqlite"
 )
 
 func TestBackupManager_CreateBackup(t *testing.T) {
@@ -197,6 +200,67 @@ func TestSchemaRegistry(t *testing.T) {
 	assert.Contains(t, types, DatabaseType("test_db"))
 }
 
+func TestMigratorRunReturnsDirtyError(t *testing.T) {
+	tmpDir := t.TempDir()
+	migrationsDir := filepath.Join(tmpDir, "migrations")
+	require.NoError(t, os.MkdirAll(migrationsDir, 0755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(migrationsDir, "000001_init.up.sql"),
+		[]byte("CREATE TABLE sample (id INTEGER PRIMARY KEY);\n"),
+		0644,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(migrationsDir, "000001_init.down.sql"),
+		[]byte("DROP TABLE IF EXISTS sample;\n"),
+		0644,
+	))
+
+	dbPath := filepath.Join(tmpDir, "test.db")
+	schema := &DatabaseSchema{
+		Type:            "test_dirty_db",
+		Category:        CategoryDisposable,
+		MigrationSource: &dirMigrationSource{base: tmpDir, subDir: "migrations"},
+		Description:     "dirty db test",
+	}
+
+	migrator, err := NewMigrator(&MigrationConfig{
+		DBPath: dbPath,
+		Schema: schema,
+	})
+	require.NoError(t, err)
+
+	result, err := migrator.Run()
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Success)
+
+	db, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	_, err = db.Exec(`UPDATE schema_migrations SET dirty = 1`)
+	require.NoError(t, err)
+
+	migrator, err = NewMigrator(&MigrationConfig{
+		DBPath: dbPath,
+		Schema: schema,
+	})
+	require.NoError(t, err)
+
+	result, err = migrator.Run()
+	require.Error(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Success)
+	assert.True(t, result.WasDirty)
+	assert.True(t, errors.Is(err, ErrDirtyDatabase))
+
+	var dirtyErr *DirtyDatabaseError
+	require.True(t, errors.As(err, &dirtyErr))
+	assert.Equal(t, dbPath, dirtyErr.DBPath)
+	assert.Equal(t, uint(1), dirtyErr.Version)
+	assert.Equal(t, CategoryDisposable, dirtyErr.Category)
+}
+
 // testMigrationSource 测试用迁移源
 type testMigrationSource struct{}
 
@@ -209,5 +273,22 @@ func (s *testMigrationSource) GetSubDir() string {
 }
 
 func (s *testMigrationSource) IsEmbedded() bool {
+	return false
+}
+
+type dirMigrationSource struct {
+	base   string
+	subDir string
+}
+
+func (s *dirMigrationSource) GetFS() (fs.FS, error) {
+	return os.DirFS(s.base), nil
+}
+
+func (s *dirMigrationSource) GetSubDir() string {
+	return s.subDir
+}
+
+func (s *dirMigrationSource) IsEmbedded() bool {
 	return false
 }
