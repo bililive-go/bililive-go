@@ -8,6 +8,7 @@ import (
 	_ "net/http/pprof"
 	"net/url"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -300,6 +301,107 @@ func CORSMiddleware(h http.Handler) http.Handler {
 	})
 }
 
+// multiListener combines multiple net.Listener into one, accepting connections from all of them.
+// This enables dual-stack (IPv4 + IPv6) listening on a single http.Server.
+type multiListener struct {
+	listeners []net.Listener
+	connCh    chan net.Conn
+	done      chan struct{}
+	once      sync.Once
+}
+
+func newMultiListener(listeners ...net.Listener) *multiListener {
+	ml := &multiListener{
+		listeners: listeners,
+		connCh:    make(chan net.Conn, 32),
+		done:      make(chan struct{}),
+	}
+	for _, l := range listeners {
+		go ml.acceptFrom(l)
+	}
+	return ml
+}
+
+func (ml *multiListener) acceptFrom(l net.Listener) {
+	for {
+		conn, err := l.Accept()
+		select {
+		case <-ml.done:
+			if conn != nil {
+				conn.Close()
+			}
+			return
+		default:
+		}
+		if err != nil {
+			return
+		}
+		select {
+		case ml.connCh <- conn:
+		case <-ml.done:
+			conn.Close()
+			return
+		}
+	}
+}
+
+func (ml *multiListener) Accept() (net.Conn, error) {
+	select {
+	case conn := <-ml.connCh:
+		return conn, nil
+	case <-ml.done:
+		return nil, net.ErrClosed
+	}
+}
+
+func (ml *multiListener) Close() error {
+	ml.once.Do(func() {
+		close(ml.done)
+		for _, l := range ml.listeners {
+			l.Close()
+		}
+	})
+	return nil
+}
+
+func (ml *multiListener) Addr() net.Addr {
+	if len(ml.listeners) > 0 {
+		return ml.listeners[0].Addr()
+	}
+	return nil
+}
+
+// newListener creates listener(s) for addr with automatic IPv4/IPv6 selection:
+//   - empty host (e.g. ":8080") → both tcp4 and tcp6, dual-stack via multiListener
+//   - explicit IPv4 address → tcp4 only
+//   - explicit IPv6 address → tcp6 only
+func newListener(addr string) (net.Listener, error) {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return net.Listen("tcp", addr)
+	}
+	ip := net.ParseIP(host)
+	if ip != nil {
+		if ip.To4() != nil {
+			return net.Listen("tcp4", addr)
+		}
+		return net.Listen("tcp6", addr)
+	}
+	// Empty host or hostname: attempt both stacks; fall back gracefully if one is unavailable.
+	l4, err4 := net.Listen("tcp4", addr)
+	l6, err6 := net.Listen("tcp6", addr)
+	if err4 != nil && err6 != nil {
+		return nil, err4
+	}
+	if err4 != nil {
+		return l6, nil
+	}
+	if err6 != nil {
+		return l4, nil
+	}
+	return newMultiListener(l4, l6), nil
+}
+
 func NewServer(ctx context.Context) *Server {
 	inst := instance.GetInstance(ctx)
 	config := configs.GetCurrentConfig()
@@ -320,7 +422,7 @@ func (s *Server) Start(ctx context.Context) error {
 	inst := instance.GetInstance(ctx)
 	inst.WaitGroup.Add(1)
 	bilisentry.Go(func() {
-		listener, err := net.Listen("tcp4", s.server.Addr)
+		listener, err := newListener(s.server.Addr)
 		if err != nil {
 			applog.GetLogger().Error(err)
 			return
