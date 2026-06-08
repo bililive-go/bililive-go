@@ -66,6 +66,11 @@ func (m *ConnCounterManagerType) GetOrCreateConnCounter(url string) *ByteCounter
 	defer m.mapLock.Unlock()
 	bc, ok := m.bcMap[url]
 	if !ok {
+		// 简单的内存泄露保护：如果记录的主机数量过多（可能是遇到了大量随机变化的 CDN 域名），
+		// 则清空映射以释放内存。虽然这会导致旧的非活跃连接统计丢失，但能保证系统稳定性。
+		if len(m.bcMap) > 1000 {
+			m.bcMap = make(map[string]*ByteCounter)
+		}
 		bc = &ByteCounter{}
 		m.bcMap[url] = bc
 	}
