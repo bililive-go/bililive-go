@@ -38,6 +38,10 @@ type State struct {
 	LastUpdateTime int64 `json:"last_update_time,omitempty"`
 	// 启动失败计数（用于决定是否回滚）
 	FailureCount int `json:"failure_count,omitempty"`
+	// 最近一次启动失败原因
+	LastFailureReason string `json:"last_failure_reason,omitempty"`
+	// 最近一次启动失败时间
+	LastFailureTime int64 `json:"last_failure_time,omitempty"`
 }
 
 // DefaultState 返回默认状态
@@ -283,10 +287,11 @@ func (r *Runner) Run(ctx context.Context, args []string) error {
 			startupTimer.Stop()
 			if !r.startupOK {
 				r.log("主程序在启动确认前退出")
-
-				// 增加失败计数
-				r.state.FailureCount++
-				r.state.Save(r.statePath)
+				reason := r.state.LastFailureReason
+				if reason == "" {
+					reason = "主程序在启动确认前退出"
+				}
+				r.recordStartupFailure(reason)
 
 				// 如果失败次数超过限制，尝试回滚
 				if r.state.FailureCount >= r.state.MaxRetries && r.state.BackupBinaryPath != "" {
@@ -304,10 +309,7 @@ func (r *Runner) Run(ctx context.Context, args []string) error {
 			if !r.startupOK {
 				r.log("主程序启动超时")
 				r.stopMainProgram()
-
-				// 增加失败计数
-				r.state.FailureCount++
-				r.state.Save(r.statePath)
+				r.recordStartupFailure(fmt.Sprintf("主程序启动超时（%d 秒）", r.state.StartupTimeout))
 
 				// 如果失败次数超过限制，尝试回滚
 				if r.state.FailureCount >= r.state.MaxRetries && r.state.BackupBinaryPath != "" {
@@ -471,7 +473,7 @@ func (r *Runner) handleMessage(conn ipc.Conn, msg *ipc.Message) {
 		var payload ipc.StartupFailedPayload
 		if err := msg.ParsePayload(&payload); err == nil {
 			r.log("主程序启动失败: %s", payload.Error)
-			r.startupOK = false
+			r.updateLastFailureInfo(payload.Error)
 		}
 
 	case ipc.MsgTypeUpdateRequest:
@@ -510,6 +512,21 @@ func (r *Runner) rollback() error {
 
 	r.log("已回滚到版本: %s", r.state.BackupVersion)
 	return nil
+}
+
+func (r *Runner) recordStartupFailure(reason string) {
+	r.startupOK = false
+	r.state.FailureCount++
+	r.state.LastFailureReason = reason
+	r.state.LastFailureTime = time.Now().Unix()
+	r.state.Save(r.statePath)
+}
+
+func (r *Runner) updateLastFailureInfo(reason string) {
+	r.startupOK = false
+	r.state.LastFailureReason = reason
+	r.state.LastFailureTime = time.Now().Unix()
+	r.state.Save(r.statePath)
 }
 
 // log 输出日志
