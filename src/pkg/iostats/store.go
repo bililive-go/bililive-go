@@ -80,6 +80,10 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+	if _, err := db.Exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to set pragmas: %w", err)
+	}
 
 	// 设置连接池参数
 	db.SetMaxOpenConns(1) // SQLite 单写入
@@ -123,6 +127,12 @@ func (s *SQLiteStore) runMigrations() error {
 		if err != nil {
 			return fmt.Errorf("恢复后重新打开数据库失败: %w", err)
 		}
+		if _, err := db.Exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;"); err != nil {
+			db.Close()
+			return fmt.Errorf("恢复后设置数据库 PRAGMA 失败: %w", err)
+		}
+		db.SetMaxOpenConns(1)
+		db.SetMaxIdleConns(1)
 		s.db = db
 		config.DB = s.db
 		migrator, err = migration.NewMigrator(config)

@@ -376,7 +376,7 @@ func (m *Manager) ApplyUpdateSelfHosted(ctx context.Context) error {
 		ActiveVersion:    info.Version,
 		ActiveBinaryPath: newBinaryPath,
 		BackupVersion:    m.currentVer,
-		StartupTimeout:   60,
+		StartupTimeout:   120,
 		MaxRetries:       3,
 	}
 

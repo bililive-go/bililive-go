@@ -43,7 +43,7 @@ type State struct {
 // DefaultState 返回默认状态
 func DefaultState() *State {
 	return &State{
-		StartupTimeout: 60,
+		StartupTimeout: 120,
 		MaxRetries:     3,
 	}
 }
@@ -265,7 +265,7 @@ func (r *Runner) Run(ctx context.Context, args []string) error {
 
 		// 等待主程序确认启动或退出
 		// 注意：必须有 startupCh case，否则即使子进程秒回 startup_success，
-		// 也要等 StartupTimeout（60秒）才能进入 waitForMainProgram
+		// 也要等 StartupTimeout 才能进入 waitForMainProgram
 		r.startupCh = make(chan struct{})
 		startupTimer := time.NewTimer(time.Duration(r.state.StartupTimeout) * time.Second)
 
@@ -374,6 +374,7 @@ func (r *Runner) startMainProgram(ctx context.Context, args []string) error {
 		fmt.Sprintf("BILILIVE_LAUNCHER_PID=%d", os.Getpid()),
 		fmt.Sprintf("BILILIVE_LAUNCHER_EXE=%s", launcherExe),
 	)
+	setProcAttr(r.mainProcess)
 
 	if err := r.mainProcess.Start(); err != nil {
 		return fmt.Errorf("启动进程失败: %w", err)
@@ -427,6 +428,7 @@ func (r *Runner) stopMainProgram() {
 		r.log("主程序已正常退出")
 	case <-time.After(35 * time.Second):
 		r.log("主程序未响应，强制终止")
+		killProcessGroup(r.mainPID)
 		r.mainProcess.Process.Kill()
 	}
 }
