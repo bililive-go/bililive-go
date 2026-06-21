@@ -44,6 +44,8 @@ const (
 	SSEEventMemoryWarning SSEEventType = "memory_warning"
 	// SSEEventDanmaku 弹幕实时推送
 	SSEEventDanmaku SSEEventType = "danmaku"
+	// SSEEventFFmpegStatus FFmpeg 就绪状态变更
+	SSEEventFFmpegStatus SSEEventType = "ffmpeg_status"
 )
 
 // SSEMessage SSE 消息结构
@@ -217,6 +219,14 @@ func (h *SSEHub) BroadcastMemoryWarning(data interface{}) {
 		Type:   SSEEventMemoryWarning,
 		RoomID: "",
 		Data:   data,
+	})
+}
+
+// BroadcastFFmpegStatus 广播 FFmpeg 就绪状态变更
+func (h *SSEHub) BroadcastFFmpegStatus(data interface{}) {
+	h.Broadcast(SSEMessage{
+		Type: SSEEventFFmpegStatus,
+		Data: data,
 	})
 }
 

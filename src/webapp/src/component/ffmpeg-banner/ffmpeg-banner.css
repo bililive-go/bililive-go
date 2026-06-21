@@ -1,0 +1,12 @@
+.ffmpeg-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1001;
+  border-radius: 0;
+}
+
+.ffmpeg-banner .ant-alert-message {
+  width: 100%;
+}

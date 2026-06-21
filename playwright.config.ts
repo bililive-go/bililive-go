@@ -23,6 +23,8 @@ fs.copyFileSync(configTemplate, configRuntime);
  */
 export default defineConfig({
   testDir: './tests/e2e',
+  // ffmpeg-download.spec.ts 需要独立的 mock server，仅在 playwright.ffmpeg.config.ts 中运行
+  testIgnore: ['**/ffmpeg-download.spec.ts'],
 
   // 测试输出目录（被 .gitignore 忽略）
   outputDir: 'test-results',

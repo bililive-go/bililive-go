@@ -409,6 +409,13 @@ class API {
     }
 
     /**
+     * 获取 FFmpeg 就绪状态
+     */
+    getFFmpegStatus() {
+        return utils.requestGet(`${BASE_URL}/ffmpeg/status`);
+    }
+
+    /**
      * 应用更新
      * @param options 更新选项
      * @param options.gracefulWait 是否等待所有录制结束后再更新

@@ -1,0 +1,26 @@
+{
+  "ffmpeg": {
+    "n8.1-latest": {
+      "downloadUrl": {
+        "windows": {
+          "amd64": ["http://127.0.0.1:8890/ffmpeg.zip"],
+          "arm64": ["http://127.0.0.1:8890/ffmpeg.zip"]
+        },
+        "linux": {
+          "amd64": ["http://127.0.0.1:8890/ffmpeg.zip"],
+          "arm64": ["http://127.0.0.1:8890/ffmpeg.zip"]
+        },
+        "darwin": {
+          "amd64": ["http://127.0.0.1:8890/ffmpeg.zip"],
+          "arm64": ["http://127.0.0.1:8890/ffmpeg.zip"]
+        }
+      },
+      "pathToEntry": {
+        "linux": "bin/ffmpeg",
+        "windows": "bin/ffmpeg.exe",
+        "darwin": "bin/ffmpeg"
+      },
+      "printInfoCmd": ["-version"]
+    }
+  }
+}

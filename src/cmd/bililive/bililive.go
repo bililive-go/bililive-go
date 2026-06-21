@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/bluele/gcache"
-	kiratools "github.com/kira1928/remotetools/pkg/tools"
 
 	_ "github.com/bililive-go/bililive-go/src/cmd/bililive/internal"
 	"github.com/bililive-go/bililive-go/src/cmd/bililive/internal/flag"
@@ -38,7 +37,6 @@ import (
 	bilisentryPkg "github.com/bililive-go/bililive-go/src/pkg/sentry"
 	"github.com/bililive-go/bililive-go/src/pkg/telemetry"
 	"github.com/bililive-go/bililive-go/src/pkg/update"
-	"github.com/bililive-go/bililive-go/src/pkg/utils"
 	"github.com/bililive-go/bililive-go/src/recorders"
 	"github.com/bililive-go/bililive-go/src/servers"
 	"github.com/bililive-go/bililive-go/src/tools"
@@ -323,29 +321,6 @@ func main() {
 		}
 	}
 
-	if !utils.IsFFmpegExist(ctx) {
-		hasFoundFfmpeg := false
-		// try to get from remotetools
-		if err = tools.Init(); err == nil {
-			var toolFfmpeg kiratools.Tool
-			if toolFfmpeg, err = tools.Get().GetTool("ffmpeg"); err == nil {
-				if toolFfmpeg.DoesToolExist() {
-					logger.Infof("FFmpeg found from remotetools: %s", toolFfmpeg.GetToolPath())
-					hasFoundFfmpeg = true
-				} else {
-					if err = toolFfmpeg.Install(); err != nil {
-						logger.Fatalln(err.Error() + "\nFFmpeg binary not found and install failed from " + toolFfmpeg.GetInstallSource() + ", Please Check.")
-					} else {
-						logger.Infof("FFmpeg found from remotetools: %s", toolFfmpeg.GetToolPath())
-						hasFoundFfmpeg = true
-					}
-				}
-			}
-		}
-		if !hasFoundFfmpeg {
-			logger.Fatalln("FFmpeg binary not found, Please Check.")
-		}
-	}
 	tools.AsyncInit()
 
 	events.NewDispatcher(ctx)
@@ -452,7 +427,15 @@ func main() {
 			servers.StartAutoUpdater(ctx)
 			logger.Info("自动更新检查器已启动")
 		}
+
+		// 注册 FFmpeg 状态变化回调，通过 SSE 推送给前端
+		tools.OnFFmpegStatusChange(func(status tools.FFmpegStatus) {
+			servers.GetSSEHub().BroadcastFFmpegStatus(status)
+		})
 	}
+
+	// 异步检测并（按需）下载 FFmpeg，不阻塞启动流程
+	tools.FFmpegAsyncInit(ctx)
 
 	// 启动 manager
 	if err = lm.Start(ctx); err != nil {

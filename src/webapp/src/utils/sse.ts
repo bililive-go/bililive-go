@@ -16,7 +16,8 @@ export type SSEEventType =
   | 'update_downloading'
   | 'update_ready'
   | 'update_error'
-  | 'danmaku';
+  | 'danmaku'
+  | 'ffmpeg_status';
 
 // SSE 消息结构
 export interface SSEMessage {
@@ -143,6 +144,11 @@ class SSEManager {
       // 监听 danmaku 事件（弹幕实时推送）
       this.eventSource.addEventListener('danmaku', (event: MessageEvent) => {
         this.handleMessage('danmaku', event.data);
+      });
+
+      // 监听 ffmpeg_status 事件（FFmpeg 就绪状态）
+      this.eventSource.addEventListener('ffmpeg_status', (event: MessageEvent) => {
+        this.handleMessage('ffmpeg_status', event.data);
       });
 
     } catch (error) {
