@@ -57,7 +57,7 @@ func getIOStats(writer http.ResponseWriter, r *http.Request) {
 	query.Aggregation = r.URL.Query().Get("aggregation")
 
 	// 查询数据
-	stats, err := store.QueryIOStats(r.Context(), query)
+	response, err := store.QueryIOStats(r.Context(), query)
 	if err != nil {
 		writeJSON(writer, commonResp{
 			ErrNo:  -1,
@@ -67,9 +67,7 @@ func getIOStats(writer http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(writer, commonResp{
-		Data: iostats.IOStatsResponse{
-			Stats: stats,
-		},
+		Data: response,
 	})
 }
 

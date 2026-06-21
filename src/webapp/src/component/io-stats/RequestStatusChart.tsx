@@ -2,18 +2,7 @@ import React, { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { Empty, Tag } from 'antd';
 import dayjs from 'dayjs';
-
-interface RequestStatusSegment {
-  start_time: number;
-  end_time: number;
-  success: boolean;
-  count: number;
-}
-
-interface RequestStatusResponse {
-  segments: RequestStatusSegment[];
-  grouped_segments?: Record<string, RequestStatusSegment[]>;
-}
+import { RequestStatusSegment, RequestStatusResponse } from './types';
 
 interface Props {
   data: RequestStatusResponse;
