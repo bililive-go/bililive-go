@@ -416,6 +416,11 @@ func main() {
 	// 即使 live rooms 还在初始化，用户也能看到页面
 	if cfg := configs.GetCurrentConfig(); cfg != nil && cfg.RPC.Enable {
 		if err = servers.NewServer(ctx).Start(ctx); err != nil {
+			if updateManager != nil && updateManager.IsLauncherConnected() {
+				if notifyErr := updateManager.NotifyStartup(false, err.Error(), os.Getpid()); notifyErr != nil {
+					logger.WithError(notifyErr).Warn("通知启动器启动失败状态失败")
+				}
+			}
 			logger.WithError(err).Fatalf("failed to init server")
 		}
 		// 注册 SSE 事件监听器

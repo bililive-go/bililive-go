@@ -71,6 +71,11 @@ interface LauncherStatus {
   launcher_exe_path?: string;
   bgo_pid?: number;
   bgo_exe_path?: string;
+  pending_launcher_transition?: boolean;
+  launcher_failure_count?: number;
+  launcher_last_failure?: string;
+  launcher_last_failure_time?: number;
+  prefer_entry_binary?: boolean;
 }
 
 interface UpdateStatus {
@@ -335,7 +340,8 @@ const UpdatePage: React.FC = () => {
       if (elapsed >= 60) {
         clearInterval(interval);
         setRestarting(false);
-        message.warning({ content: '服务器重启超时，请手动刷新页面', key: 'restart', duration: 5 });
+        setError('服务器重启超时。你可以先手动刷新本页查看最新状态；如果仍无法恢复，可在页面恢复后使用版本回滚，或重启容器后再次进入更新页检查。');
+        message.warning({ content: '服务器重启超时，请刷新页面查看状态或执行回滚/重启恢复', key: 'restart', duration: 5 });
       }
     }, 2000);
   };
@@ -447,6 +453,28 @@ const UpdatePage: React.FC = () => {
         />
       )}
 
+      {launcherStatus?.launcher_last_failure && (
+        <Alert
+          message="最近一次版本切换启动失败"
+          description={
+            <Space direction="vertical" size={4}>
+              <Text>{launcherStatus.launcher_last_failure}</Text>
+              {launcherStatus.launcher_last_failure_time ? (
+                <Text type="secondary">
+                  时间：{new Date(launcherStatus.launcher_last_failure_time * 1000).toLocaleString()}
+                </Text>
+              ) : null}
+              <Text type="secondary">
+                建议先刷新页面确认当前是否已自动回滚；如果问题持续存在，可在页面恢复后使用回滚功能，或重启容器后再次进入本页排查。
+              </Text>
+            </Space>
+          }
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
       {/* 优雅更新等待提示 */}
       {updateStatus?.graceful_update_pending && (
         <Alert
@@ -466,9 +494,9 @@ const UpdatePage: React.FC = () => {
 
       {/* 当前版本信息 */}
       <Card title="版本信息" style={{ marginBottom: 16 }}>
-        <Descriptions column={2}>
-          <Descriptions.Item label="当前版本">
-            <Text strong>{launcherStatus?.current_version || '未知'}</Text>
+          <Descriptions column={2}>
+            <Descriptions.Item label="当前版本">
+              <Text strong>{launcherStatus?.current_version || '未知'}</Text>
           </Descriptions.Item>
           <Descriptions.Item label="更新状态">
             {getStateBadge(updateStatus?.state || 'idle')}
@@ -490,12 +518,24 @@ const UpdatePage: React.FC = () => {
           <Descriptions.Item label="BGO PID">
             {launcherStatus?.bgo_pid || '-'}
           </Descriptions.Item>
-          <Descriptions.Item label="活跃录制">
-            {updateStatus?.active_recordings_count || 0} 个
-          </Descriptions.Item>
-          <Descriptions.Item label="BGO 路径" span={2}>
-            <Text copyable style={{ wordBreak: 'break-all' }}>
-              {launcherStatus?.bgo_exe_path || '-'}
+            <Descriptions.Item label="活跃录制">
+              {updateStatus?.active_recordings_count || 0} 个
+            </Descriptions.Item>
+            <Descriptions.Item label="切换状态">
+              {launcherStatus?.pending_launcher_transition ? (
+                <Tag color="processing">正在切换版本</Tag>
+              ) : launcherStatus?.launcher_failure_count ? (
+                <Tag color="warning">最近切换失败 {launcherStatus.launcher_failure_count} 次</Tag>
+              ) : (
+                <Tag color="success">正常</Tag>
+              )}
+            </Descriptions.Item>
+            <Descriptions.Item label="恢复策略">
+              {launcherStatus?.prefer_entry_binary ? '优先回到入口二进制' : '优先使用 launcher 管理版本'}
+            </Descriptions.Item>
+            <Descriptions.Item label="BGO 路径" span={2}>
+              <Text copyable style={{ wordBreak: 'break-all' }}>
+                {launcherStatus?.bgo_exe_path || '-'}
             </Text>
           </Descriptions.Item>
           {launcherStatus?.is_launcher_managed && (
