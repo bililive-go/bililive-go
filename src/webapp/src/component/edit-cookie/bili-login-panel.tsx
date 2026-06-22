@@ -5,6 +5,48 @@ import './edit-cookie.css';
 
 const { TextArea } = Input;
 
+const BILI_COOKIE_FIELDS = ['SESSDATA', 'bili_jct', 'DedeUserID', 'DedeUserID__ckMd5', 'sid'] as const;
+
+function parseCookieString(cookie: string): Record<string, string> {
+    const result: Record<string, string> = {};
+    cookie.split(';').forEach((item) => {
+        const part = item.trim();
+        if (!part) {
+            return;
+        }
+        const index = part.indexOf('=');
+        if (index <= 0) {
+            return;
+        }
+        const key = part.slice(0, index).trim();
+        const value = part.slice(index + 1).trim();
+        if (key) {
+            result[key] = value;
+        }
+    });
+    return result;
+}
+
+function buildCookieString(cookieMap: Record<string, string>, preferredOrder: readonly string[]): string {
+    const seen = new Set<string>();
+    const orderedKeys = [...preferredOrder, ...Object.keys(cookieMap)];
+    const parts: string[] = [];
+
+    orderedKeys.forEach((key) => {
+        if (seen.has(key)) {
+            return;
+        }
+        seen.add(key);
+        const value = cookieMap[key];
+        if (value === undefined || value === null || String(value).trim() === '') {
+            return;
+        }
+        parts.push(`${key}=${value}`);
+    });
+
+    return parts.join('; ');
+}
+
 interface BiliLoginPanelProps {
     initialCookie: string;
     onCookieChange: (cookie: string) => void;
@@ -137,6 +179,22 @@ const BiliLoginPanel: React.FC<BiliLoginPanelProps> = ({ initialCookie, onCookie
         onCookieChange(val);
     };
 
+    const cookieMap = parseCookieString(textView);
+
+    const handleStructuredCookieChange = (key: typeof BILI_COOKIE_FIELDS[number], value: string) => {
+        const nextCookieMap = parseCookieString(textViewRef.current);
+        const trimmedValue = value.trim();
+        if (trimmedValue) {
+            nextCookieMap[key] = trimmedValue;
+        } else {
+            delete nextCookieMap[key];
+        }
+        const nextCookie = buildCookieString(nextCookieMap, BILI_COOKIE_FIELDS);
+        setTextView(nextCookie);
+        onCookieChange(nextCookie);
+        setVerificationInfo(null);
+    };
+
     useEffect(() => {
         isMounted.current = true;
         getBiliQRCode();
@@ -213,14 +271,44 @@ const BiliLoginPanel: React.FC<BiliLoginPanelProps> = ({ initialCookie, onCookie
                             重新验证
                         </Button>
                     </div>
+                    <Alert
+                        className="cookie-highlight-alert"
+                        showIcon
+                        type="warning"
+                        message="推荐优先填写下面 5 个关键 Cookie 字段"
+                        description="对哔哩哔哩录制来说，最常用且最关键的是 SESSDATA、bili_jct、DedeUserID、DedeUserID__ckMd5、sid。请尽量逐项填写，避免整段 Cookie 中夹杂无关内容。"
+                    />
+                    <div className="cookie-field-grid">
+                        <div className="cookie-field-item cookie-field-item-full">
+                            <div className="cookie-field-label">SESSDATA</div>
+                            <Input value={cookieMap.SESSDATA || ''} placeholder="必填，登录态核心字段" onChange={(e) => handleStructuredCookieChange('SESSDATA', e.target.value)} />
+                        </div>
+                        <div className="cookie-field-item">
+                            <div className="cookie-field-label">bili_jct</div>
+                            <Input value={cookieMap.bili_jct || ''} placeholder="必填，CSRF 相关字段" onChange={(e) => handleStructuredCookieChange('bili_jct', e.target.value)} />
+                        </div>
+                        <div className="cookie-field-item">
+                            <div className="cookie-field-label">DedeUserID</div>
+                            <Input value={cookieMap.DedeUserID || ''} placeholder="必填，用户 ID" onChange={(e) => handleStructuredCookieChange('DedeUserID', e.target.value)} />
+                        </div>
+                        <div className="cookie-field-item">
+                            <div className="cookie-field-label">DedeUserID__ckMd5</div>
+                            <Input value={cookieMap.DedeUserID__ckMd5 || ''} placeholder="建议填写" onChange={(e) => handleStructuredCookieChange('DedeUserID__ckMd5', e.target.value)} />
+                        </div>
+                        <div className="cookie-field-item">
+                            <div className="cookie-field-label">sid</div>
+                            <Input value={cookieMap.sid || ''} placeholder="建议填写" onChange={(e) => handleStructuredCookieChange('sid', e.target.value)} />
+                        </div>
+                    </div>
+                    <Divider className="divider-text">原始 Cookie 字符串（高级编辑）</Divider>
                     <TextArea
                         className="cookie-textarea"
-                        placeholder="在此粘贴或修改 Cookie 字符串... (手动修改后请点击上方按钮验证)"
+                        placeholder="可直接粘贴完整 Cookie 字符串；上方字段会优先帮助你填写关键项"
                         value={textView}
                         autoSize={{ minRows: 6, maxRows: 6 }}
                         onChange={handleTextChange}
                     />
-                    <div className="manual-tip">提示：输入或粘贴 Cookie 后，请手动点击右上方“重新验证”按钮确认有效性</div>
+                    <div className="manual-tip">提示：无论是逐项填写还是粘贴整段 Cookie，保存前都建议点击右上方“重新验证”确认有效性。</div>
 
                     {verificationInfo ? (
                         <div className="verification-card">

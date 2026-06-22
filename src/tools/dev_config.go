@@ -3,9 +3,12 @@
 package tools
 
 import (
-	"os"
+	_ "embed"
 )
 
+//go:embed remote-tools-config.json
+var configData []byte
+
 func getConfigData() (data []byte, err error) {
-	return os.ReadFile("src/tools/remote-tools-config.json")
+	return configData, nil
 }
