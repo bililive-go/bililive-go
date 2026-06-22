@@ -799,10 +799,16 @@ const FileList: React.FC = () => {
 
     // 批量烧录相关
     const videoExtensions = ['.mp4', '.flv', '.ts', '.mkv', '.avi', '.mov', '.wmv', '.webm'];
+    const concatVideoExtensions = ['.mp4', '.flv', '.ts', '.mkv', '.mov', '.m4v'];
 
     const isVideoFileName = (name: string): boolean => {
         const lower = name.toLowerCase();
         return videoExtensions.some(ext => lower.endsWith(ext));
+    };
+
+    const isConcatSupportedVideoFileName = (name: string): boolean => {
+        const lower = name.toLowerCase();
+        return concatVideoExtensions.some(ext => lower.endsWith(ext));
     };
 
     const handleBatchBurn = () => {
@@ -874,7 +880,7 @@ const FileList: React.FC = () => {
 
     const getSelectedVideoFiles = (): CurrentFolderFile[] => {
         return currentFolderFiles
-            .filter(f => selectedRowKeys.includes(f.name) && !f.is_folder && isVideoFileName(f.name))
+            .filter(f => selectedRowKeys.includes(f.name) && !f.is_folder && isConcatSupportedVideoFileName(f.name))
             .sort((a, b) => {
                 if (a.last_modified === b.last_modified) {
                     return a.name.localeCompare(b.name);
@@ -1325,7 +1331,7 @@ const FileList: React.FC = () => {
                             const isSameFormat = extensions.length <= 1;
                             const canConcat = total >= 2 && isSameFormat;
                             const tooltip = total < 2
-                                ? '至少选择两个视频文件才能拼接'
+                                ? '至少选择两个受支持的视频文件才能拼接'
                                 : !isSameFormat
                                     ? '当前仅支持拼接相同格式的视频文件'
                                     : `将按修改时间从早到晚拼接 ${total} 个视频`;

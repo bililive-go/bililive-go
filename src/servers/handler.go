@@ -2582,7 +2582,10 @@ func isConcatSupportedVideoFile(path string) bool {
 }
 
 func escapeFFmpegConcatPath(path string) string {
-	return strings.ReplaceAll(filepath.ToSlash(path), "'", `'\''`)
+	p := filepath.ToSlash(path)
+	p = strings.ReplaceAll(p, `\`, `\\`)
+	p = strings.ReplaceAll(p, `'`, `\'`)
+	return p
 }
 
 func batchConcatFiles(writer http.ResponseWriter, r *http.Request) {
@@ -2723,7 +2726,7 @@ func batchConcatFiles(writer http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cmd := exec.Command(ffmpegPath, "-hide_banner", "-y", "-f", "concat", "-safe", "0", "-i", listFilePath, "-c", "copy", outputAbsPath)
+	cmd := exec.CommandContext(r.Context(), ffmpegPath, "-hide_banner", "-y", "-f", "concat", "-safe", "0", "-i", listFilePath, "-c", "copy", outputAbsPath)
 	var stderr bytes.Buffer
 	cmd.Stdout = io.Discard
 	cmd.Stderr = &stderr
