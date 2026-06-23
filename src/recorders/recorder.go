@@ -603,14 +603,16 @@ func (r *recorder) tryRecord(ctx context.Context) {
 
 	if err != nil {
 		r.getLogger().WithError(err).Error("failed to parse live stream")
-		// 视频流快速失败时（如 404），清理没有对应视频文件的残留弹幕
 		if elapsed := time.Since(r.startTime); elapsed < 5*time.Second {
+			// 视频流快速失败（如 404），没有有效内容写入，清理残留弹幕文件
 			cleanupOrphanedDanmakuFiles(dmFile)
+			return
 		}
-		return
+		// 录制运行一段时间后异常退出（如 Close() 触发的 signal: killed，或流参数变化导致的
+		// exit status 234），文件可能包含有效内容，继续尝试后处理（fix_flv + 转码）
 	}
 
-	// 录制成功，累积弹幕文件
+	// 累积弹幕文件（录制正常结束，或运行时间足够长的异常退出）
 	if dmFile != "" {
 		if fi, dmErr := os.Stat(dmFile); dmErr == nil && fi.Size() > 0 {
 			r.accumulateRecordedFiles(dmFile)
