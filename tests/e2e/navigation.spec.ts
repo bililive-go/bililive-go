@@ -11,14 +11,10 @@ test.describe('导航功能测试', () => {
     await page.waitForLoadState('domcontentloaded');
   });
 
-  test('侧边栏包含所有菜单项', async ({ page }) => {
+  test('侧边栏包含已开放的菜单项', async ({ page }) => {
     // 验证侧边栏存在
     const sider = page.getByRole('complementary');
     await expect(sider).toBeVisible();
-
-    // 验证菜单项（使用 menuitem 角色）
-    const menuItems = page.getByRole('menuitem');
-    await expect(menuItems).toHaveCount(10); // 10个菜单项
 
     // 验证各个菜单项文本
     await expect(page.getByRole('menuitem', { name: /监控列表/ })).toBeVisible();
@@ -29,8 +25,11 @@ test.describe('导航功能测试', () => {
     await expect(page.getByRole('menuitem', { name: /工具/ })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: /任务队列/ })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: /调度器/ })).toBeVisible();
-    await expect(page.getByRole('menuitem', { name: /IO 统计/ })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: /更新/ })).toBeVisible();
+  });
+
+  test('侧边栏不显示 IO 统计入口', async ({ page }) => {
+    await expect(page.getByRole('menuitem', { name: /IO 统计/ })).toHaveCount(0);
   });
 
   test('点击导航到系统状态页面', async ({ page }) => {
@@ -72,17 +71,6 @@ test.describe('导航功能测试', () => {
 
     // 验证 URL 包含 tasks
     expect(page.url()).toContain('tasks');
-
-    // 验证页面内容加载
-    await expect(page.getByRole('main')).toBeVisible();
-  });
-
-  test('点击导航到IO统计页面', async ({ page }) => {
-    await page.getByRole('menuitem', { name: /IO 统计/ }).click();
-    await page.waitForTimeout(500);
-
-    // 验证 URL 包含 iostats
-    expect(page.url()).toContain('iostats');
 
     // 验证页面内容加载
     await expect(page.getByRole('main')).toBeVisible();

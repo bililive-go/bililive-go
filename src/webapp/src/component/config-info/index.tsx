@@ -31,6 +31,7 @@ const { TextArea } = Input;
 // 功能开关：代理配置（开发中，设为 false 隐藏 UI）
 // 与后端 configs.EnableProxyConfig 对应
 const ENABLE_PROXY_CONFIG = false;
+const ENABLE_CLOUD_UPLOAD_SETTINGS = false;
 const { Panel } = Collapse;
 
 // 配置项类型定义
@@ -681,8 +682,8 @@ const GlobalSettings: React.FC<{
           </ConfigField>
         </Card>
 
-        {/* 云盘上传设置 */}
-        <CloudUploadSettings config={config} />
+        {/* 云盘上传设置（开发中） */}
+        {ENABLE_CLOUD_UPLOAD_SETTINGS && <CloudUploadSettings config={config} />}
 
         {/* 高级设置 */}
         <Card title="高级设置" size="small" style={{ marginBottom: 16 }}>

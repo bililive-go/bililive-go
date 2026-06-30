@@ -18,6 +18,8 @@ import {
 import './layout.css';
 
 const { Header, Content, Sider } = Layout;
+// 功能开关：IO 统计（开发中，设为 false 隐藏 UI）
+const ENABLE_IO_STATS_UI = false;
 
 interface Props {
     children?: React.ReactNode;
@@ -142,11 +144,11 @@ class RootLayout extends React.Component<Props, State> {
                                         icon: <CalendarOutlined />,
                                         label: <a href="/scheduler/" target="_blank" rel="noopener noreferrer">调度器</a>,
                                     },
-                                    {
+                                    ...(ENABLE_IO_STATS_UI ? [{
                                         key: 'iostats',
                                         icon: <LineChartOutlined />,
                                         label: <Link to="/iostats">IO 统计</Link>,
-                                    },
+                                    }] : []),
                                     {
                                         key: 'update',
                                         icon: <CloudUploadOutlined />,
