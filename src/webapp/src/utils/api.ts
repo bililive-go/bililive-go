@@ -162,6 +162,10 @@ class API {
         return utils.requestPost(`${BASE_URL}/batch/file/delete`, { paths });
     }
 
+    batchConcatFiles(paths: string[], outputName: string) {
+        return utils.requestPost(`${BASE_URL}/batch/file/concat`, { paths, output_name: outputName });
+    }
+
     /**
      * 批量烧录弹幕字幕到视频文件
      * @param paths 视频文件路径列表

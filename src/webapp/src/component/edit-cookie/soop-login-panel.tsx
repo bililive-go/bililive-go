@@ -1,9 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Badge, Button, Checkbox, Divider, Input, notification, Space, Spin } from 'antd';
 import API from '../../utils/api';
+import { buildCookieString, parseCookieString } from '../../utils/cookie';
 import './edit-cookie.css';
 
 const { TextArea } = Input;
+
+const SOOP_COOKIE_FIELDS = ['SESS', 'AUTH'] as const;
 
 interface SoopLoginPanelProps {
     initialCookie: string;
@@ -176,6 +179,25 @@ const SoopLoginPanel: React.FC<SoopLoginPanelProps> = ({
         onPersistStateChange(false);
     };
 
+    const cookieMap = parseCookieString(textView);
+
+    const handleStructuredCookieChange = (key: typeof SOOP_COOKIE_FIELDS[number], value: string) => {
+        const nextCookieMap = parseCookieString(textViewRef.current);
+        const trimmedValue = value.trim();
+        if (trimmedValue) {
+            nextCookieMap[key] = trimmedValue;
+        } else {
+            delete nextCookieMap[key];
+        }
+        const nextCookie = buildCookieString(nextCookieMap, SOOP_COOKIE_FIELDS);
+        setTextView(nextCookie);
+        setVerificationInfo(null);
+        setVerificationError('');
+        setCookieStatus(nextCookie ? 'invalid' : 'missing');
+        onCookieChange(nextCookie);
+        onPersistStateChange(false);
+    };
+
     const handleClear = () => {
         setClearing(true);
         api.clearSoopLiveAuth()
@@ -288,14 +310,32 @@ const SoopLoginPanel: React.FC<SoopLoginPanelProps> = ({
                             验证 Cookie
                         </Button>
                     </div>
+                    <Alert
+                        className="cookie-highlight-alert"
+                        showIcon
+                        type="warning"
+                        message="手动填写时，请至少先确认 SESS"
+                        description="Soop 的浏览器 Cookie 可能包含很多项，但当前程序最常见会用到的是 SESS；如果浏览器中还能看到 AUTH，也建议一并填写。其余字段可继续保留在下方原始 Cookie 字符串里。"
+                    />
+                    <div className="cookie-field-grid cookie-field-grid-two-columns">
+                        <div className="cookie-field-item">
+                            <div className="cookie-field-label">SESS</div>
+                            <Input value={cookieMap.SESS || ''} placeholder="最关键，建议必填" onChange={(e) => handleStructuredCookieChange('SESS', e.target.value)} />
+                        </div>
+                        <div className="cookie-field-item">
+                            <div className="cookie-field-label">AUTH</div>
+                            <Input value={cookieMap.AUTH || ''} placeholder="浏览器里有的话建议填写" onChange={(e) => handleStructuredCookieChange('AUTH', e.target.value)} />
+                        </div>
+                    </div>
+                    <Divider className="divider-text">原始 Cookie 字符串（高级编辑）</Divider>
                     <TextArea
                         className="cookie-textarea"
-                        placeholder="在此粘贴或修改 Soop Cookie...（手动修改后请点击上方按钮验证）"
+                        placeholder="可直接粘贴完整 Soop Cookie；上方字段可优先填写关键项"
                         value={textView}
                         autoSize={{ minRows: 6, maxRows: 6 }}
                         onChange={handleTextChange}
                     />
-                    <div className="manual-tip">提示：如果登录接口不可用，可在浏览器登录 Soop 后手动复制 Cookie 到此处。</div>
+                    <div className="manual-tip">提示：如果登录接口不可用，可先填写上面的关键字段，再按需补充完整原始 Cookie。</div>
 
                     {hasValidVerification ? (
                         <div className="verification-card">
