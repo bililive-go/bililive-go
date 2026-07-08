@@ -516,6 +516,9 @@ const FileList: React.FC = () => {
     const [isBatchRenameModalVisible, setIsBatchRenameModalVisible] = useState(false);
     const [batchFind, setBatchFind] = useState("");
     const [batchReplace, setBatchReplace] = useState("");
+    const [isConcatModalVisible, setIsConcatModalVisible] = useState(false);
+    const [concatOutputName, setConcatOutputName] = useState("");
+    const [concatSubmitting, setConcatSubmitting] = useState(false);
     const [batchBurning, setBatchBurning] = useState(false);
 
     // 当弹窗打开时，自动聚焦到输入框
@@ -852,10 +855,16 @@ const FileList: React.FC = () => {
 
     // 批量烧录相关
     const videoExtensions = ['.mp4', '.flv', '.ts', '.mkv', '.avi', '.mov', '.wmv', '.webm'];
+    const concatVideoExtensions = ['.mp4', '.flv', '.ts', '.mkv', '.mov', '.m4v'];
 
     const isVideoFileName = (name: string): boolean => {
         const lower = name.toLowerCase();
         return videoExtensions.some(ext => lower.endsWith(ext));
+    };
+
+    const isConcatSupportedVideoFileName = (name: string): boolean => {
+        const lower = name.toLowerCase();
+        return concatVideoExtensions.some(ext => lower.endsWith(ext));
     };
 
     const handleBatchBurn = () => {
@@ -925,15 +934,66 @@ const FileList: React.FC = () => {
         });
     };
 
+    const getSelectedVideoFiles = (): CurrentFolderFile[] => {
+        return currentFolderFiles
+            .filter(f => selectedRowKeys.includes(f.name) && !f.is_folder && isConcatSupportedVideoFileName(f.name))
+            .sort((a, b) => {
+                if (a.last_modified === b.last_modified) {
+                    return a.name.localeCompare(b.name);
+                }
+                return a.last_modified - b.last_modified;
+            });
+    };
+
+    const showConcatModal = () => {
+        const selectedFiles = getSelectedVideoFiles();
+        if (selectedFiles.length < 2) {
+            message.info("至少选择两个视频文件才能拼接");
+            return;
+        }
+        const firstName = selectedFiles[0].name;
+        const extIndex = firstName.lastIndexOf('.');
+        const baseName = extIndex > 0 ? firstName.substring(0, extIndex) : firstName;
+        setConcatOutputName(`${baseName}_concat`);
+        setIsConcatModalVisible(true);
+    };
+
+    const handleBatchConcat = async () => {
+        const selectedFiles = getSelectedVideoFiles();
+        if (selectedFiles.length < 2 || concatSubmitting) return;
+
+        const paths = selectedFiles.map(f => pathParam ? `${pathParam}/${f.name}` : f.name);
+        setConcatSubmitting(true);
+        try {
+            const rsp: any = await api.batchConcatFiles(paths, concatOutputName.trim());
+            if (rsp?.data?.output_name) {
+                message.success(`已按时间顺序拼接 ${rsp.data.count} 个视频：${rsp.data.output_name}`);
+            } else {
+                message.success("视频拼接成功");
+            }
+            setIsConcatModalVisible(false);
+            setSelectedRowKeys([]);
+            requestFileList(pathParam);
+        } catch (err: any) {
+            message.error("视频拼接失败: " + (err?.message || err));
+        } finally {
+            setConcatSubmitting(false);
+        }
+    };
+
     // 计算选中文件中可烧录的数量
     const getBurnableCount = (): { total: number; withAss: number } => {
-        const selectedFiles = currentFolderFiles.filter(f =>
-            selectedRowKeys.includes(f.name) && !f.is_folder && isVideoFileName(f.name)
-        );
+        const selectedFiles = getSelectedVideoFiles();
         return {
             total: selectedFiles.length,
             withAss: selectedFiles.filter(f => f.subtitle_file).length,
         };
+    };
+
+    const getConcatableInfo = (): { total: number; extensions: string[] } => {
+        const selectedFiles = getSelectedVideoFiles();
+        const extensions = Array.from(new Set(selectedFiles.map(f => f.name.includes('.') ? f.name.substring(f.name.lastIndexOf('.')).toLowerCase() : '')));
+        return { total: selectedFiles.length, extensions };
     };
 
     const onRowClick = (record: CurrentFolderFile) => {
@@ -1386,6 +1446,23 @@ const FileList: React.FC = () => {
                             批量重命名
                         </Button>
                         {(() => {
+                            const { total, extensions } = getConcatableInfo();
+                            const isSameFormat = extensions.length <= 1;
+                            const canConcat = total >= 2 && isSameFormat;
+                            const tooltip = total < 2
+                                ? '至少选择两个受支持的视频文件才能拼接'
+                                : !isSameFormat
+                                    ? '当前仅支持拼接相同格式的视频文件'
+                                    : `将按修改时间从早到晚拼接 ${total} 个视频`;
+                            return (
+                                <Tooltip title={tooltip}>
+                                    <Button size="small" type="default" disabled={!canConcat} loading={concatSubmitting} onClick={showConcatModal}>
+                                        拼接视频{total >= 2 ? ` (${total})` : ''}
+                                    </Button>
+                                </Tooltip>
+                            );
+                        })()}
+                        {(() => {
                             const { withAss } = getBurnableCount();
                             return (
                                 <Tooltip title={withAss > 0 ? `可烧录 ${withAss} 个文件` : '选中的文件中无可烧录的视频（需有同名 ASS 字幕）'}>
@@ -1481,6 +1558,29 @@ const FileList: React.FC = () => {
                     <div style={{ marginTop: 16, color: '#8c8c8c', fontSize: '12px' }}>
                         * 此操作将对所有选中的文件执行查找替换。文件后缀将被自动保护。
                         <br />* 被其他程序占用的文件将被自动跳过。
+                    </div>
+                </div>
+            </Modal>
+            {/* @ts-ignore */}
+            <Modal
+                title="按时间顺序拼接视频"
+                open={isConcatModalVisible}
+                onOk={handleBatchConcat}
+                confirmLoading={concatSubmitting}
+                onCancel={() => setIsConcatModalVisible(false)}
+                okText="开始拼接"
+                cancelText="取消"
+                destroyOnClose
+            >
+                <div>
+                    <div style={{ marginBottom: 12 }}>
+                        将按文件最后修改时间从早到晚拼接选中的视频文件。
+                    </div>
+                    <div style={{ marginBottom: 8 }}>输出文件名（后缀自动保留）：</div>
+                    <Input value={concatOutputName} onChange={(e) => setConcatOutputName(e.target.value)} placeholder="请输入输出文件名" onPressEnter={handleBatchConcat} autoComplete="off" />
+                    <div style={{ marginTop: 12, color: '#8c8c8c', fontSize: '12px', lineHeight: 1.8 }}>
+                        * 仅支持拼接同一目录下、相同格式的视频文件。
+                        <br />* 当前使用 FFmpeg 直接拼接，不重新编码，适合同一场录播分段合并。
                     </div>
                 </div>
             </Modal>

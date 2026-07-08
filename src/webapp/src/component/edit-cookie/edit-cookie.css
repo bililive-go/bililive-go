@@ -173,6 +173,44 @@
   box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1) !important;
 }
 
+.cookie-highlight-alert {
+  margin-bottom: 16px !important;
+  border-radius: 10px !important;
+}
+
+.cookie-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.cookie-field-grid-two-columns {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.cookie-field-item {
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.cookie-field-item-full {
+  grid-column: 1 / -1;
+}
+
+.cookie-field-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #262626;
+  margin-bottom: 8px;
+}
+
+.cookie-field-item .ant-input {
+  border-radius: 8px;
+}
+
 /* Verification Card */
 .verification-card {
   margin-top: 20px;
@@ -261,4 +299,15 @@
   margin-top: 8px;
   padding-left: 4px;
   font-weight: 500;
+}
+
+@media (max-width: 640px) {
+  .cookie-field-grid,
+  .cookie-field-grid-two-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .cookie-field-item-full {
+    grid-column: auto;
+  }
 }

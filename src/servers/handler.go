@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -2709,6 +2710,187 @@ func batchDeleteFiles(writer http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(writer, commonResp{Data: results})
+}
+
+func isConcatSupportedVideoFile(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".mp4", ".flv", ".ts", ".mkv", ".mov", ".m4v":
+		return true
+	default:
+		return false
+	}
+}
+
+func escapeFFmpegConcatPath(path string) string {
+	p := filepath.ToSlash(path)
+	p = strings.ReplaceAll(p, `\`, `\\`)
+	p = strings.ReplaceAll(p, `'`, `\'`)
+	return p
+}
+
+func batchConcatFiles(writer http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Paths      []string `json:"paths"`
+		OutputName string   `json:"output_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "无效请求"})
+		return
+	}
+	if len(body.Paths) < 2 {
+		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "至少选择两个视频文件才能拼接"})
+		return
+	}
+
+	cfg := configs.GetCurrentConfig()
+	base, err := filepath.Abs(cfg.OutPutPath)
+	if err != nil {
+		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "获取根目录绝对路径失败: " + err.Error()})
+		return
+	}
+
+	type concatFileEntry struct {
+		RelPath string
+		AbsPath string
+		Name    string
+		ModTime time.Time
+	}
+
+	entries := make([]concatFileEntry, 0, len(body.Paths))
+	var commonDir string
+	var commonExt string
+	seen := make(map[string]struct{}, len(body.Paths))
+
+	for _, path := range body.Paths {
+		absPath, err := getSafePath(cfg.OutPutPath, path)
+		if err != nil {
+			writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "包含无效或越权路径: " + path})
+			return
+		}
+		if _, exists := seen[absPath]; exists {
+			continue
+		}
+		seen[absPath] = struct{}{}
+
+		info, err := os.Stat(absPath)
+		if err != nil {
+			writeJSON(writer, commonResp{ErrNo: 404, ErrMsg: "文件不存在: " + path})
+			return
+		}
+		if info.IsDir() {
+			writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "不支持拼接文件夹: " + path})
+			return
+		}
+		if !isConcatSupportedVideoFile(absPath) {
+			writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "仅支持拼接常见视频文件: " + filepath.Base(path)})
+			return
+		}
+
+		dir := filepath.Dir(absPath)
+		ext := strings.ToLower(filepath.Ext(absPath))
+		if commonDir == "" {
+			commonDir = dir
+			commonExt = ext
+		} else {
+			if dir != commonDir {
+				writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "请选择同一目录下的视频文件进行拼接"})
+				return
+			}
+			if ext != commonExt {
+				writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "当前仅支持拼接相同格式的视频文件"})
+				return
+			}
+		}
+
+		entries = append(entries, concatFileEntry{RelPath: path, AbsPath: absPath, Name: filepath.Base(absPath), ModTime: info.ModTime()})
+	}
+
+	if len(entries) < 2 {
+		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "至少选择两个有效视频文件才能拼接"})
+		return
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].ModTime.Equal(entries[j].ModTime) {
+			return entries[i].Name < entries[j].Name
+		}
+		return entries[i].ModTime.Before(entries[j].ModTime)
+	})
+
+	outputBaseName := strings.TrimSpace(body.OutputName)
+	if outputBaseName == "" {
+		outputBaseName = strings.TrimSuffix(entries[0].Name, filepath.Ext(entries[0].Name)) + "_concat"
+	}
+	if outputBaseName != filepath.Base(outputBaseName) || strings.ContainsAny(outputBaseName, `/\\`) {
+		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "输出文件名非法"})
+		return
+	}
+
+	outputAbsPath := filepath.Join(commonDir, outputBaseName+commonExt)
+	if rel, err := filepath.Rel(base, outputAbsPath); err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "输出路径越界"})
+		return
+	}
+	if _, err := os.Stat(outputAbsPath); err == nil {
+		writeJSON(writer, commonResp{ErrNo: 400, ErrMsg: "输出文件已存在，请更换名称"})
+		return
+	}
+
+	ffmpegPath, err := utils.GetFFmpegPath(r.Context())
+	if err != nil {
+		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "未找到 FFmpeg: " + err.Error()})
+		return
+	}
+
+	listFile, err := os.CreateTemp("", "bililive-go-concat-*.txt")
+	if err != nil {
+		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "创建拼接列表文件失败: " + err.Error()})
+		return
+	}
+	listFilePath := listFile.Name()
+	defer os.Remove(listFilePath)
+
+	var listBuilder strings.Builder
+	for _, entry := range entries {
+		listBuilder.WriteString("file '")
+		listBuilder.WriteString(escapeFFmpegConcatPath(entry.AbsPath))
+		listBuilder.WriteString("'\n")
+	}
+	if _, err := listFile.WriteString(listBuilder.String()); err != nil {
+		listFile.Close()
+		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "写入拼接列表文件失败: " + err.Error()})
+		return
+	}
+	if err := listFile.Close(); err != nil {
+		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "关闭拼接列表文件失败: " + err.Error()})
+		return
+	}
+
+	cmd := exec.CommandContext(r.Context(), ffmpegPath, "-hide_banner", "-y", "-f", "concat", "-safe", "0", "-i", listFilePath, "-c", "copy", outputAbsPath)
+	var stderr bytes.Buffer
+	cmd.Stdout = io.Discard
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		os.Remove(outputAbsPath)
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		writeJSON(writer, commonResp{ErrNo: 500, ErrMsg: "视频拼接失败: " + msg})
+		return
+	}
+
+	outputRel, err := filepath.Rel(base, outputAbsPath)
+	if err != nil {
+		outputRel = filepath.Base(outputAbsPath)
+	}
+
+	writeJSON(writer, commonResp{Data: map[string]any{
+		"output_path": filepath.ToSlash(outputRel),
+		"output_name": filepath.Base(outputAbsPath),
+		"count":       len(entries),
+	}})
 }
 
 func getLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
