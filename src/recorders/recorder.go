@@ -171,6 +171,33 @@ func findBililiveRecorderOutputFiles(expectedFileName string) []string {
 	return validFiles
 }
 
+func fileSize(path string) (int64, bool) {
+	fileInfo, err := os.Stat(path)
+	if err != nil || fileInfo.IsDir() {
+		return 0, false
+	}
+	return fileInfo.Size(), true
+}
+
+func inspectBililiveRecorderOutputFiles(expectedFileName string) (latestPath string, latestSize int64, exists bool, hasData bool) {
+	partFiles := findBililiveRecorderOutputFiles(expectedFileName)
+	for i := len(partFiles) - 1; i >= 0; i-- {
+		size, ok := fileSize(partFiles[i])
+		if !ok {
+			continue
+		}
+		if !exists {
+			latestPath = partFiles[i]
+			latestSize = size
+			exists = true
+		}
+		if size > 0 {
+			hasData = true
+		}
+	}
+	return
+}
+
 // resolveParserName 根据下载器类型返回实际使用的 parser 名称
 // 实现回退逻辑：bililive-recorder -> ffmpeg -> native
 func resolveParserName(downloaderType configs.DownloaderType, isFLV bool, logger *livelogger.LiveLogger) string {
@@ -1082,14 +1109,8 @@ func (r *recorder) StartTime() time.Time {
 // 仅有 parser（如 ffmpeg 进程）不代表真正在录制 —— ffmpeg 可能因为流 URL 404 等原因
 // 启动后立即失败，没有写入任何视频数据
 func (r *recorder) IsRecording() bool {
-	filePath := r.getCurrentFilePath()
-	if filePath == "" {
-		return false
-	}
-	if fileInfo, err := os.Stat(filePath); err == nil {
-		return fileInfo.Size() > 0
-	}
-	return false
+	_, _, _, hasData := r.getCurrentOutputFile()
+	return hasData
 }
 
 func (r *recorder) Close() {
@@ -1155,6 +1176,37 @@ func (r *recorder) getCurrentFilePath() string {
 	return r.currentFilePath
 }
 
+func (r *recorder) isUsingBililiveRecorderParser() bool {
+	p := r.getParser()
+	if p == nil {
+		return false
+	}
+	_, ok := p.(*bililive_recorder.Parser)
+	return ok
+}
+
+func (r *recorder) getCurrentOutputFile() (path string, size int64, exists bool, hasData bool) {
+	expectedPath := r.getCurrentFilePath()
+	if expectedPath == "" {
+		return "", 0, false, false
+	}
+
+	// BililiveRecorder downloader 会把传入的 output.flv 实际写成
+	// output_PART000.flv、output_PART001.flv……。如果仍只检查 output.flv，
+	// 前端会一直显示“录制准备中”，但磁盘上其实已经在正常写入 PART 文件。
+	if r.isUsingBililiveRecorderParser() {
+		if partPath, partSize, partExists, partHasData := inspectBililiveRecorderOutputFiles(expectedPath); partExists {
+			return partPath, partSize, true, partHasData
+		}
+	}
+
+	if expectedSize, ok := fileSize(expectedPath); ok {
+		return expectedPath, expectedSize, true, expectedSize > 0
+	}
+
+	return expectedPath, 0, false, false
+}
+
 func (r *recorder) GetStatus() (map[string]interface{}, error) {
 	var status map[string]interface{}
 
@@ -1174,12 +1226,15 @@ func (r *recorder) GetStatus() (map[string]interface{}, error) {
 	}
 
 	// 添加文件路径和文件大小信息
-	filePath := r.getCurrentFilePath()
+	filePath, fileSize, fileExists, _ := r.getCurrentOutputFile()
 	if filePath != "" {
 		status["file_path"] = filePath
+		if expectedPath := r.getCurrentFilePath(); expectedPath != "" && expectedPath != filePath {
+			status["expected_file_path"] = expectedPath
+		}
 		// 获取文件大小
-		if fileInfo, err := os.Stat(filePath); err == nil {
-			status["file_size"] = strconv.FormatInt(fileInfo.Size(), 10)
+		if fileExists {
+			status["file_size"] = strconv.FormatInt(fileSize, 10)
 		}
 	}
 

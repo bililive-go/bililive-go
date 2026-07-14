@@ -5,9 +5,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
+	"time"
 
 	"github.com/bililive-go/bililive-go/src/live"
 )
+
+const btoolsRequestTimeout = 20 * time.Second
 
 var btoolsConsts = struct {
 	port      int
@@ -15,6 +19,10 @@ var btoolsConsts = struct {
 }{
 	port:      18110,
 	authToken: "Basic YTph",
+}
+
+var btoolsHTTPClient = &http.Client{
+	Timeout: btoolsRequestTimeout,
 }
 
 type ChannelInfo struct {
@@ -38,7 +46,7 @@ type streamInfoResp struct {
 func NewBtoolsLive(live *Live) btoolsLive {
 	return btoolsLive{
 		Live:     live,
-		roomId:   "",
+		roomId:   extractRoomIDFromURL(live.GetRawUrl()),
 		hostName: "",
 		roomName: "",
 	}
@@ -70,29 +78,8 @@ func (l *btoolsLive) updateChannelInfo() (err error) {
 func (l *btoolsLive) fetchChannelInfo() (channelInfo ChannelInfo, err error) {
 	// 使用自定义请求以便添加认证Header
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d/bgo/channel-info?url=%s", btoolsConsts.port, url.QueryEscape(l.Url.String()))
-	req, reqErr := http.NewRequest(http.MethodGet, endpoint, nil)
-	if reqErr != nil {
-		err = reqErr
-		return
-	}
-	req.Header.Set("Authorization", btoolsConsts.authToken)
-
-	resp, doErr := http.DefaultClient.Do(req)
-	if doErr != nil {
-		err = doErr
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		err = fmt.Errorf("请求失败: %s", resp.Status)
-		return
-	}
-
-	if err = json.NewDecoder(resp.Body).Decode(&channelInfo); err != nil {
-		return
-	}
-	return
+	err = fetchBtoolsJSON(endpoint, &channelInfo)
+	return channelInfo, err
 }
 
 func (l *btoolsLive) fetchLiveInfo() (liveInfo liveInfoResp, err error) {
@@ -104,24 +91,8 @@ func (l *btoolsLive) fetchLiveInfo() (liveInfo liveInfoResp, err error) {
 	}
 
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d/bgo/live-info?platform=douyin&roomId=%s", btoolsConsts.port, url.QueryEscape(l.roomId))
-	req, reqErr := http.NewRequest(http.MethodGet, endpoint, nil)
-	if reqErr != nil {
-		return liveInfo, reqErr
-	}
-	req.Header.Set("Authorization", btoolsConsts.authToken)
-
-	resp, doErr := http.DefaultClient.Do(req)
-	if doErr != nil {
-		return liveInfo, doErr
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return liveInfo, fmt.Errorf("请求失败: %s", resp.Status)
-	}
-	if err = json.NewDecoder(resp.Body).Decode(&liveInfo); err != nil {
-		return liveInfo, err
-	}
-	return liveInfo, nil
+	err = fetchBtoolsJSON(endpoint, &liveInfo)
+	return liveInfo, err
 }
 
 func (l *btoolsLive) fetchStreamInfo() (streamInfo streamInfoResp, err error) {
@@ -133,24 +104,8 @@ func (l *btoolsLive) fetchStreamInfo() (streamInfo streamInfoResp, err error) {
 	}
 
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d/bgo/stream-info?platform=douyin&roomId=%s", btoolsConsts.port, url.QueryEscape(l.roomId))
-	req, reqErr := http.NewRequest(http.MethodGet, endpoint, nil)
-	if reqErr != nil {
-		return streamInfo, reqErr
-	}
-	req.Header.Set("Authorization", btoolsConsts.authToken)
-
-	resp, doErr := http.DefaultClient.Do(req)
-	if doErr != nil {
-		return streamInfo, doErr
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return streamInfo, fmt.Errorf("请求失败: %s", resp.Status)
-	}
-	if err = json.NewDecoder(resp.Body).Decode(&streamInfo); err != nil {
-		return streamInfo, err
-	}
-	return streamInfo, nil
+	err = fetchBtoolsJSON(endpoint, &streamInfo)
+	return streamInfo, err
 }
 
 func (l *btoolsLive) GetInfo() (info *live.Info, err error) {
@@ -185,9 +140,17 @@ func (l *btoolsLive) GetStreamInfos() (us []*live.StreamUrlInfo, err error) {
 	if err != nil {
 		return
 	}
+	if strings.TrimSpace(streamInfo.Stream) == "" {
+		err = fmt.Errorf("无法获取直播流地址")
+		return
+	}
 	u, parseErr := url.Parse(streamInfo.Stream)
 	if parseErr != nil {
 		err = parseErr
+		return
+	}
+	if u.Scheme == "" || u.Host == "" {
+		err = fmt.Errorf("直播流地址无效: %q", streamInfo.Stream)
 		return
 	}
 
@@ -196,4 +159,41 @@ func (l *btoolsLive) GetStreamInfos() (us []*live.StreamUrlInfo, err error) {
 			Url: u,
 		},
 	}, nil
+}
+
+func fetchBtoolsJSON(endpoint string, out interface{}) error {
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", btoolsConsts.authToken)
+
+	resp, err := btoolsHTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("请求失败: %s", resp.Status)
+	}
+
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+func extractRoomIDFromURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	if u.Hostname() != domain {
+		return ""
+	}
+	roomID := strings.Trim(strings.Split(strings.Trim(u.Path, "/"), "/")[0], " ")
+	for _, r := range roomID {
+		if r < '0' || r > '9' {
+			return ""
+		}
+	}
+	return roomID
 }
