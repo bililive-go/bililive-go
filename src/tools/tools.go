@@ -496,13 +496,17 @@ func Init() (err error) {
 		logDirectoryPermissionDiagnostics(preferredWritable)
 	}
 	tools.SetRootFolder(preferredWritable)
-	// 为不可执行场景指定临时执行目录（容器内目录，具备执行权限）
-	execTmp := filepath.Join(string(os.PathSeparator), "opt", "bililive", "tmp_for_exec")
+	// 为不可执行场景（如工具目录所在存储是以 noexec 挂载的 Docker volume）指定临时执行目录。
+	// 使用系统临时目录而非固定的 /opt/bililive 路径：后者可能不存在或不可写
+	// （容器以非 root 用户运行、非官方镜像、或非容器场景），而系统临时目录在几乎所有
+	// 场景下都存在且具备执行权限，同时不会是用户显式挂载的 volume。
+	execTmp := filepath.Join(os.TempDir(), "bililive-go-tmp-exec")
 	if mkErr := os.MkdirAll(execTmp, 0o755); mkErr != nil {
 		blog.GetLogger().WithError(mkErr).Warnf("无法创建临时执行目录 %s，某些外部工具可能无法运行", execTmp)
 		logDirectoryPermissionDiagnostics(execTmp)
+	} else {
+		tools.SetTmpRootFolderForExecPermission(execTmp)
 	}
-	tools.SetTmpRootFolderForExecPermission(execTmp)
 
 	err = api.StartWebUI(0)
 	if err != nil {
