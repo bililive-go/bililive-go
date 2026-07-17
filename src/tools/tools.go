@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -598,16 +599,52 @@ func startBTools() error {
 
 	blog.GetLogger().Infoln("Starting bililive-tools server…")
 
-	// 设置状态为已就绪（服务已启动）
-	currentBToolsStatus.Store(int32(BToolsStatusReady))
-
 	// 在 Windows 下使用 Job Object，确保主进程退出时子进程被一并终止
 	// 使用 runWithKillOnCloseAndGetPID 来获取进程 PID
-	return runWithKillOnCloseAndGetPID(cmd, func(pid int) {
+	err = runWithKillOnCloseAndGetPID(cmd, func(pid int) {
 		// 使用通用的进程跟踪器注册子进程
 		RegisterProcess("bililive-tools", pid, ProcessCategoryBTools)
 		blog.GetLogger().Infof("bililive-tools process started with PID: %d", pid)
+		if readyErr := waitForBToolsHTTPReady(15 * time.Second); readyErr != nil {
+			currentBToolsStatus.Store(int32(BToolsStatusFailed))
+			blog.GetLogger().WithError(readyErr).Error("bililive-tools server did not become ready")
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+			return
+		}
+		currentBToolsStatus.Store(int32(BToolsStatusReady))
+		blog.GetLogger().Info("bililive-tools server is ready")
 	})
+	if err != nil {
+		currentBToolsStatus.Store(int32(BToolsStatusFailed))
+	}
+	return err
+}
+
+func waitForBToolsHTTPReady(timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	client := &http.Client{Timeout: time.Second}
+	endpoint := "http://127.0.0.1:18110/"
+	var lastErr error
+	for time.Now().Before(deadline) {
+		resp, err := client.Get(endpoint)
+		if err == nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusInternalServerError {
+				return nil
+			}
+			lastErr = fmt.Errorf("unexpected status: %s", resp.Status)
+		} else {
+			lastErr = err
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if lastErr == nil {
+		lastErr = context.DeadlineExceeded
+	}
+	return lastErr
 }
 
 func AsyncDownloadIfNecessary(toolName string) {
