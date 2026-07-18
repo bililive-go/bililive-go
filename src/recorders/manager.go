@@ -137,9 +137,9 @@ func (m *manager) registryListener(ctx context.Context, ed events.Dispatcher) {
 
 func (m *manager) Start(ctx context.Context) error {
 	inst := instance.GetInstance(ctx)
-	if cfg := configs.GetCurrentConfig(); (cfg != nil && cfg.RPC.Enable) || inst.Lives.Len() > 0 {
-		inst.WaitGroup.Add(1)
-	}
+	// manager 在直播间初始化前启动，不能用此时仍为空的 Lives 判断是否需要阻塞主进程。
+	// 配置校验已经保证 RPC 关闭时至少存在一个直播间，因此 manager 启动后始终参与生命周期等待。
+	inst.WaitGroup.Add(1)
 	m.registryListener(ctx, inst.EventDispatcher.(events.Dispatcher))
 
 	// 启动定期广播录制器状态的 goroutine

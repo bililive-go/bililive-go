@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	gomock "go.uber.org/mock/gomock"
@@ -12,9 +13,44 @@ import (
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/live"
 	livemock "github.com/bililive-go/bililive-go/src/live/mock"
+	evtmock "github.com/bililive-go/bililive-go/src/pkg/events/mock"
 	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 	"github.com/bililive-go/bililive-go/src/types"
 )
+
+func TestManagerStartAndCloseWithRPCDisabled(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ed := evtmock.NewMockDispatcher(ctrl)
+	ed.EXPECT().AddEventListener(gomock.Any(), gomock.Any()).Times(4)
+	configs.SetCurrentConfig(&configs.Config{
+		RPC:       configs.RPC{Enable: false},
+		LiveRooms: []configs.LiveRoom{{Url: "https://live.bilibili.com/1", IsListening: true}},
+	})
+	inst := &instance.Instance{EventDispatcher: ed}
+	ctx := context.WithValue(context.Background(), instance.Key, inst)
+	m := NewManager(ctx)
+
+	assert.NoError(t, m.Start(ctx))
+	waitDone := make(chan struct{})
+	go func() {
+		inst.WaitGroup.Wait()
+		close(waitDone)
+	}()
+	select {
+	case <-waitDone:
+		t.Fatal("RPC 关闭且 Lives 尚未初始化时，manager 未阻塞主进程")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	m.Close(ctx)
+	select {
+	case <-waitDone:
+	case <-time.After(time.Second):
+		t.Fatal("manager 关闭后仍未解除主进程等待")
+	}
+}
 
 func TestManagerAddAndRemoveRecorder(t *testing.T) {
 	ctrl := gomock.NewController(t)
