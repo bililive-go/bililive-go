@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	gomock "go.uber.org/mock/gomock"
@@ -12,9 +13,74 @@ import (
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/live"
 	livemock "github.com/bililive-go/bililive-go/src/live/mock"
+	evtmock "github.com/bililive-go/bililive-go/src/pkg/events/mock"
 	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 	"github.com/bililive-go/bililive-go/src/types"
 )
+
+func TestManagerStartAndCloseWithRPCDisabled(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ed := evtmock.NewMockDispatcher(ctrl)
+	ed.EXPECT().AddEventListener(gomock.Any(), gomock.Any()).Times(4)
+	oldCfg := configs.GetCurrentConfig()
+	defer configs.SetCurrentConfig(oldCfg)
+	configs.SetCurrentConfig(&configs.Config{
+		RPC:       configs.RPC{Enable: false},
+		LiveRooms: []configs.LiveRoom{{Url: "https://live.bilibili.com/1", IsListening: true}},
+	})
+	inst := &instance.Instance{EventDispatcher: ed}
+	ctx := context.WithValue(context.Background(), instance.Key, inst)
+	m := NewManager(ctx)
+
+	assert.NoError(t, m.Start(ctx))
+	// 确定性验证 Start 已注册生命周期计数，再恢复计数供 Close 解除。
+	inst.WaitGroup.Add(-1)
+	inst.WaitGroup.Add(1)
+	waitDone := make(chan struct{})
+	go func() {
+		inst.WaitGroup.Wait()
+		close(waitDone)
+	}()
+	m.Close(ctx)
+	select {
+	case <-waitDone:
+	case <-time.After(time.Second):
+		t.Fatal("manager 关闭后仍未解除主进程等待")
+	}
+}
+
+func TestShouldBlockMainProcess(t *testing.T) {
+	assert.False(t, shouldBlockMainProcess(nil))
+	assert.False(t, shouldBlockMainProcess(&configs.Config{
+		LiveRooms: []configs.LiveRoom{{IsListening: false}},
+	}))
+	assert.True(t, shouldBlockMainProcess(&configs.Config{RPC: configs.RPC{Enable: true}}))
+	assert.True(t, shouldBlockMainProcess(&configs.Config{
+		LiveRooms: []configs.LiveRoom{{IsListening: true}},
+	}))
+}
+
+func TestManagerCloseWithoutBlockingMainProcess(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ed := evtmock.NewMockDispatcher(ctrl)
+	ed.EXPECT().AddEventListener(gomock.Any(), gomock.Any()).Times(4)
+	oldCfg := configs.GetCurrentConfig()
+	defer configs.SetCurrentConfig(oldCfg)
+	configs.SetCurrentConfig(&configs.Config{
+		LiveRooms: []configs.LiveRoom{{IsListening: false}},
+	})
+	inst := &instance.Instance{EventDispatcher: ed}
+	ctx := context.WithValue(context.Background(), instance.Key, inst)
+	m := NewManager(ctx)
+
+	assert.NoError(t, m.Start(ctx))
+	assert.False(t, m.(*manager).blocksMainProcess)
+	assert.NotPanics(t, func() { m.Close(ctx) })
+}
 
 func TestManagerAddAndRemoveRecorder(t *testing.T) {
 	ctrl := gomock.NewController(t)
