@@ -51,13 +51,16 @@ func TestManagerStartAndClose(t *testing.T) {
 	defer ctrl.Finish()
 	ed := evtmock.NewMockDispatcher(ctrl)
 	ed.EXPECT().AddEventListener(RoomInitializingFinished, gomock.Any())
+	oldCfg := configs.GetCurrentConfig()
+	defer configs.SetCurrentConfig(oldCfg)
 	configs.SetCurrentConfig(&configs.Config{
 		RPC:       configs.RPC{Enable: false},
 		LiveRooms: []configs.LiveRoom{{Url: "https://live.bilibili.com/1", IsListening: true}},
 	})
-	ctx := context.WithValue(context.Background(), instance.Key, &instance.Instance{
+	inst := &instance.Instance{
 		EventDispatcher: ed,
-	})
+	}
+	ctx := context.WithValue(context.Background(), instance.Key, inst)
 	backup := newListener
 	newListener = func(ctx context.Context, live live.Live) Listener {
 		ln := NewMockListener(ctrl)
@@ -68,16 +71,14 @@ func TestManagerStartAndClose(t *testing.T) {
 	defer func() { newListener = backup }()
 	m := NewManager(ctx)
 	assert.NoError(t, m.Start(ctx))
+	// 确定性验证 Start 已注册生命周期计数，再恢复计数供 Close 解除。
+	inst.WaitGroup.Add(-1)
+	inst.WaitGroup.Add(1)
 	waitDone := make(chan struct{})
 	go func() {
-		ctx.Value(instance.Key).(*instance.Instance).WaitGroup.Wait()
+		inst.WaitGroup.Wait()
 		close(waitDone)
 	}()
-	select {
-	case <-waitDone:
-		t.Fatal("RPC 关闭且 Lives 尚未初始化时，manager 未阻塞主进程")
-	case <-time.After(50 * time.Millisecond):
-	}
 	for i := 0; i < 3; i++ {
 		l := livemock.NewMockLive(ctrl)
 		id := types.LiveID(fmt.Sprintf("test_%d", i))
@@ -90,4 +91,35 @@ func TestManagerStartAndClose(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("manager 关闭后仍未解除主进程等待")
 	}
+}
+
+func TestShouldBlockMainProcess(t *testing.T) {
+	assert.False(t, shouldBlockMainProcess(nil))
+	assert.False(t, shouldBlockMainProcess(&configs.Config{
+		LiveRooms: []configs.LiveRoom{{IsListening: false}},
+	}))
+	assert.True(t, shouldBlockMainProcess(&configs.Config{RPC: configs.RPC{Enable: true}}))
+	assert.True(t, shouldBlockMainProcess(&configs.Config{
+		LiveRooms: []configs.LiveRoom{{IsListening: true}},
+	}))
+}
+
+func TestManagerCloseWithoutBlockingMainProcess(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ed := evtmock.NewMockDispatcher(ctrl)
+	ed.EXPECT().AddEventListener(RoomInitializingFinished, gomock.Any())
+	oldCfg := configs.GetCurrentConfig()
+	defer configs.SetCurrentConfig(oldCfg)
+	configs.SetCurrentConfig(&configs.Config{
+		LiveRooms: []configs.LiveRoom{{IsListening: false}},
+	})
+	inst := &instance.Instance{EventDispatcher: ed}
+	ctx := context.WithValue(context.Background(), instance.Key, inst)
+	m := NewManager(ctx)
+
+	assert.NoError(t, m.Start(ctx))
+	assert.False(t, m.(*manager).blocksMainProcess)
+	assert.NotPanics(t, func() { m.Close(ctx) })
 }

@@ -32,8 +32,24 @@ type Manager interface {
 }
 
 type manager struct {
-	lock   sync.RWMutex
-	savers map[types.LiveID]Listener
+	lock              sync.RWMutex
+	savers            map[types.LiveID]Listener
+	blocksMainProcess bool
+}
+
+func shouldBlockMainProcess(cfg *configs.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	if cfg.RPC.Enable {
+		return true
+	}
+	for _, room := range cfg.LiveRooms {
+		if room.IsListening {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *manager) registryListener(ctx context.Context, ed events.Dispatcher) {
@@ -84,9 +100,12 @@ func (m *manager) registryListener(ctx context.Context, ed events.Dispatcher) {
 
 func (m *manager) Start(ctx context.Context) error {
 	inst := instance.GetInstance(ctx)
-	// manager 在直播间初始化前启动，不能用此时仍为空的 Lives 判断是否需要阻塞主进程。
-	// 配置校验已经保证 RPC 关闭时至少存在一个直播间，因此 manager 启动后始终参与生命周期等待。
-	inst.WaitGroup.Add(1)
+	// manager 在直播间初始化前启动，因此应从配置判断是否存在监听任务，
+	// 不能使用此时仍为空的 Lives。没有 RPC 和监听任务时允许进程自然退出。
+	m.blocksMainProcess = shouldBlockMainProcess(configs.GetCurrentConfig())
+	if m.blocksMainProcess {
+		inst.WaitGroup.Add(1)
+	}
 	m.registryListener(ctx, inst.EventDispatcher.(events.Dispatcher))
 	return nil
 }
@@ -98,8 +117,9 @@ func (m *manager) Close(ctx context.Context) {
 		listener.Close()
 		delete(m.savers, id)
 	}
-	inst := instance.GetInstance(ctx)
-	inst.WaitGroup.Done()
+	if m.blocksMainProcess {
+		instance.GetInstance(ctx).WaitGroup.Done()
+	}
 }
 
 func (m *manager) AddListener(ctx context.Context, live live.Live) error {

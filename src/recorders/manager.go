@@ -81,11 +81,12 @@ var (
 )
 
 type manager struct {
-	lock         sync.RWMutex
-	savers       map[types.LiveID]Recorder
-	statusTicker *time.Ticker
-	statusStopCh chan struct{}
-	statusWg     sync.WaitGroup // 用于等待广播 goroutine 退出
+	lock              sync.RWMutex
+	savers            map[types.LiveID]Recorder
+	statusTicker      *time.Ticker
+	statusStopCh      chan struct{}
+	statusWg          sync.WaitGroup // 用于等待广播 goroutine 退出
+	blocksMainProcess bool
 	// restartingCount 追踪正在执行 CloseForRestart 的旧 recorder 数量。
 	// RestartRecorder 在释放锁后才执行 oldRecorder.CloseForRestart()，
 	// 此期间 map 中只有新 recorder，但旧 recorder 仍在收尾运行。
@@ -93,6 +94,21 @@ type manager struct {
 	// 会误判为"无活跃录制"导致优雅更新被提前触发。
 	// 通过 restartingCount 将收尾中的旧 recorder 也计入活跃数量。
 	restartingCount atomic.Int32
+}
+
+func shouldBlockMainProcess(cfg *configs.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	if cfg.RPC.Enable {
+		return true
+	}
+	for _, room := range cfg.LiveRooms {
+		if room.IsListening {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *manager) registryListener(ctx context.Context, ed events.Dispatcher) {
@@ -137,9 +153,12 @@ func (m *manager) registryListener(ctx context.Context, ed events.Dispatcher) {
 
 func (m *manager) Start(ctx context.Context) error {
 	inst := instance.GetInstance(ctx)
-	// manager 在直播间初始化前启动，不能用此时仍为空的 Lives 判断是否需要阻塞主进程。
-	// 配置校验已经保证 RPC 关闭时至少存在一个直播间，因此 manager 启动后始终参与生命周期等待。
-	inst.WaitGroup.Add(1)
+	// manager 在直播间初始化前启动，因此应从配置判断是否存在监听任务，
+	// 不能使用此时仍为空的 Lives。没有 RPC 和监听任务时允许进程自然退出。
+	m.blocksMainProcess = shouldBlockMainProcess(configs.GetCurrentConfig())
+	if m.blocksMainProcess {
+		inst.WaitGroup.Add(1)
+	}
 	m.registryListener(ctx, inst.EventDispatcher.(events.Dispatcher))
 
 	// 启动定期广播录制器状态的 goroutine
@@ -165,8 +184,9 @@ func (m *manager) Close(ctx context.Context) {
 		recorder.Close()
 		delete(m.savers, id)
 	}
-	inst := instance.GetInstance(ctx)
-	inst.WaitGroup.Done()
+	if m.blocksMainProcess {
+		instance.GetInstance(ctx).WaitGroup.Done()
+	}
 }
 
 func (m *manager) AddRecorder(ctx context.Context, live live.Live) error {
