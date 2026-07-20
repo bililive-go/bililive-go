@@ -5,6 +5,8 @@ volumes:
 services:
   bililive-go:
     image: chigusa/bililive-go
+    # 如果无法访问 Docker Hub，可使用 GHCR 镜像：
+    # image: ghcr.io/bililive-go/bililive-go
     restart: unless-stopped
     container_name: bililive-go
     volumes:
