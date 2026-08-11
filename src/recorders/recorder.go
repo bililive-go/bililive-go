@@ -28,6 +28,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/live"
 	"github.com/bililive-go/bililive-go/src/notify"
 	"github.com/bililive-go/bililive-go/src/pipeline"
+	"github.com/bililive-go/bililive-go/src/pkg/diagnostics"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
 	"github.com/bililive-go/bililive-go/src/pkg/hlsproxy"
 	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
@@ -277,6 +278,19 @@ type recorder struct {
 	stop  chan struct{}
 	state uint32
 
+	// startReady 是 Start 的发布屏障：只有 running 状态及 RecorderStart 已经
+	// 完整发布，或 Close 抢先把 pending 取消且 Start 已确认不再发布时才关闭。
+	// Close 在产生 RecorderStop/返回前等待它，防止 Stop→Start 反序和迟到事件。
+	startReady     chan struct{}
+	startReadyOnce sync.Once
+	startEventSent atomic.Bool
+
+	// 诊断关联 ID 只使用本次 run 的随机 HMAC 和随机序号，不把原始直播间 URL
+	// 或输出路径写入调查包。
+	roomScopeID string
+	sessionID   string
+	attemptSeq  atomic.Uint64
+
 	// 当前录制文件信息
 	currentFileLock sync.RWMutex
 	currentFilePath string
@@ -300,6 +314,17 @@ type recorder struct {
 
 	// done 在 run() 退出时关闭，用于 CloseForRestart 等待 goroutine 完成
 	done chan struct{}
+	// runCancel 只取消本 recorder 的主任务。Close 必须在检查/停止 parser 前
+	// 先调用它，覆盖“Close 看到 parser=nil，tryRecord 随后才安装 parser”的窗口。
+	runCancelMu sync.Mutex
+	runCancel   context.CancelFunc
+	// auxWg 跟踪由 run 派生、但生命周期可能短暂超过一次 tryRecord 的探测和
+	// 持久化任务。run 的 done 关闭后不会再 Add，因此 Close 可以安全 Wait。
+	auxWg sync.WaitGroup
+	// closeOnce 让每个 Close 调用都共享同一个同步关闭屏障。
+	closeOnce sync.Once
+	stopOnce  sync.Once
+	doneOnce  sync.Once
 	// suppressSummary 为 true 时，run() 退出不推送摘要（分段重启场景）
 	suppressSummary bool
 
@@ -311,20 +336,74 @@ type recorder struct {
 
 func NewRecorder(ctx context.Context, live live.Live) (Recorder, error) {
 	inst := instance.GetInstance(ctx)
+	roomScopeID := diagnostics.ScopeID(live.GetRawUrl())
+	result := &recorder{
+		Live:        live,
+		cache:       inst.Cache,
+		startTime:   time.Now(),
+		ed:          inst.EventDispatcher.(events.Dispatcher),
+		state:       begin,
+		stop:        make(chan struct{}),
+		done:        make(chan struct{}),
+		startReady:  make(chan struct{}),
+		parserLock:  new(sync.RWMutex),
+		roomScopeID: roomScopeID,
+		sessionID:   diagnostics.NewID("recorder_session"),
+	}
+	diagnostics.Record(ctx, "recorder.session.created", diagnostics.Fields{
+		"component":     "recorder",
+		"lane":          "recorder",
+		"room_scope_id": roomScopeID,
+		"session_id":    result.sessionID,
+		"status":        "created",
+	})
+	return result, nil
+}
 
-	return &recorder{
-		Live:       live,
-		cache:      inst.Cache,
-		startTime:  time.Now(),
-		ed:         inst.EventDispatcher.(events.Dispatcher),
-		state:      begin,
-		stop:       make(chan struct{}),
-		done:       make(chan struct{}),
-		parserLock: new(sync.RWMutex),
-	}, nil
+func (r *recorder) diagnosticFields() diagnostics.Fields {
+	return diagnostics.Fields{
+		"component":     "recorder",
+		"lane":          "recorder",
+		"room_scope_id": r.roomScopeID,
+		"session_id":    r.sessionID,
+	}
+}
+
+func diagnosticErrorType(err error) string {
+	if err == nil {
+		return ""
+	}
+	return fmt.Sprintf("%T", err)
+}
+
+func recorderStateName(state uint32) string {
+	switch state {
+	case begin:
+		return "begin"
+	case pending:
+		return "pending"
+	case running:
+		return "running"
+	case stopped:
+		return "stopped"
+	default:
+		return "unknown"
+	}
 }
 
 func (r *recorder) tryRecord(ctx context.Context) {
+	attemptNumber := r.attemptSeq.Add(1)
+	attemptID := diagnostics.NewID("stream_attempt")
+	attemptFields := r.diagnosticFields()
+	attemptFields["attempt_id"] = attemptID
+	attemptFields["attempt_number"] = attemptNumber
+	ctx = diagnostics.WithFields(ctx, attemptFields)
+	ctx, endAttempt := diagnostics.NewTask(ctx, "recorder.stream_attempt", attemptFields)
+	defer endAttempt(diagnostics.Fields{"status": "returned"})
+	diagnostics.Record(ctx, "recorder.stream_attempt.start", diagnostics.Fields{
+		"status": "started",
+	})
+
 	// 每次重试前重置探测状态，避免上次录制的旧数据残留
 	// （例如上次探测成功但本次流分辨率已变化）
 	r.actualStreamInfo.Store(nil)
@@ -342,6 +421,11 @@ func (r *recorder) tryRecord(ctx context.Context) {
 
 	var streamInfos []*live.StreamUrlInfo
 	var err error
+	resolveCtx, endResolve := diagnostics.StartSpan(ctx, "stream.resolve", diagnostics.Fields{
+		"component": "stream",
+		"lane":      "stream",
+		"platform":  platformKey,
+	})
 	if streamInfos, err = r.Live.GetStreamInfos(); err == live.ErrNotImplemented {
 		var urls []*url.URL
 		// TODO: remove deprecated method GetStreamUrls
@@ -352,8 +436,27 @@ func (r *recorder) tryRecord(ctx context.Context) {
 			streamInfos = utils.GenUrlInfos(urls, make(map[string]string))
 		}
 	}
+	resolveStatus := "ok"
+	if err != nil {
+		resolveStatus = "error"
+	} else if len(streamInfos) == 0 {
+		resolveStatus = "empty"
+	}
+	endResolve(diagnostics.Fields{
+		"status":          resolveStatus,
+		"candidate_count": len(streamInfos),
+		"error_type":      diagnosticErrorType(err),
+	})
 	if err != nil || len(streamInfos) == 0 {
-		if err != nil && r.stopRetryForExplicitOffline(err) {
+		diagnostics.Record(resolveCtx, "recorder.stream_attempt.retry", diagnostics.Fields{
+			"component":   "recorder",
+			"lane":        "recorder",
+			"severity":    "warn",
+			"status":      resolveStatus,
+			"retry_in_ms": 5000,
+			"error_type":  diagnosticErrorType(err),
+		})
+		if err != nil && r.stopRetryForExplicitOffline(ctx, err) {
 			return
 		}
 		r.logStreamURLRetry(err)
@@ -437,16 +540,41 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	if resolveParserName(downloaderType, strings.Contains(url.Path, ".flv"), nil) == ffmpeg.Name {
 		_, ffmpegPathErr := utils.GetFFmpegPathForLive(ctx, r.Live)
 		ffmpegState := tools.GetFFmpegStatus().State
+		diagnostics.Record(ctx, "dependency.ffmpeg.state", diagnostics.Fields{
+			"component":     "dependency",
+			"lane":          "stream",
+			"room_scope_id": r.roomScopeID,
+			"required":      true,
+			"tool_state":    ffmpegState,
+			"available":     ffmpegPathErr == nil,
+			"error_type":    diagnosticErrorType(ffmpegPathErr),
+		})
 		if ffmpegPathErr != nil && resolvedConfig.FfmpegPath != "" {
 			r.getLogger().WithError(ffmpegPathErr).Warn("配置的 FFmpeg 路径不可用，本次录制跳过")
 			return
 		}
 		if ffmpegPathErr != nil && (ffmpegState == "checking" || ffmpegState == "downloading") {
-			if waitErr := tools.WaitFFmpegAsyncInitDone(ctx, r.stop); waitErr != nil {
+			waitCtx, endWait := diagnostics.StartSpan(ctx, "dependency.ffmpeg.wait", diagnostics.Fields{
+				"component":     "dependency",
+				"lane":          "stream",
+				"room_scope_id": r.roomScopeID,
+				"tool_state":    ffmpegState,
+				"reason":        "recording_prerequisite",
+			})
+			waitErr := tools.WaitFFmpegAsyncInitDone(waitCtx, r.stop)
+			waitStatus := "ok"
+			if waitErr != nil {
+				waitStatus = "interrupted"
+			}
+			endWait(diagnostics.Fields{
+				"status":     waitStatus,
+				"error_type": diagnosticErrorType(waitErr),
+			})
+			if waitErr != nil {
 				r.getLogger().WithError(waitErr).Warn("等待 FFmpeg 就绪被中断，放弃本次录制")
 				return
 			}
-			_, ffmpegPathErr = utils.GetFFmpegPathForLive(ctx, r.Live)
+			_, ffmpegPathErr = utils.GetFFmpegPathForLive(waitCtx, r.Live)
 		}
 		if ffmpegPathErr != nil {
 			r.getLogger().WithError(ffmpegPathErr).Warn("FFmpeg 不可用，本次录制跳过，等待下次重试")
@@ -463,16 +591,29 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	originalURL := url
 	isFLV := streamprobe.IsStreamFLV(url)
 	if isFLV {
+		probeTraceCtx, endProbe := diagnostics.StartSpan(ctx, "stream.probe", diagnostics.Fields{
+			"component":   "stream",
+			"lane":        "stream",
+			"stream_kind": "flv",
+		})
 		// FLV 流：启动探测代理
 		probeConfig := streamprobe.Config{
 			UpstreamURL: url,
 			Headers:     streamInfo.HeadersForDownloader,
 			OnProbed: func(info *streamprobe.StreamHeaderInfo) {
+				endProbe(diagnostics.Fields{
+					"status":       "ok",
+					"probe_status": info.ProbeStatus(),
+				})
 				r.actualStreamInfo.Store(info)
 				r.getLogger().Infof("流探测完成: 编码=%s, 分辨率=%s, 帧率=%.1f, 状态=%s",
 					info.VideoCodec, info.Resolution(), info.FrameRate, info.ProbeStatus())
 			},
 			OnProbeError: func(err error, msg string) {
+				endProbe(diagnostics.Fields{
+					"status":     "error",
+					"error_type": diagnosticErrorType(err),
+				})
 				if err != nil {
 					r.getLogger().Warnf("流探测警告: %s: %v", msg, err)
 				} else {
@@ -488,7 +629,11 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		}
 
 		probe := streamprobe.New(probeConfig)
-		if probeErr := probe.Start(ctx); probeErr != nil {
+		if probeErr := probe.Start(probeTraceCtx); probeErr != nil {
+			endProbe(diagnostics.Fields{
+				"status":     "start_error",
+				"error_type": diagnosticErrorType(probeErr),
+			})
 			// 探测代理启动失败不应影响录制，回退到直连上游
 			r.getLogger().WithError(probeErr).Warn("流探测代理启动失败，将直接连接上游")
 			r.actualStreamInfo.Store(&streamprobe.StreamHeaderInfo{
@@ -497,7 +642,10 @@ func (r *recorder) tryRecord(ctx context.Context) {
 			})
 		} else {
 			// 代理启动成功，用代理 URL 替换原始 URL
-			defer probe.Stop()
+			defer func() {
+				probe.Stop()
+				endProbe(diagnostics.Fields{"status": "stopped_before_probe"})
+			}()
 			streamInfo = &live.StreamUrlInfo{
 				Url:                  probe.LocalURL(),
 				HeadersForDownloader: nil, // 本地代理不需要 headers
@@ -545,13 +693,23 @@ func (r *recorder) tryRecord(ctx context.Context) {
 
 		// HLS 流：不使用代理，异步探测第一个 TS 分段的头部信息
 		// 使用 tryRecord 的 ctx，当录制结束/重试时自动取消探测
-		go func(probeCtx context.Context) {
+		hlsTraceCtx, endHLSProbe := diagnostics.StartSpan(ctx, "stream.probe", diagnostics.Fields{
+			"component":   "stream",
+			"lane":        "stream",
+			"stream_kind": "hls",
+		})
+		r.goTracked(hlsTraceCtx, func(probeCtx context.Context) {
 			hlsInfo, probeErr := streamprobe.ProbeHLS(probeCtx, url, streamInfo.HeadersForDownloader, r.getLogger())
 			if probeErr != nil {
 				// context 取消不算真正的错误，不需要打印
 				if probeCtx.Err() != nil {
+					endHLSProbe(diagnostics.Fields{"status": "cancelled"})
 					return
 				}
+				endHLSProbe(diagnostics.Fields{
+					"status":     "error",
+					"error_type": diagnosticErrorType(probeErr),
+				})
 				r.getLogger().Warnf("HLS 流探测失败: %v", probeErr)
 				// 探测失败也设置一个状态，避免永远 pending
 				r.actualStreamInfo.Store(&streamprobe.StreamHeaderInfo{
@@ -560,10 +718,14 @@ func (r *recorder) tryRecord(ctx context.Context) {
 				})
 				return
 			}
+			endHLSProbe(diagnostics.Fields{
+				"status":       "ok",
+				"probe_status": hlsInfo.ProbeStatus(),
+			})
 			r.actualStreamInfo.Store(hlsInfo)
 			r.getLogger().Infof("HLS 流探测完成: 编码=%s, 分辨率=%s, 帧率=%.1f",
 				hlsInfo.VideoCodec, hlsInfo.Resolution(), hlsInfo.FrameRate)
-		}(ctx)
+		})
 	} else {
 		// 其他格式：标记为不支持
 		r.actualStreamInfo.Store(&streamprobe.StreamHeaderInfo{
@@ -574,12 +736,37 @@ func (r *recorder) tryRecord(ctx context.Context) {
 
 	// 使用原始 URL 而非代理 URL 来判断下载器类型
 	// 代理 URL 路径为 /stream，无法正确判断是否为 FLV 流
+	parserName := resolveParserName(downloaderType, isFLV, nil)
+	parserInitCtx, endParserInit := diagnostics.StartSpan(ctx, "parser.init", diagnostics.Fields{
+		"component": "parser",
+		"lane":      "stream",
+		"parser":    parserName,
+		"stream_kind": func() string {
+			if isFLV {
+				return "flv"
+			}
+			return "non_flv"
+		}(),
+	})
 	p, err := newParser(originalURL, downloaderType, parserCfg, r.getLogger())
 	if err != nil {
+		endParserInit(diagnostics.Fields{
+			"status":     "error",
+			"error_type": diagnosticErrorType(err),
+		})
 		r.getLogger().WithError(err).Error("failed to init parse")
 		return
 	}
-	r.setAndCloseParser(p)
+	endParserInit(diagnostics.Fields{"status": "ok"})
+	if !r.setAndCloseParser(p) {
+		diagnostics.Record(parserInitCtx, "parser.start.skipped", diagnostics.Fields{
+			"component": "parser",
+			"lane":      "stream",
+			"parser":    parserName,
+			"status":    "recorder_stopped",
+		})
+		return
+	}
 	r.startTime = time.Now()
 
 	// 弹幕录制（支持哔哩哔哩、抖音、斗鱼平台）
@@ -614,9 +801,58 @@ func (r *recorder) tryRecord(ctx context.Context) {
 
 	// 设置当前录制文件路径
 	r.setCurrentFilePath(fileName)
+	segmentID := diagnostics.ScopeID(fileName)
+	diagnostics.Record(parserInitCtx, "segment.open", diagnostics.Fields{
+		"component":     "segment",
+		"lane":          "file",
+		"room_scope_id": r.roomScopeID,
+		"session_id":    r.sessionID,
+		"attempt_id":    attemptID,
+		"segment_id":    segmentID,
+		"parser":        parserName,
+		"status":        "observing",
+		"file_type":     strings.TrimPrefix(strings.ToLower(filepath.Ext(fileName)), "."),
+	})
 
 	r.getLogger().Debugln("Start ParseLiveStream(" + url.String() + ", " + fileName + ")")
-	err = r.parser.ParseLiveStream(ctx, streamInfo, r.Live, fileName)
+	parseCtx, endParserRun := diagnostics.StartSpan(ctx, "parser.run", diagnostics.Fields{
+		"component":  "parser",
+		"lane":       "stream",
+		"parser":     parserName,
+		"segment_id": segmentID,
+	})
+	parserRunEnded := false
+	defer func() {
+		if !parserRunEnded {
+			endParserRun(diagnostics.Fields{"status": "interrupted"})
+		}
+	}()
+	diagnostics.Record(parseCtx, "parser.start", diagnostics.Fields{
+		"component":  "parser",
+		"lane":       "stream",
+		"parser":     parserName,
+		"segment_id": segmentID,
+		"status":     "started",
+	})
+	observerCtx, stopObserver := context.WithCancel(parseCtx)
+	defer stopObserver()
+	observerDone := make(chan struct{})
+	bilisentry.GoWithContext(observerCtx, func(observerCtx context.Context) {
+		defer close(observerDone)
+		r.observeFirstNonzeroFile(observerCtx, fileName, segmentID, parserName, attemptID)
+	})
+	err = p.ParseLiveStream(parseCtx, streamInfo, r.Live, fileName)
+	stopObserver()
+	<-observerDone
+	parserStatus := "ok"
+	if err != nil {
+		parserStatus = "error"
+	}
+	endParserRun(diagnostics.Fields{
+		"status":     parserStatus,
+		"error_type": diagnosticErrorType(err),
+	})
+	parserRunEnded = true
 
 	// 清除当前录制文件路径
 	r.setCurrentFilePath("")
@@ -848,12 +1084,14 @@ func (r *recorder) startDanmakuRecorder(ctx context.Context, fileName, platform 
 
 // stopRetryForExplicitOffline 在平台已明确给出"已下播"信号时补发一次 LiveEnd，
 // 让 recorder manager 走正常回收流程，避免 recorder 永久停留在"录制准备中"。
-func (r *recorder) stopRetryForExplicitOffline(err error) bool {
+func (r *recorder) stopRetryForExplicitOffline(ctx context.Context, err error) bool {
 	if !errors.Is(err, live.ErrLiveOffline) {
 		return false
 	}
 	r.getLogger().WithError(err).Info("stream source explicitly reported offline, dispatching LiveEnd")
-	r.ed.DispatchEvent(events.NewEvent(listeners.LiveEnd, r.Live))
+	// 保留创建本 recorder 的 listener generation。否则旧 recorder 的延迟
+	// LiveEnd 会退化成无 owner 的 legacy 事件，可能误删恢复监控后新建的 recorder。
+	r.ed.DispatchEvent(events.NewEventWithContext(ctx, listeners.LiveEnd, r.Live))
 	return true
 }
 
@@ -908,14 +1146,26 @@ func (r *recorder) selectPreferredStream(streamInfos []*live.StreamUrlInfo) (ret
 }
 
 func (r *recorder) run(ctx context.Context) {
-	defer close(r.done)
 	defer r.sendAccumulatedSummary()
+	runCtx := diagnostics.WithFields(ctx, r.diagnosticFields())
+	exitReason := "unknown"
+	diagnostics.Record(runCtx, "recorder.run.start", diagnostics.Fields{"status": "running"})
+	defer func() {
+		diagnostics.Record(runCtx, "recorder.run.end", diagnostics.Fields{
+			"status":      "stopped",
+			"exit_reason": exitReason,
+		})
+	}()
 
 	const minRetryInterval = 5 * time.Second
 
 	for {
 		select {
 		case <-r.stop:
+			exitReason = "recorder_stop"
+			return
+		case <-ctx.Done():
+			exitReason = "context_cancelled"
 			return
 		default:
 			// 每次 tryRecord 使用独立的子 context
@@ -931,8 +1181,10 @@ func (r *recorder) run(ctx context.Context) {
 				delay := minRetryInterval - elapsed
 				select {
 				case <-r.stop:
+					exitReason = "recorder_stop"
 					return
 				case <-ctx.Done():
+					exitReason = "context_cancelled"
 					return
 				case <-time.After(delay):
 				}
@@ -1057,25 +1309,102 @@ func (r *recorder) getParser() parser.Parser {
 	return r.parser
 }
 
-func (r *recorder) setAndCloseParser(p parser.Parser) {
+// setAndCloseParser 安装本次尝试的 parser，并与 Close 的 stopped 转换配合：
+// 若 Close 已经取得 stopped，新的 parser 会被立即停止且绝不暴露给 run；
+// 若本函数先安装，Close 随后的 getParser 一定能观察并停止它。
+func (r *recorder) setAndCloseParser(p parser.Parser) bool {
 	r.parserLock.Lock()
-	defer r.parserLock.Unlock()
-	if r.parser != nil {
-		if err := r.parser.Stop(); err != nil {
+	if atomic.LoadUint32(&r.state) == stopped {
+		r.parserLock.Unlock()
+		if p != nil {
+			if err := p.Stop(); err != nil {
+				r.getLogger().WithError(err).Warn("failed to reject recorder after close")
+			}
+		}
+		return false
+	}
+	old := r.parser
+	r.parser = p
+	r.parserLock.Unlock()
+
+	if old != nil {
+		if err := old.Stop(); err != nil {
 			r.getLogger().WithError(err).Warn("failed to end recorder")
 		}
 	}
-	r.parser = p
+	return true
 }
 
 func (r *recorder) Start(ctx context.Context) error {
+	fields := r.diagnosticFields()
+	traceCtx := diagnostics.WithFields(ctx, fields)
+	diagnostics.Record(traceCtx, "recorder.start.requested", diagnostics.Fields{
+		"status":     "requested",
+		"from_state": recorderStateName(atomic.LoadUint32(&r.state)),
+	})
 	if !atomic.CompareAndSwapUint32(&r.state, begin, pending) {
+		diagnostics.Record(traceCtx, "recorder.start.ignored", diagnostics.Fields{
+			"status":        "ignored",
+			"current_state": recorderStateName(atomic.LoadUint32(&r.state)),
+		})
 		return nil
 	}
-	bilisentry.GoWithContext(ctx, func(ctx context.Context) { r.run(ctx) })
+
+	runCtx, runCancel := context.WithCancel(traceCtx)
+	r.setRunCancel(runCancel)
+
+	// 无论正常发布、被 Close 取消，还是 Start 中途异常退出，都必须释放 Close
+	// 对 pending 阶段的等待。若主任务尚未成功交给运行时，还要补发 done，避免
+	// Close 永久等待一个并不存在的 run。
+	runLaunched := false
+	var endTask func(diagnostics.Fields)
+	defer func() {
+		if !runLaunched {
+			if endTask != nil {
+				endTask(diagnostics.Fields{"status": "start_aborted"})
+			}
+			runCancel()
+			r.stopOnce.Do(func() { close(r.stop) })
+			r.signalDone()
+		}
+		r.signalStartReady()
+	}()
+
+	taskCtx, endTask := diagnostics.NewTask(runCtx, "recorder.session", fields)
+
+	// running 是 RecorderStart 的发布权。Close 若先把 pending 改成 stopped，
+	// 本次 Start 就安全取消且不产生 Start/Stop 半对事件；若此 CAS 成功，Close
+	// 会等待 startReady，保证 Start 已完整提交后才能产生 RecorderStop。
+	if !atomic.CompareAndSwapUint32(&r.state, pending, running) {
+		diagnostics.Record(taskCtx, "recorder.start.cancelled", diagnostics.Fields{
+			"status":        "cancelled",
+			"current_state": recorderStateName(atomic.LoadUint32(&r.state)),
+			"reason":        "close_won_pending",
+		})
+		return nil
+	}
+	diagnostics.Record(taskCtx, "recorder.state.transition", diagnostics.Fields{
+		"status": "running",
+		"from":   "pending",
+		"to":     "running",
+	})
+
+	bilisentry.GoWithContext(taskCtx, func(ctx context.Context) {
+		// endTask 必须先于 done 发布；Manager.Close 等待 done 后即可保证
+		// recorder 主任务不会再写入业务轨迹。
+		defer r.signalDone()
+		defer runCancel()
+		defer endTask(diagnostics.Fields{"status": "ended"})
+		r.run(ctx)
+	})
+	runLaunched = true
+	diagnostics.Record(taskCtx, "recorder.session.start", diagnostics.Fields{
+		"status": "accepted",
+	})
+
 	r.getLogger().Info("Record Start ", r.Live.GetRawUrl())
-	r.ed.DispatchEvent(events.NewEvent(RecorderStart, r.Live))
-	atomic.CompareAndSwapUint32(&r.state, pending, running)
+	r.ed.DispatchEvent(events.NewEventWithContext(taskCtx, RecorderStart, r.Live))
+	r.startEventSent.Store(true)
 	return nil
 }
 
@@ -1099,10 +1428,66 @@ func (r *recorder) IsRecording() bool {
 }
 
 func (r *recorder) Close() {
-	if !atomic.CompareAndSwapUint32(&r.state, running, stopped) {
+	r.closeOnce.Do(r.close)
+}
+
+func (r *recorder) close() {
+	fields := r.diagnosticFields()
+	traceCtx := diagnostics.WithFields(context.Background(), fields)
+
+	initialState := atomic.LoadUint32(&r.state)
+	diagnostics.Record(traceCtx, "recorder.close.requested", diagnostics.Fields{
+		"status":     "requested",
+		"from_state": recorderStateName(initialState),
+	})
+
+	started := false
+	for {
+		state := atomic.LoadUint32(&r.state)
+		switch state {
+		case begin:
+			if !atomic.CompareAndSwapUint32(&r.state, begin, stopped) {
+				continue
+			}
+			r.stopOnce.Do(func() { close(r.stop) })
+			r.signalDone()
+		case pending:
+			if !atomic.CompareAndSwapUint32(&r.state, pending, stopped) {
+				continue
+			}
+			started = true
+			r.stopOnce.Do(func() { close(r.stop) })
+		case running:
+			if !atomic.CompareAndSwapUint32(&r.state, running, stopped) {
+				continue
+			}
+			started = true
+			r.stopOnce.Do(func() { close(r.stop) })
+		case stopped:
+			// closeOnce 保证只有本调用能在这里执行关闭主体；此分支仅兼容
+			// 外部旧代码预先写入 stopped 的情况。
+		default:
+			diagnostics.Record(traceCtx, "recorder.close.ignored", diagnostics.Fields{
+				"status":        "ignored",
+				"current_state": recorderStateName(state),
+			})
+			return
+		}
+		break
+	}
+
+	// 先取消 recorder 私有 context，再检查 parser。即使 tryRecord 此刻尚未
+	// 完成 parser 初始化，后续安装也会观察 stopped 并立即拒绝。
+	r.cancelRun()
+
+	if !started {
+		diagnostics.Record(traceCtx, "recorder.close.ignored", diagnostics.Fields{
+			"status":        "not_started",
+			"current_state": recorderStateName(initialState),
+		})
 		return
 	}
-	close(r.stop)
+
 	if p := r.getParser(); p != nil {
 		if err := p.Stop(); err != nil {
 			r.getLogger().WithError(err).Warn("failed to end recorder")
@@ -1115,8 +1500,81 @@ func (r *recorder) Close() {
 	if dmRec != nil {
 		dmRec.Stop()
 	}
+
+	// Start 可能刚把主任务交给运行时、但尚未发布 RecorderStart；必须等到它
+	// 发布完成或确认取消，才能记录 session.end 和产生 RecorderStop。
+	r.waitStartReady()
+
+	// run 会先完成 parser/observer、摘要和 diagnostics task，再发布 done。
+	// run 结束后不会再创建 aux 任务，因此随后 Wait 不存在 Add/Wait 竞态。
+	<-r.done
+	r.auxWg.Wait()
+
 	r.getLogger().Info("Record End")
-	r.ed.DispatchEvent(events.NewEvent(RecorderStop, r.Live))
+	diagnostics.Record(traceCtx, "recorder.session.end", diagnostics.Fields{
+		"status": "stopped",
+	})
+	if r.startWasPublished() {
+		r.ed.DispatchEvent(events.NewEventWithContext(traceCtx, RecorderStop, r.Live))
+	} else {
+		diagnostics.Record(traceCtx, "recorder.stop.event.skipped", diagnostics.Fields{
+			"status": "not_published",
+			"reason": "start_cancelled",
+		})
+	}
+}
+
+func (r *recorder) signalDone() {
+	r.doneOnce.Do(func() { close(r.done) })
+}
+
+func (r *recorder) setRunCancel(cancel context.CancelFunc) {
+	r.runCancelMu.Lock()
+	r.runCancel = cancel
+	alreadyStopped := atomic.LoadUint32(&r.state) == stopped
+	r.runCancelMu.Unlock()
+
+	// 覆盖 Close 已完成状态转换并在本函数加锁前读到 nil cancel 的交错。
+	if alreadyStopped && cancel != nil {
+		cancel()
+	}
+}
+
+func (r *recorder) cancelRun() {
+	r.runCancelMu.Lock()
+	cancel := r.runCancel
+	r.runCancelMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (r *recorder) signalStartReady() {
+	// 兼容少量直接构造 recorder 的旧测试/内部代码；NewRecorder 始终初始化。
+	if r.startReady == nil {
+		return
+	}
+	r.startReadyOnce.Do(func() { close(r.startReady) })
+}
+
+func (r *recorder) waitStartReady() {
+	if r.startReady != nil {
+		<-r.startReady
+	}
+}
+
+func (r *recorder) startWasPublished() bool {
+	// 未设置 startReady 只可能是直接构造的 legacy recorder。它若已经处于
+	// running/pending，沿用旧语义产生 RecorderStop。
+	return r.startReady == nil || r.startEventSent.Load()
+}
+
+func (r *recorder) goTracked(ctx context.Context, fn func(context.Context)) {
+	r.auxWg.Add(1)
+	bilisentry.GoWithContext(ctx, func(ctx context.Context) {
+		defer r.auxWg.Done()
+		fn(ctx)
+	})
 }
 
 func (r *recorder) CloseForRestart() []notify.RecordingFileDetail {
@@ -1152,6 +1610,87 @@ func (r *recorder) setCurrentFilePath(path string) {
 	r.currentFileLock.Lock()
 	defer r.currentFileLock.Unlock()
 	r.currentFilePath = path
+}
+
+// observeFirstNonzeroFile 以有界轮询观察“输出文件首次变为非空”。
+// 这是文件系统层面的近似观测，不宣称等于 parser 的精确首字节写入时刻；精度会
+// 明确写入事件。原始文件路径只在进程内使用，绝不会进入 diagnostics attrs。
+func (r *recorder) observeFirstNonzeroFile(
+	ctx context.Context,
+	expectedPath string,
+	segmentID string,
+	parserName string,
+	attemptID string,
+) {
+	const pollInterval = 250 * time.Millisecond
+	startedAt := time.Now()
+
+	check := func() (int64, string, bool) {
+		if info, err := os.Stat(expectedPath); err == nil && info.Mode().IsRegular() && info.Size() > 0 {
+			return info.Size(), "expected", true
+		}
+		if parserName == bililive_recorder.Name {
+			for _, partPath := range findBililiveRecorderOutputFiles(expectedPath) {
+				if info, err := os.Stat(partPath); err == nil && info.Mode().IsRegular() && info.Size() > 0 {
+					return info.Size(), "part", true
+				}
+			}
+		}
+		return 0, "", false
+	}
+
+	recordObserved := func(size int64, variant string) {
+		diagnostics.Record(ctx, "segment.first_nonzero_observed", diagnostics.Fields{
+			"component":              "segment",
+			"lane":                   "file",
+			"room_scope_id":          r.roomScopeID,
+			"session_id":             r.sessionID,
+			"attempt_id":             attemptID,
+			"segment_id":             segmentID,
+			"parser":                 parserName,
+			"status":                 "observed",
+			"observed_size_bytes":    size,
+			"file_variant":           variant,
+			"observation_latency_ms": float64(time.Since(startedAt)) / float64(time.Millisecond),
+			"poll_interval_ms":       float64(pollInterval) / float64(time.Millisecond),
+			"measurement_accuracy":   "filesystem_poll_upper_bound",
+		})
+	}
+
+	if size, variant, ok := check(); ok {
+		recordObserved(size, variant)
+		return
+	}
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			// Parser 可能恰好在两个 tick 之间完成，取消前做最后一次观察。
+			if size, variant, ok := check(); ok {
+				recordObserved(size, variant)
+				return
+			}
+			diagnostics.Record(ctx, "segment.first_nonzero_observer.end", diagnostics.Fields{
+				"component":        "segment",
+				"lane":             "file",
+				"room_scope_id":    r.roomScopeID,
+				"session_id":       r.sessionID,
+				"attempt_id":       attemptID,
+				"segment_id":       segmentID,
+				"parser":           parserName,
+				"status":           "not_observed",
+				"elapsed_ms":       float64(time.Since(startedAt)) / float64(time.Millisecond),
+				"poll_interval_ms": float64(pollInterval) / float64(time.Millisecond),
+			})
+			return
+		case <-ticker.C:
+			if size, variant, ok := check(); ok {
+				recordObserved(size, variant)
+				return
+			}
+		}
+	}
 }
 
 // getCurrentFilePath 获取当前正在录制的文件路径
@@ -1409,7 +1948,7 @@ func (r *recorder) updateAvailableStreams(ctx context.Context, info *live.Info, 
 	}
 
 	// 保存到数据库（使用 goroutine 避免阻塞录制流程）
-	bilisentry.GoWithContext(ctx, func(ctx context.Context) {
+	r.goTracked(ctx, func(ctx context.Context) {
 		r.saveAvailableStreamsToDatabase(ctx, availableStreams)
 	})
 }

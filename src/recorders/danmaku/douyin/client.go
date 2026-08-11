@@ -52,6 +52,7 @@ type DouyinClient struct {
 	onGift    func(username, giftName string, num int)
 	done      chan struct{}
 	closeOnce sync.Once
+	workers   sync.WaitGroup
 	logger    *logrus.Entry
 	mu        sync.Mutex
 	running   bool
@@ -136,10 +137,18 @@ func (c *DouyinClient) Start(ctx context.Context) error {
 	c.logger.Info("WebSocket 连接成功")
 
 	// 启动消息读取循环（带重连）
-	go c.readLoopWithReconnect(ctx, realRoomID, ttwid, userUniqueID)
+	c.workers.Add(1)
+	go func() {
+		defer c.workers.Done()
+		c.readLoopWithReconnect(ctx, realRoomID, ttwid, userUniqueID)
+	}()
 
 	// 启动心跳
-	go c.heartbeatLoop(ctx)
+	c.workers.Add(1)
+	go func() {
+		defer c.workers.Done()
+		c.heartbeatLoop(ctx)
+	}()
 
 	return nil
 }
@@ -147,16 +156,14 @@ func (c *DouyinClient) Start(ctx context.Context) error {
 // Stop 停止客户端
 func (c *DouyinClient) Stop() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if !c.running {
-		return
-	}
 	c.running = false
 	c.closeOnce.Do(func() { close(c.done) })
-	if c.conn != nil {
-		c.conn.Close()
+	conn := c.conn
+	c.mu.Unlock()
+	if conn != nil {
+		_ = conn.Close()
 	}
+	c.workers.Wait()
 }
 
 // readLoopWithReconnect 带重连的消息读取循环

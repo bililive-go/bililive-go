@@ -1,0 +1,295 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bililive-go.com/schemas/diagnostic-bundle-v1.json",
+  "title": "bililive-go 单文件诊断包",
+  "type": "object",
+  "required": [
+    "schema",
+    "manifest",
+    "configuration",
+    "entities",
+    "incident",
+    "events",
+    "metrics",
+    "runtime_samples"
+  ],
+  "properties": {
+    "schema": {
+      "const": "bililive.diagnostic-bundle/v1"
+    },
+    "manifest": {
+      "type": "object",
+      "required": [
+        "bundle_id",
+        "run_id",
+        "time_origin",
+        "capture_start_ms",
+        "capture_end_ms",
+        "synthetic"
+      ],
+      "properties": {
+        "bundle_id": { "type": "string" },
+        "run_id": { "type": "string" },
+        "incident_id": { "type": "string" },
+        "time_origin": { "type": "string", "format": "date-time" },
+        "capture_start_ms": { "type": "number" },
+        "capture_end_ms": { "type": "number" },
+        "synthetic": { "type": "boolean" },
+        "app_version": { "type": "string" },
+        "commit": { "type": "string" },
+        "go_version": { "type": "string" },
+        "os": { "type": "string" },
+        "arch": { "type": "string" },
+        "trace_mode": { "enum": ["normal", "debug", "diagnostic"] },
+        "dropped_events": { "type": "integer", "minimum": 0 },
+        "redaction_version": { "type": "string" },
+        "sequence_scope": {
+          "enum": ["process_global_observation_order"]
+        },
+        "room_population": {
+          "type": "object",
+          "properties": {
+            "configured": { "type": "integer", "minimum": 0 },
+            "started": { "type": "integer", "minimum": 0 },
+            "fully_traced": { "type": "integer", "minimum": 0 },
+            "representative": { "type": "integer", "minimum": 0 },
+            "aggregate_only": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "configuration": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "id", "label"],
+        "properties": {
+          "type": { "type": "string" },
+          "id": { "type": "string" },
+          "label": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "incident": {
+      "type": "object",
+      "required": [
+        "type",
+        "title",
+        "anchor_entity_id",
+        "expected_detection_interval_ms",
+        "observed_monitor_to_first_byte_ms"
+      ],
+      "properties": {
+        "type": { "type": "string" },
+        "title": { "type": "string" },
+        "anchor_entity_id": { "type": "string" },
+        "expected_detection_interval_ms": { "type": "number", "minimum": 0 },
+        "observed_monitor_to_first_byte_ms": { "type": "number", "minimum": 0 },
+        "user_report": { "type": "string" },
+        "trigger_event_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/event" }
+    },
+    "metrics": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/metric" }
+    },
+    "runtime_samples": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/runtimeSample" }
+    },
+    "runtime_slices": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/runtimeSlice" }
+    },
+    "expected_analysis": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "event": {
+      "type": "object",
+      "required": [
+        "seq",
+        "id",
+        "at_ms",
+        "severity",
+        "kind",
+        "name",
+        "component",
+        "lane",
+        "flow_id"
+      ],
+      "properties": {
+        "seq": { "type": "integer", "minimum": 1 },
+        "global_seq": { "type": "integer", "minimum": 1 },
+        "id": { "type": "string" },
+        "at_ms": { "type": "number" },
+        "severity": {
+          "enum": ["trace", "debug", "info", "warn", "error"]
+        },
+        "kind": {
+          "enum": ["instant", "span.start", "span.end", "state.transition"]
+        },
+        "name": { "type": "string" },
+        "component": { "type": "string" },
+        "lane": { "type": "string" },
+        "flow_id": { "type": "string" },
+        "span_id": { "type": "string" },
+        "parent_span_id": { "type": "string" },
+        "task_id": { "type": "string" },
+        "goroutine_id": { "type": "string" },
+        "dispatch_id": { "type": "string" },
+        "handler_id": { "type": "string" },
+        "generation": { "type": "integer", "minimum": 1 },
+        "entity_id": { "type": "string" },
+        "status": { "type": "string" },
+        "message": { "type": "string" },
+        "attrs": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "outcome": {
+          "type": "object",
+          "properties": {
+            "status": { "type": "string" },
+            "code": { "type": "string" },
+            "duration_ms": { "type": "number", "minimum": 0 },
+            "retryable": { "type": "boolean" }
+          },
+          "additionalProperties": true
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["rel", "event_id"],
+            "properties": {
+              "rel": { "type": "string" },
+              "event_id": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "metric": {
+      "type": "object",
+      "required": ["name", "unit", "component", "points"],
+      "properties": {
+        "name": { "type": "string" },
+        "unit": { "type": "string" },
+        "component": { "type": "string" },
+        "labels": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              { "type": "number" },
+              { "type": "number" }
+            ],
+            "items": false,
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "runtimeSample": {
+      "type": "object",
+      "required": [
+        "at_ms",
+        "goroutine_id",
+        "state",
+        "wait_reason",
+        "stack_fingerprint"
+      ],
+      "properties": {
+        "at_ms": { "type": "number" },
+        "sample_kind": {
+          "enum": ["snapshot", "block", "unblock", "flow"]
+        },
+        "goroutine_id": { "type": "string" },
+        "state": { "type": "string" },
+        "wait_reason": { "type": "string" },
+        "stack_fingerprint": { "type": "string" },
+        "task_id": { "type": "string" },
+        "flow_id": { "type": "string" },
+        "generation": { "type": "integer", "minimum": 1 },
+        "linked_event_id": { "type": "string" },
+        "from_goroutine_id": { "type": "string" },
+        "to_goroutine_id": { "type": "string" },
+        "unblocked_by_event_id": { "type": "string" },
+        "top_frames": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "linked_span_id": { "type": "string" },
+        "attrs": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "runtimeSlice": {
+      "type": "object",
+      "required": [
+        "goroutine_id",
+        "task_id",
+        "start_ms",
+        "end_ms",
+        "state",
+        "wait_reason",
+        "generation",
+        "flow_id",
+        "seq_on_g"
+      ],
+      "properties": {
+        "goroutine_id": { "type": "string" },
+        "task_id": { "type": "string" },
+        "start_ms": { "type": "number" },
+        "end_ms": { "type": "number" },
+        "state": {
+          "enum": ["running", "runnable", "waiting", "syscall"]
+        },
+        "wait_reason": { "type": "string" },
+        "generation": { "type": "integer", "minimum": 1 },
+        "flow_id": { "type": "string" },
+        "seq_on_g": { "type": "integer", "minimum": 1 },
+        "links": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["rel", "event_id"],
+            "properties": {
+              "rel": { "type": "string" },
+              "event_id": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

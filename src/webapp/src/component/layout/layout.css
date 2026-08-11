@@ -6,9 +6,35 @@
     padding: 24px;
 }
 
-@media(max-device-width: 768px) {
+.small-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.mobile-diagnostic-link {
+    display: none;
+    min-height: 40px;
+    align-items: center;
+    gap: 6px;
+    color: #ffffff;
+    font-weight: 600;
+}
+
+.mobile-diagnostic-link:hover,
+.mobile-diagnostic-link:focus {
+    color: #b9d5ff;
+}
+
+@media(max-width: 768px) {
     .small-header{
         padding: 0 30px !important;
+    }
+    .small-header .logo-text {
+        margin: 0;
+    }
+    .mobile-diagnostic-link {
+        display: flex;
     }
     .side-bar {
         display: none;

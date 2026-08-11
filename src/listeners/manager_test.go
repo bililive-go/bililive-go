@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	gomock "go.uber.org/mock/gomock"
@@ -15,6 +16,28 @@ import (
 	evtmock "github.com/bililive-go/bililive-go/src/pkg/events/mock"
 	"github.com/bililive-go/bililive-go/src/types"
 )
+
+type blockingTestListener struct {
+	closeEntered chan struct{}
+	releaseClose chan struct{}
+}
+
+func (l *blockingTestListener) Start() error {
+	return nil
+}
+
+func (l *blockingTestListener) StartWithInfo(*live.Info) error {
+	return nil
+}
+
+func (l *blockingTestListener) Close() {
+	close(l.closeEntered)
+	<-l.releaseClose
+}
+
+func (l *blockingTestListener) CloseSync() {
+	l.Close()
+}
 
 func TestManagerAddAndRemoveListener(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -98,4 +121,102 @@ func TestReplaceListenerUsesSynchronousHandoverAndInitialInfo(t *testing.T) {
 	assert.NoError(t, m.replaceListener(context.Background(), oldLive, newLive, info))
 	assert.Same(t, newListenerMock, m.savers["new"])
 	assert.NotContains(t, m.savers, types.LiveID("old"))
+}
+
+func TestManagerStartCloseWithRPCAndZeroListenersBalancesWaitGroup(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ed := evtmock.NewMockDispatcher(ctrl)
+	ed.EXPECT().AddEventListener(RoomInitializingFinished, gomock.Any())
+	configs.SetCurrentConfig(&configs.Config{
+		RPC: configs.RPC{Enable: true},
+	})
+	inst := &instance.Instance{EventDispatcher: ed}
+	ctx := context.WithValue(context.Background(), instance.Key, inst)
+	manager := NewManager(ctx)
+
+	assert.NoError(t, manager.Start(ctx))
+	assert.NoError(t, manager.Start(ctx))
+	manager.Close(ctx)
+	manager.Close(ctx)
+
+	waited := make(chan struct{})
+	go func() {
+		inst.WaitGroup.Wait()
+		close(waited)
+	}()
+	select {
+	case <-waited:
+	case <-time.After(time.Second):
+		t.Fatal("0 listener 时 Listener Manager 的 WaitGroup Add/Done 未严格配对")
+	}
+}
+
+func TestManagerCloseWaitsAndRejectsOperationsAfterClosing(t *testing.T) {
+	inst := &instance.Instance{}
+	ctx := context.WithValue(context.Background(), instance.Key, inst)
+	manager := NewManager(ctx)
+	assert.NoError(t, manager.Start(ctx))
+
+	blocking := &blockingTestListener{
+		closeEntered: make(chan struct{}),
+		releaseClose: make(chan struct{}),
+	}
+	backup := newListener
+	newListener = func(context.Context, live.Live) Listener {
+		return blocking
+	}
+	defer func() { newListener = backup }()
+
+	liveObject := &testLiveID{liveID: "close-wait"}
+	assert.NoError(t, manager.AddListener(ctx, liveObject))
+
+	closeReturned := make(chan struct{})
+	go func() {
+		manager.Close(ctx)
+		close(closeReturned)
+	}()
+	select {
+	case <-blocking.closeEntered:
+	case <-time.After(time.Second):
+		t.Fatal("Manager.Close 未调用 listener.Close")
+	}
+	select {
+	case <-closeReturned:
+		t.Fatal("listener 尚未退出时 Manager.Close 不应返回")
+	case <-time.After(30 * time.Millisecond):
+	}
+
+	close(blocking.releaseClose)
+	select {
+	case <-closeReturned:
+	case <-time.After(time.Second):
+		t.Fatal("listener 退出后 Manager.Close 仍未返回")
+	}
+
+	assert.ErrorIs(t, manager.AddListener(ctx, liveObject), ErrManagerClosed)
+	// Close 必须幂等，且 Start 中的全局 WaitGroup 计数已经对称归零。
+	manager.Close(ctx)
+	waited := make(chan struct{})
+	go func() {
+		inst.WaitGroup.Wait()
+		close(waited)
+	}()
+	select {
+	case <-waited:
+	case <-time.After(time.Second):
+		t.Fatal("Listener Manager 的 WaitGroup 未归零")
+	}
+}
+
+// testLiveID 只为 manager 生命周期测试提供 AddListener 实际访问的方法。
+// 其余 live.Live 方法由嵌入的 nil 接口兜底；diagnostics 未初始化时不会调用。
+type testLiveID struct {
+	live.Live
+	liveID types.LiveID
+}
+
+func (l *testLiveID) GetLiveId() types.LiveID {
+	return l.liveID
 }

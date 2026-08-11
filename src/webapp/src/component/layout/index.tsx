@@ -1,5 +1,5 @@
 import React from 'react';
-import { HashRouter as Router, Link } from 'react-router-dom';
+import { HashRouter as Router, Link, useLocation } from 'react-router-dom';
 import { Layout, Menu, Button } from 'antd';
 import {
     MonitorOutlined,
@@ -13,7 +13,8 @@ import {
     LineChartOutlined,
     CloudUploadOutlined,
     CalendarOutlined,
-    CommentOutlined
+    CommentOutlined,
+    BugOutlined
 } from '@ant-design/icons';
 import './layout.css';
 
@@ -32,8 +33,24 @@ interface State {
 // localStorage key 用于保存侧边栏收起状态
 const SIDER_COLLAPSED_KEY = 'siderCollapsed';
 
-class RootLayout extends React.Component<Props, State> {
-    constructor(props: Props) {
+const getSelectedMenuKey = (path: string): string => {
+    if (path.startsWith('/liveInfo')) return '2';
+    if (path.startsWith('/configInfo')) return '3';
+    if (path.startsWith('/danmaku')) return 'danmaku';
+    if (path.startsWith('/fileList')) return '4';
+    if (path.startsWith('/tasks')) return 'tasks';
+    if (path.startsWith('/diagnostics')) return 'diagnostics';
+    if (path.startsWith('/iostats')) return 'iostats';
+    if (path.startsWith('/update')) return 'update';
+    return '1';
+};
+
+interface RootLayoutContentProps extends Props {
+    selectedKey: string;
+}
+
+class RootLayoutContent extends React.Component<RootLayoutContentProps, State> {
+    constructor(props: RootLayoutContentProps) {
         super(props);
         // 从 localStorage 读取收起状态
         let collapsed = false;
@@ -62,10 +79,13 @@ class RootLayout extends React.Component<Props, State> {
     render() {
         const { collapsed } = this.state;
         return (
-            <Router>
-                <Layout className="all-layout">
+            <Layout className="all-layout">
                     <Header className="header small-header">
                         <h3 className="logo-text">Bililive-go</h3>
+                        <Link className="mobile-diagnostic-link" to="/diagnostics">
+                            <BugOutlined />
+                            诊断分析
+                        </Link>
                     </Header>
                     <Layout>
                         <Sider
@@ -100,7 +120,7 @@ class RootLayout extends React.Component<Props, State> {
                             </div>
                             <Menu
                                 mode="inline"
-                                defaultSelectedKeys={['1']}
+                                selectedKeys={[this.props.selectedKey]}
                                 inlineCollapsed={collapsed}
                                 style={{ borderRight: 0 }}
                                 items={[
@@ -140,6 +160,11 @@ class RootLayout extends React.Component<Props, State> {
                                         label: <Link to="/tasks">任务队列</Link>,
                                     },
                                     {
+                                        key: 'diagnostics',
+                                        icon: <BugOutlined />,
+                                        label: <Link to="/diagnostics">诊断分析</Link>,
+                                    },
+                                    {
                                         key: 'scheduler',
                                         icon: <CalendarOutlined />,
                                         label: <a href="/scheduler/" target="_blank" rel="noopener noreferrer">调度器</a>,
@@ -170,10 +195,25 @@ class RootLayout extends React.Component<Props, State> {
                             </Content>
                         </Layout>
                     </Layout>
-                </Layout>
-            </Router>
+            </Layout>
         )
     }
 }
+
+const RoutedRootLayoutContent: React.FC<Props> = (props) => {
+    const location = useLocation();
+    return (
+        <RootLayoutContent
+            {...props}
+            selectedKey={getSelectedMenuKey(location.pathname)}
+        />
+    );
+};
+
+const RootLayout: React.FC<Props> = (props) => (
+    <Router>
+        <RoutedRootLayoutContent {...props} />
+    </Router>
+);
 
 export default RootLayout;

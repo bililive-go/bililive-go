@@ -16,6 +16,7 @@ import (
 )
 
 var reUUID = regexp.MustCompile(`_uuid=(.+?);`)
+
 // reCMD 从 JSON 中快速提取 cmd 字段，支持带冒号后缀的变体（如 "DANMU_MSG:some_param"）
 var reCMD = regexp.MustCompile(`"cmd"\s*:\s*"([^"]+)"`)
 
@@ -33,6 +34,7 @@ type Client struct {
 	running   bool
 	done      chan struct{}
 	closeOnce sync.Once
+	workers   sync.WaitGroup
 	// heartbeatCh 用于认证成功后立即触发第一次心跳
 	heartbeatCh chan struct{}
 
@@ -132,8 +134,15 @@ func (c *Client) Start() error {
 	c.logger.Infof("B站弹幕连接成功: roomID=%d (real=%d)", c.roomID, realRoomID)
 
 	// 7. 启动消息循环和心跳
-	go c.readLoopWithReconnect(realRoomID, uid, buvid, danmuInfo)
-	go c.heartbeatLoop()
+	c.workers.Add(2)
+	go func() {
+		defer c.workers.Done()
+		c.readLoopWithReconnect(realRoomID, uid, buvid, danmuInfo)
+	}()
+	go func() {
+		defer c.workers.Done()
+		c.heartbeatLoop()
+	}()
 
 	return nil
 }
@@ -163,16 +172,14 @@ func (c *Client) sendHeartbeat(conn *websocket.Conn) error {
 // Stop 停止客户端
 func (c *Client) Stop() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if !c.running {
-		return
-	}
 	c.running = false
 	c.closeOnce.Do(func() { close(c.done) })
-	if c.conn != nil {
-		c.conn.Close()
+	conn := c.conn
+	c.mu.Unlock()
+	if conn != nil {
+		_ = conn.Close()
 	}
+	c.workers.Wait()
 }
 
 // heartbeatLoop 心跳循环（每 30 秒）

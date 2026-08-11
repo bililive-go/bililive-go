@@ -1,0 +1,453 @@
+{
+  "schema": "bililive.diagnostic-bundle/v1",
+  "manifest": {
+    "bundle_id": "bundle_demo_complex_100_rooms_restart",
+    "run_id": "run_demo_complex_100_01",
+    "incident_id": "incident_demo_complex_100_01",
+    "time_origin": "2026-07-29T10:00:00+09:00",
+    "capture_start_ms": 0,
+    "capture_end_ms": 63000,
+    "synthetic": true,
+    "app_version": "demo-next",
+    "commit": "synthetic",
+    "go_version": "go1.25.1",
+    "os": "linux",
+    "arch": "amd64",
+    "trace_mode": "diagnostic",
+    "dropped_events": 0,
+    "redaction_version": "demo-v1",
+    "sequence_scope": "process_global_observation_order",
+    "room_population": {
+      "configured": 100,
+      "started": 100,
+      "fully_traced": 1,
+      "representative": 5,
+      "aggregate_only": 94
+    },
+    "title": "100 房间同时启动、手动停启与 generation 交错的 50 秒慢录制"
+  },
+  "configuration": {
+    "room_check_interval_ms": 20000,
+    "configured_room_count": 100,
+    "startup_monitor_batch_size": 100,
+    "platform_limiter_rate_per_second": 1.75,
+    "platform_limiter_burst": 10,
+    "platform_limiter_semantics": "shared_non_fifo_competition",
+    "downloader_type": "native",
+    "diagnostic_ttl_ms": 900000
+  },
+  "entities": [
+    {
+      "type": "room",
+      "id": "room_hmac_demo_target_042",
+      "label": "目标直播间",
+      "platform": "bilibili",
+      "fixture_live_throughout_capture": true
+    },
+    {
+      "type": "room",
+      "id": "room_hmac_demo_rep_001",
+      "label": "代表房间 001",
+      "platform": "bilibili"
+    },
+    {
+      "type": "room",
+      "id": "room_hmac_demo_rep_020",
+      "label": "代表房间 020",
+      "platform": "bilibili"
+    },
+    {
+      "type": "room",
+      "id": "room_hmac_demo_rep_050",
+      "label": "代表房间 050",
+      "platform": "bilibili"
+    },
+    {
+      "type": "room",
+      "id": "room_hmac_demo_rep_075",
+      "label": "代表房间 075",
+      "platform": "bilibili"
+    },
+    {
+      "type": "room",
+      "id": "room_hmac_demo_rep_099",
+      "label": "代表房间 099",
+      "platform": "bilibili"
+    },
+    {
+      "type": "recording_session",
+      "id": "recording_demo_complex_g2",
+      "label": "目标房间 generation 2 录制会话"
+    }
+  ],
+  "incident": {
+    "type": "recording_start_slow_with_manual_restart",
+    "title": "恢复监控后仍等待整整 50 秒才写出 FLV",
+    "anchor_entity_id": "room_hmac_demo_target_042",
+    "anchor_start_event_id": "evt_cx_020",
+    "goal_event_id": "evt_cx_057",
+    "initial_generation": 1,
+    "target_generation": 2,
+    "configured_room_count": 100,
+    "expected_detection_interval_ms": 20000,
+    "observed_monitor_to_first_byte_ms": 50000,
+    "observed_resume_to_first_byte_ms": 50000,
+    "observed_process_start_to_first_byte_ms": 57052,
+    "user_report": "程序同时监控 100 个房间；等待期间手动停止再恢复目标房间，恢复后约 50 秒才真正写出 FLV。",
+    "trigger_event_id": "evt_cx_058",
+    "known_fixture_truth": "目标房间在整个合成窗口内保持开播"
+  },
+  "events": [
+    {"seq":1,"global_seq":1,"id":"evt_cx_001","at_ms":0,"severity":"info","kind":"instant","name":"process.run.start","component":"process","lane":"进程","flow_id":"flow_process_complex","task_id":"task_process_main","goroutine_id":"g_main_1","attrs":{"configured_room_count":100}},
+    {"seq":2,"global_seq":2,"id":"evt_cx_002","at_ms":5,"severity":"info","kind":"instant","name":"monitor.batch.started","component":"listener_manager","lane":"批量初始化","flow_id":"flow_batch_100","task_id":"task_batch_init_100","goroutine_id":"g_main_1","attrs":{"room_count":100,"fully_traced_room_count":1,"representative_room_count":5,"aggregate_only_room_count":94}},
+    {"seq":3,"global_seq":3,"id":"evt_cx_003","at_ms":10,"severity":"info","kind":"instant","name":"monitor.started","component":"listener","lane":"目标房间","flow_id":"flow_complex_target","task_id":"task_listener_target_g1","goroutine_id":"g_main_1","generation":1,"entity_id":"room_hmac_demo_target_042","attrs":{"configured_interval_ms":20000,"reason":"startup_batch"}},
+    {"seq":4,"global_seq":4,"id":"evt_cx_004","at_ms":12,"severity":"debug","kind":"instant","name":"task.created","component":"live_scheduler","lane":"平台调度","flow_id":"flow_complex_target","task_id":"task_scheduler_request_g1","goroutine_id":"g_scheduler_target_g1","generation":1,"entity_id":"room_hmac_demo_target_042","attrs":{"context_owner":"wrapped_live.scheduler","request_scope":"shared_scheduler_request"},"links":[{"rel":"caused_by","event_id":"evt_cx_003"}]},
+    {"seq":5,"global_seq":5,"id":"evt_cx_005","at_ms":15,"severity":"debug","kind":"span.start","name":"listener.poll.start","component":"listener","lane":"目标房间","flow_id":"flow_complex_target","span_id":"span_poll_target_g1","task_id":"task_listener_waiter_g1","goroutine_id":"g_listener_target_g1","generation":1,"entity_id":"room_hmac_demo_target_042","attrs":{"poll_no":1,"reason":"initial_refresh","context_owner":"listener.generation_1"}},
+    {"seq":6,"global_seq":6,"id":"evt_cx_006","at_ms":20,"severity":"debug","kind":"span.start","name":"scheduler.rate_limit.wait.start","component":"live_scheduler","lane":"平台共享限流","flow_id":"flow_complex_target","span_id":"span_limiter_target_g1","task_id":"task_scheduler_request_g1","goroutine_id":"g_scheduler_target_g1","generation":1,"entity_id":"room_hmac_demo_target_042","attrs":{"waiter_count_at_enter":23,"recheck_count":0,"context_owner":"wrapped_live.scheduler","cancel_target":"listener.waiter.generation_1","fifo_guaranteed":false}},
+    {"seq":7,"global_seq":7,"id":"evt_cx_007","at_ms":100,"severity":"debug","kind":"instant","name":"scheduler.limit.snapshot","component":"live_scheduler","lane":"平台共享限流","flow_id":"flow_batch_100","task_id":"task_batch_init_100","goroutine_id":"g_platform_limiter_20","attrs":{"waiting_rooms":90,"grants_total":10,"configured_rooms":100,"fifo_guaranteed":false}},
+    {"seq":8,"global_seq":8,"id":"evt_cx_008","at_ms":300,"severity":"debug","kind":"instant","name":"scheduler.representative_poll.completed","component":"live_scheduler","lane":"代表房间","flow_id":"flow_rep_001","task_id":"task_poll_rep_001","goroutine_id":"g_scheduler_rep_001","generation":1,"entity_id":"room_hmac_demo_rep_001","attrs":{"live":false,"duration_ms":280,"grant_seq":11}},
+    {"seq":9,"global_seq":9,"id":"evt_cx_009","at_ms":5000,"severity":"debug","kind":"instant","name":"scheduler.representative_poll.completed","component":"live_scheduler","lane":"代表房间","flow_id":"flow_rep_020","task_id":"task_poll_rep_020","goroutine_id":"g_scheduler_rep_020","generation":1,"entity_id":"room_hmac_demo_rep_020","attrs":{"live":false,"duration_ms":410,"grant_seq":19}},
+    {"seq":10,"global_seq":10,"id":"evt_cx_010","at_ms":7000,"severity":"info","kind":"instant","name":"monitor.stop.requested","component":"webui","lane":"用户操作","flow_id":"flow_complex_target","task_id":"task_web_command_stop","goroutine_id":"g_http_webui_610","generation":1,"entity_id":"room_hmac_demo_target_042","attrs":{"source":"webui","request_id":"request_demo_stop","manager_lock_wait_ms":1}},
+    {"seq":11,"global_seq":11,"id":"evt_cx_011","at_ms":7002,"severity":"info","kind":"instant","name":"monitor.stop.accepted","component":"listener_manager","lane":"用户操作","flow_id":"flow_complex_target","task_id":"task_web_command_stop","goroutine_id":"g_http_webui_610","generation":1,"entity_id":"room_hmac_demo_target_042","attrs":{"request_to_accept_ms":2,"manager_lock_wait_ms":1},"links":[{"rel":"caused_by","event_id":"evt_cx_010"}]},
+    {"seq":12,"global_seq":12,"id":"evt_cx_012","at_ms":7003,"severity":"info","kind":"instant","name":"task.cancel.requested","component":"listener","lane":"目标房间","flow_id":"flow_complex_target","task_id":"task_listener_waiter_g1","goroutine_id":"g_http_webui_610","generation":1,"entity_id":"room_hmac_demo_target_042","attrs":{"cancel_target":"listener.waiter.generation_1","context_owner":"listener.generation_1","does_not_cancel":"wrapped_live.scheduler.shared_request"},"links":[{"rel":"caused_by","event_id":"evt_cx_011"},{"rel":"cancels","event_id":"evt_cx_005"}]},
+    {"seq":13,"global_seq":13,"id":"evt_cx_013","at_ms":7004,"severity":"info","kind":"state.transition","name":"listener.state.transition","component":"listener","lane":"目标房间","flow_id":"flow_complex_target","task_id":"task_listener_target_g1","goroutine_id":"g_http_webui_610","generation":1,"entity_id":"room_hmac_demo_target_042","attrs":{"from":"running","to":"stopped","cause":"manual_stop"}},
+    {"seq":14,"global_seq":14,"id":"evt_cx_014","at_ms":7006,"severity":"info","kind":"span.end","name":"task.cancel.observed","component":"listener","lane":"目标房间","flow_id":"flow_complex_target","span_id":"span_poll_target_g1","task_id":"task_listener_waiter_g1","goroutine_id":"g_listener_target_g1","generation":1,"entity_id":"room_hmac_demo_target_042","status":"cancelled","attrs":{"ended_operation":"listener.poll","poll_no":1,"result_delivered":false,"cancel_observed":true,"cancel_target":"listener.waiter.generation_1"},"outcome":{"status":"cancelled","code":"listener.waiter_cancelled","duration_ms":6991},"links":[{"rel":"caused_by","event_id":"evt_cx_012"}]},
+    {"seq":15,"global_seq":15,"id":"evt_cx_015","at_ms":7007,"severity":"debug","kind":"instant","name":"event.dispatch","component":"events","lane":"事件派发","flow_id":"flow_complex_target","task_id":"task_dispatch_listen_stop_g1","goroutine_id":"g_event_dispatch_401","dispatch_id":"dispatch_listen_stop_g1","generation":1,"entity_id":"room_hmac_demo_target_042","attrs":{"event_type":"ListenStop","handler_count":2},"links":[{"rel":"caused_by","event_id":"evt_cx_011"}]},
+    {"seq":16,"global_seq":16,"id":"evt_cx_016","at_ms":7009,"severity":"debug","kind":"span.start","name":"event.handler.start","component":"events","lane":"事件派发","flow_id":"flow_complex_target","span_id":"span_handler_stop_recorder_g1","task_id":"task_dispatch_listen_stop_g1","goroutine_id":"g_event_dispatch_401","dispatch_id":"dispatch_listen_stop_g1","handler_id":"RecorderManager.OnListenStop","generation":1,"entity_id":"room_hmac_demo_target_042","attrs":{"handler_index":1}},
+    {"seq":17,"global_seq":17,"id":"evt_cx_017","at_ms":7012,"severity":"debug","kind":"span.end","name":"event.handler.end","component":"events","lane":"事件派发","flow_id":"flow_complex_target","span_id":"span_handler_stop_recorder_g1","task_id":"task_dispatch_listen_stop_g1","goroutine_id":"g_event_dispatch_401","dispatch_id":"dispatch_listen_stop_g1","handler_id":"RecorderManager.OnListenStop","generation":1,"entity_id":"room_hmac_demo_target_042","status":"ok","outcome":{"status":"ok","code":"no_recorder_present","duration_ms":3}},
+    {"seq":18,"global_seq":18,"id":"evt_cx_018","at_ms":7045,"severity":"debug","kind":"span.start","name":"event.handler.start","component":"events","lane":"事件派发","flow_id":"flow_complex_target","span_id":"span_handler_stop_livestate_g1","task_id":"task_dispatch_listen_stop_g1","goroutine_id":"g_event_dispatch_401","dispatch_id":"dispatch_listen_stop_g1","handler_id":"LiveState.OnListenStop","generation":1,"entity_id":"room_hmac_demo_target_042","attrs":{"handler_index":2}},
+    {"seq":19,"global_seq":19,"id":"evt_cx_019","at_ms":7050,"severity":"info","kind":"instant","name":"monitor.resume.requested","component":"webui","lane":"用户操作","flow_id":"flow_complex_target","task_id":"task_web_command_resume","goroutine_id":"g_http_webui_611","generation":2,"entity_id":"room_hmac_demo_target_042","attrs":{"source":"webui","request_id":"request_demo_resume","manager_lock_wait_ms":1}},
+    {"seq":20,"global_seq":20,"id":"evt_cx_020","at_ms":7052,"severity":"info","kind":"instant","name":"monitor.started","component":"listener_manager","lane":"目标房间","flow_id":"flow_complex_target","task_id":"task_listener_target_g2","goroutine_id":"g_http_webui_611","generation":2,"entity_id":"room_hmac_demo_target_042","attrs":{"reason":"manual_resume","request_to_accept_ms":2,"configured_interval_ms":20000},"links":[{"rel":"caused_by","event_id":"evt_cx_019"},{"rel":"supersedes","event_id":"evt_cx_003"}]},
+    {"seq":21,"global_seq":21,"id":"evt_cx_021","at_ms":7055,"severity":"debug","kind":"instant","name":"task.created","component":"live_scheduler","lane":"平台调度","flow_id":"flow_complex_target","task_id":"task_scheduler_request_g2","goroutine_id":"g_scheduler_target_g2","generation":2,"entity_id":"room_hmac_demo_target_042","attrs":{"context_owner":"wrapped_live.scheduler","request_scope":"shared_scheduler_request"},"links":[{"rel":"caused_by","event_id":"evt_cx_020"}]},
+    {"seq":22,"global_seq":22,"id":"evt_cx_022","at_ms":7060,"severity":"debug","kind":"span.start","name":"listener.poll.start","component":"listener","lane":"目标房间","flow_id":"flow_complex_target","span_id":"span_poll_target_g2","task_id":"task_listener_waiter_g2","goroutine_id":"g_listener_target_g2","generation":2,"entity_id":"room_hmac_demo_target_042","attrs":{"poll_no":1,"reason":"manual_resume_initial_refresh"}},
+    {"seq":23,"global_seq":23,"id":"evt_cx_023","at_ms":7065,"severity":"warn","kind":"span.end","name":"event.handler.end","component":"events","lane":"事件派发","flow_id":"flow_complex_target","span_id":"span_handler_stop_livestate_g1","task_id":"task_dispatch_listen_stop_g1","goroutine_id":"g_event_dispatch_401","dispatch_id":"dispatch_listen_stop_g1","handler_id":"LiveState.OnListenStop","generation":1,"entity_id":"room_hmac_demo_target_042","status":"skipped","attrs":{"current_generation":2,"stale_generation":true},"outcome":{"status":"skipped","code":"generation_guard_noop","duration_ms":20}},
+    {"seq":24,"global_seq":24,"id":"evt_cx_024","at_ms":7070,"severity":"debug","kind":"span.start","name":"scheduler.rate_limit.wait.start","component":"live_scheduler","lane":"平台共享限流","flow_id":"flow_complex_target","span_id":"span_limiter_target_g2","task_id":"task_scheduler_request_g2","goroutine_id":"g_scheduler_target_g2","generation":2,"entity_id":"room_hmac_demo_target_042","attrs":{"waiter_count_at_enter":79,"recheck_count":0,"context_owner":"wrapped_live.scheduler","fifo_guaranteed":false},"links":[{"rel":"caused_by","event_id":"evt_cx_021"}]},
+    {"seq":25,"global_seq":25,"id":"evt_cx_025","at_ms":7075,"severity":"info","kind":"state.transition","name":"listener.state.transition","component":"listener","lane":"目标房间","flow_id":"flow_complex_target","task_id":"task_listener_target_g2","goroutine_id":"g_http_webui_611","generation":2,"entity_id":"room_hmac_demo_target_042","attrs":{"from":"pending","to":"running","cause":"manual_resume"}},
+    {"seq":26,"global_seq":26,"id":"evt_cx_026","at_ms":7100,"severity":"debug","kind":"instant","name":"scheduler.limit.snapshot","component":"live_scheduler","lane":"平台共享限流","flow_id":"flow_batch_100","task_id":"task_batch_init_100","goroutine_id":"g_platform_limiter_20","attrs":{"waiting_rooms":79,"grants_total":22,"configured_rooms":100,"restarted_requests":1,"fifo_guaranteed":false}},
+    {"seq":27,"global_seq":27,"id":"evt_cx_027","at_ms":7520,"severity":"warn","kind":"span.end","name":"scheduler.rate_limit.wait.end","component":"live_scheduler","lane":"平台共享限流","flow_id":"flow_complex_target","span_id":"span_limiter_target_g1","task_id":"task_scheduler_request_g1","goroutine_id":"g_scheduler_target_g1","generation":1,"entity_id":"room_hmac_demo_target_042","status":"ok","attrs":{"grant_seq":23,"recheck_count":13,"total_wait_ms":7500,"listener_waiter_cancelled":true,"context_owner":"wrapped_live.scheduler","cancel_target":"listener.waiter.generation_1","fifo_guaranteed":false},"outcome":{"status":"ok","code":"token_acquired_for_orphaned_scheduler_request","duration_ms":7500}},
+    {"seq":28,"global_seq":28,"id":"evt_cx_028","at_ms":7525,"severity":"debug","kind":"span.start","name":"live.api.request.start","component":"live","lane":"平台 API","flow_id":"flow_complex_target","span_id":"span_api_target_g1","task_id":"task_scheduler_request_g1","goroutine_id":"g_scheduler_target_g1","generation":1,"entity_id":"room_hmac_demo_target_042","attrs":{"endpoint_fingerprint":"bilibili.room_info","active_listener_waiters":0,"context_owner":"wrapped_live.scheduler"}},
+    {"seq":29,"global_seq":29,"id":"evt_cx_029","at_ms":7900,"severity":"info","kind":"span.end","name":"live.api.request.end","component":"live","lane":"平台 API","flow_id":"flow_complex_target","span_id":"span_api_target_g1","task_id":"task_scheduler_request_g1","goroutine_id":"g_scheduler_target_g1","generation":1,"entity_id":"room_hmac_demo_target_042","status":"ok","attrs":{"http_status":200,"live":true,"active_listener_waiters":0},"outcome":{"status":"ok","duration_ms":375}},
+    {"seq":30,"global_seq":30,"id":"evt_cx_030","at_ms":7905,"severity":"warn","kind":"instant","name":"scheduler.refresh.completed","component":"live_scheduler","lane":"迟到事件","flow_id":"flow_complex_target","task_id":"task_scheduler_request_g1","goroutine_id":"g_scheduler_target_g1","generation":1,"entity_id":"room_hmac_demo_target_042","attrs":{"live":true,"recipient_count":0,"current_generation":2,"stale_generation":true,"discard_reason":"no_active_waiter"},"links":[{"rel":"caused_by","event_id":"evt_cx_029"}]},
+    {"seq":31,"global_seq":31,"id":"evt_cx_031","at_ms":7907,"severity":"debug","kind":"instant","name":"task.end","component":"live_scheduler","lane":"迟到事件","flow_id":"flow_complex_target","task_id":"task_scheduler_request_g1","goroutine_id":"g_scheduler_target_g1","generation":1,"entity_id":"room_hmac_demo_target_042","status":"completed","attrs":{"result_delivered_to_listener":false,"orphaned_after_cancel":true}},
+    {"seq":32,"global_seq":32,"id":"evt_cx_032","at_ms":8000,"severity":"debug","kind":"instant","name":"scheduler.limit.snapshot","component":"live_scheduler","lane":"平台共享限流","flow_id":"flow_batch_100","task_id":"task_batch_init_100","goroutine_id":"g_platform_limiter_20","attrs":{"waiting_rooms":77,"grants_total":23,"configured_rooms":100,"fifo_guaranteed":false}},
+    {"seq":33,"global_seq":33,"id":"evt_cx_033","at_ms":20000,"severity":"debug","kind":"instant","name":"scheduler.limit.snapshot","component":"live_scheduler","lane":"平台共享限流","flow_id":"flow_batch_100","task_id":"task_batch_init_100","goroutine_id":"g_platform_limiter_20","attrs":{"waiting_rooms":56,"grants_total":44,"configured_rooms":100,"fifo_guaranteed":false}},
+    {"seq":34,"global_seq":34,"id":"evt_cx_034","at_ms":23000,"severity":"debug","kind":"instant","name":"scheduler.representative_poll.completed","component":"live_scheduler","lane":"代表房间","flow_id":"flow_rep_050","task_id":"task_poll_rep_050","goroutine_id":"g_scheduler_rep_050","generation":1,"entity_id":"room_hmac_demo_rep_050","attrs":{"live":false,"duration_ms":360,"grant_seq":49}},
+    {"seq":35,"global_seq":35,"id":"evt_cx_035","at_ms":30000,"severity":"debug","kind":"instant","name":"scheduler.limit.snapshot","component":"live_scheduler","lane":"平台共享限流","flow_id":"flow_batch_100","task_id":"task_batch_init_100","goroutine_id":"g_platform_limiter_20","attrs":{"waiting_rooms":39,"grants_total":61,"configured_rooms":100,"fifo_guaranteed":false}},
+    {"seq":36,"global_seq":36,"id":"evt_cx_036","at_ms":40000,"severity":"debug","kind":"instant","name":"scheduler.limit.snapshot","component":"live_scheduler","lane":"平台共享限流","flow_id":"flow_batch_100","task_id":"task_batch_init_100","goroutine_id":"g_platform_limiter_20","attrs":{"waiting_rooms":21,"grants_total":79,"configured_rooms":100,"fifo_guaranteed":false}},
+    {"seq":37,"global_seq":37,"id":"evt_cx_037","at_ms":45000,"severity":"debug","kind":"instant","name":"scheduler.representative_poll.completed","component":"live_scheduler","lane":"代表房间","flow_id":"flow_rep_075","task_id":"task_poll_rep_075","goroutine_id":"g_scheduler_rep_075","generation":1,"entity_id":"room_hmac_demo_rep_075","attrs":{"live":false,"duration_ms":330,"grant_seq":88}},
+    {"seq":38,"global_seq":38,"id":"evt_cx_038","at_ms":50000,"severity":"debug","kind":"instant","name":"scheduler.limit.snapshot","component":"live_scheduler","lane":"平台共享限流","flow_id":"flow_batch_100","task_id":"task_batch_init_100","goroutine_id":"g_platform_limiter_20","attrs":{"waiting_rooms":4,"grants_total":96,"configured_rooms":100,"fifo_guaranteed":false}},
+    {"seq":39,"global_seq":39,"id":"evt_cx_039","at_ms":52070,"severity":"warn","kind":"span.end","name":"scheduler.rate_limit.wait.end","component":"live_scheduler","lane":"平台共享限流","flow_id":"flow_complex_target","span_id":"span_limiter_target_g2","task_id":"task_scheduler_request_g2","goroutine_id":"g_scheduler_target_g2","generation":2,"entity_id":"room_hmac_demo_target_042","status":"ok","attrs":{"grant_seq":102,"recheck_count":79,"total_wait_ms":45000,"waiter_count_at_enter":79,"fifo_guaranteed":false},"outcome":{"status":"ok","code":"token.acquired","duration_ms":45000}},
+    {"seq":40,"global_seq":40,"id":"evt_cx_040","at_ms":52075,"severity":"debug","kind":"span.start","name":"live.api.request.start","component":"live","lane":"平台 API","flow_id":"flow_complex_target","span_id":"span_api_target_g2","task_id":"task_scheduler_request_g2","goroutine_id":"g_scheduler_target_g2","generation":2,"entity_id":"room_hmac_demo_target_042","attrs":{"endpoint_fingerprint":"bilibili.room_info","active_listener_waiters":1}},
+    {"seq":41,"global_seq":41,"id":"evt_cx_041","at_ms":52450,"severity":"info","kind":"span.end","name":"live.api.request.end","component":"live","lane":"平台 API","flow_id":"flow_complex_target","span_id":"span_api_target_g2","task_id":"task_scheduler_request_g2","goroutine_id":"g_scheduler_target_g2","generation":2,"entity_id":"room_hmac_demo_target_042","status":"ok","attrs":{"http_status":200,"live":true,"active_listener_waiters":1},"outcome":{"status":"ok","duration_ms":375}},
+    {"seq":42,"global_seq":42,"id":"evt_cx_042","at_ms":52455,"severity":"warn","kind":"span.end","name":"listener.poll.end","component":"listener","lane":"目标房间","flow_id":"flow_complex_target","span_id":"span_poll_target_g2","task_id":"task_listener_waiter_g2","goroutine_id":"g_listener_target_g2","generation":2,"entity_id":"room_hmac_demo_target_042","status":"ok","attrs":{"poll_no":1,"live":true,"live_evidence":"platform_api","rate_limit_wait_ms":45000},"outcome":{"status":"ok","code":"live","duration_ms":45395}},
+    {"seq":43,"global_seq":43,"id":"evt_cx_043","at_ms":52457,"severity":"info","kind":"state.transition","name":"live.state.transition","component":"listener","lane":"目标房间","flow_id":"flow_complex_target","task_id":"task_listener_target_g2","goroutine_id":"g_listener_target_g2","generation":2,"entity_id":"room_hmac_demo_target_042","attrs":{"from":"offline","to":"live","observation_count":2}},
+    {"seq":44,"global_seq":44,"id":"evt_cx_044","at_ms":52460,"severity":"debug","kind":"instant","name":"event.dispatch","component":"events","lane":"事件派发","flow_id":"flow_complex_target","task_id":"task_dispatch_live_start_g2","goroutine_id":"g_event_dispatch_402","dispatch_id":"dispatch_live_start_g2","generation":2,"entity_id":"room_hmac_demo_target_042","attrs":{"event_type":"LiveStart","handler_count":3},"links":[{"rel":"caused_by","event_id":"evt_cx_042"}]},
+    {"seq":45,"global_seq":45,"id":"evt_cx_045","at_ms":52462,"severity":"debug","kind":"span.start","name":"event.handler.start","component":"events","lane":"事件派发","flow_id":"flow_complex_target","span_id":"span_handler_live_recorder_g2","task_id":"task_dispatch_live_start_g2","goroutine_id":"g_event_dispatch_402","dispatch_id":"dispatch_live_start_g2","handler_id":"RecorderManager.OnLiveStart","generation":2,"entity_id":"room_hmac_demo_target_042","attrs":{"handler_index":1}},
+    {"seq":46,"global_seq":46,"id":"evt_cx_046","at_ms":52468,"severity":"info","kind":"instant","name":"recorder.session.start","component":"recorder","lane":"录制控制","flow_id":"flow_complex_target","task_id":"task_recorder_target_g2","goroutine_id":"g_recorder_target_g2","generation":2,"entity_id":"recording_demo_complex_g2","attrs":{"reason":"live_start","attempt_no":1,"downloader":"native"},"links":[{"rel":"caused_by","event_id":"evt_cx_045"}]},
+    {"seq":47,"global_seq":47,"id":"evt_cx_047","at_ms":52472,"severity":"debug","kind":"span.end","name":"event.handler.end","component":"events","lane":"事件派发","flow_id":"flow_complex_target","span_id":"span_handler_live_recorder_g2","task_id":"task_dispatch_live_start_g2","goroutine_id":"g_event_dispatch_402","dispatch_id":"dispatch_live_start_g2","handler_id":"RecorderManager.OnLiveStart","generation":2,"entity_id":"room_hmac_demo_target_042","status":"ok","outcome":{"status":"ok","duration_ms":10}},
+    {"seq":48,"global_seq":48,"id":"evt_cx_048","at_ms":52475,"severity":"debug","kind":"instant","name":"task.created","component":"recorder","lane":"录制控制","flow_id":"flow_complex_target","task_id":"task_recorder_target_g2","goroutine_id":"g_recorder_target_g2","generation":2,"entity_id":"recording_demo_complex_g2","attrs":{"attempt_no":1}},
+    {"seq":49,"global_seq":49,"id":"evt_cx_049","at_ms":52480,"severity":"debug","kind":"span.start","name":"stream.resolve.start","component":"recorder","lane":"取流","flow_id":"flow_complex_target","span_id":"span_stream_resolve_g2","task_id":"task_recorder_target_g2","goroutine_id":"g_recorder_target_g2","generation":2,"entity_id":"recording_demo_complex_g2"},
+    {"seq":50,"global_seq":50,"id":"evt_cx_050","at_ms":52950,"severity":"info","kind":"span.end","name":"stream.resolve.end","component":"recorder","lane":"取流","flow_id":"flow_complex_target","span_id":"span_stream_resolve_g2","task_id":"task_recorder_target_g2","goroutine_id":"g_recorder_target_g2","generation":2,"entity_id":"recording_demo_complex_g2","status":"ok","attrs":{"candidate_count":2,"selected_format":"flv"},"outcome":{"status":"ok","duration_ms":470}},
+    {"seq":51,"global_seq":51,"id":"evt_cx_051","at_ms":52960,"severity":"debug","kind":"span.start","name":"stream.probe.start","component":"streamprobe","lane":"取流探测","flow_id":"flow_complex_target","span_id":"span_stream_probe_g2","task_id":"task_recorder_target_g2","goroutine_id":"g_recorder_target_g2","generation":2,"entity_id":"recording_demo_complex_g2","attrs":{"candidate_count":1}},
+    {"seq":52,"global_seq":52,"id":"evt_cx_052","at_ms":52965,"severity":"debug","kind":"span.start","name":"stream.probe.candidate.start","component":"streamprobe","lane":"取流探测","flow_id":"flow_complex_target","span_id":"span_stream_candidate_g2_1","parent_span_id":"span_stream_probe_g2","task_id":"task_recorder_target_g2","goroutine_id":"g_recorder_target_g2","generation":2,"entity_id":"recording_demo_complex_g2","attrs":{"candidate_no":1,"cdn":"cdn-a.example.invalid","url_fingerprint":"url_hmac_complex_a"}},
+    {"seq":53,"global_seq":53,"id":"evt_cx_053","at_ms":55650,"severity":"info","kind":"span.end","name":"stream.probe.candidate.end","component":"streamprobe","lane":"取流探测","flow_id":"flow_complex_target","span_id":"span_stream_candidate_g2_1","parent_span_id":"span_stream_probe_g2","task_id":"task_recorder_target_g2","goroutine_id":"g_recorder_target_g2","generation":2,"entity_id":"recording_demo_complex_g2","status":"ok","attrs":{"candidate_no":1,"video_codec":"h264","resolution":"1920x1080"},"outcome":{"status":"ok","duration_ms":2685}},
+    {"seq":54,"global_seq":54,"id":"evt_cx_054","at_ms":55655,"severity":"info","kind":"span.end","name":"stream.probe.end","component":"streamprobe","lane":"取流探测","flow_id":"flow_complex_target","span_id":"span_stream_probe_g2","task_id":"task_recorder_target_g2","goroutine_id":"g_recorder_target_g2","generation":2,"entity_id":"recording_demo_complex_g2","status":"ok","attrs":{"selected_candidate_no":1},"outcome":{"status":"ok","duration_ms":2695}},
+    {"seq":55,"global_seq":55,"id":"evt_cx_055","at_ms":55700,"severity":"info","kind":"instant","name":"parser.start","component":"parser","lane":"下载器","flow_id":"flow_complex_target","task_id":"task_recorder_target_g2","goroutine_id":"g_recorder_target_g2","generation":2,"entity_id":"recording_demo_complex_g2","attrs":{"parser":"native","output_extension":".flv"},"links":[{"rel":"caused_by","event_id":"evt_cx_054"}]},
+    {"seq":56,"global_seq":56,"id":"evt_cx_056","at_ms":55800,"severity":"debug","kind":"instant","name":"segment.open","component":"recorder","lane":"文件输出","flow_id":"flow_complex_target","task_id":"task_recorder_target_g2","goroutine_id":"g_recorder_target_g2","generation":2,"entity_id":"recording_demo_complex_g2","attrs":{"file_id":"file_hmac_complex_g2","extension":".flv","initial_size_bytes":0}},
+    {"seq":57,"global_seq":57,"id":"evt_cx_057","at_ms":57052,"severity":"info","kind":"instant","name":"segment.first_byte","component":"recorder","lane":"文件输出","flow_id":"flow_complex_target","task_id":"task_recorder_target_g2","goroutine_id":"g_recorder_target_g2","generation":2,"entity_id":"recording_demo_complex_g2","attrs":{"file_id":"file_hmac_complex_g2","size_bytes":65536,"extension":".flv","resume_to_first_byte_ms":50000,"process_start_to_first_byte_ms":57052},"links":[{"rel":"caused_by","event_id":"evt_cx_055"}]},
+    {"seq":58,"global_seq":58,"id":"evt_cx_058","at_ms":57053,"severity":"warn","kind":"instant","name":"diagnostic.trigger","component":"diagnostics","lane":"诊断","flow_id":"flow_complex_target","task_id":"task_diagnostic_snapshot","goroutine_id":"g_diagnostics_700","generation":2,"entity_id":"room_hmac_demo_target_042","attrs":{"reason":"recording_start_slow","anchor_start_event_id":"evt_cx_020","goal_event_id":"evt_cx_057","threshold_ms":30000,"observed_ms":50000,"flight_recorder_snapshot":"requested"},"links":[{"rel":"caused_by","event_id":"evt_cx_057"}]},
+    {"seq":59,"global_seq":59,"id":"evt_cx_059","at_ms":60000,"severity":"debug","kind":"instant","name":"scheduler.representative_poll.completed","component":"live_scheduler","lane":"代表房间","flow_id":"flow_rep_099","task_id":"task_poll_rep_099","goroutine_id":"g_scheduler_rep_099","generation":1,"entity_id":"room_hmac_demo_rep_099","attrs":{"poll_no":2,"reason":"interval","live":false,"duration_ms":350,"grant_seq":109}},
+    {"seq":60,"global_seq":60,"id":"evt_cx_060","at_ms":60052,"severity":"debug","kind":"instant","name":"segment.progress","component":"recorder","lane":"文件输出","flow_id":"flow_complex_target","task_id":"task_recorder_target_g2","goroutine_id":"g_recorder_target_g2","generation":2,"entity_id":"recording_demo_complex_g2","attrs":{"file_id":"file_hmac_complex_g2","size_bytes":5242880,"write_bps":8400000}}
+  ],
+  "metrics": [
+    {
+      "name": "platform.rate_limiter.waiter_count",
+      "unit": "goroutines",
+      "component": "live_scheduler",
+      "labels": {"platform":"bilibili"},
+      "points": [[0,100],[100,90],[5000,82],[7000,78],[7070,79],[8000,77],[20000,56],[30000,39],[40000,21],[50000,4],[52070,0]]
+    },
+    {
+      "name": "platform.rate_limiter.grants_total",
+      "unit": "grants",
+      "component": "live_scheduler",
+      "labels": {"platform":"bilibili"},
+      "points": [[0,0],[100,10],[5000,18],[7000,22],[8000,23],[20000,44],[30000,61],[40000,79],[50000,96],[52070,102]]
+    },
+    {
+      "name": "target.rate_limiter.elapsed",
+      "unit": "ms",
+      "component": "live_scheduler",
+      "labels": {"room":"room_hmac_demo_target_042","generation":"1"},
+      "points": [[20,0],[2000,1980],[4000,3980],[7000,6980],[7520,7500]]
+    },
+    {
+      "name": "target.rate_limiter.elapsed",
+      "unit": "ms",
+      "component": "live_scheduler",
+      "labels": {"room":"room_hmac_demo_target_042","generation":"2"},
+      "points": [[7070,0],[10000,2930],[20000,12930],[30000,22930],[40000,32930],[50000,42930],[52070,45000]]
+    },
+    {
+      "name": "monitor.active_rooms",
+      "unit": "rooms",
+      "component": "listener_manager",
+      "points": [[0,100],[7002,99],[7052,100],[63000,100]]
+    },
+    {
+      "name": "record.output_bytes",
+      "unit": "bytes",
+      "component": "recorder",
+      "labels": {"room":"room_hmac_demo_target_042","generation":"2"},
+      "points": [[0,0],[20000,0],[40000,0],[52000,0],[55800,0],[57052,65536],[60052,5242880]]
+    },
+    {
+      "name": "runtime.goroutines",
+      "unit": "goroutines",
+      "component": "runtime",
+      "points": [[0,42],[100,156],[7000,144],[20000,121],[40000,81],[52070,59],[60000,61]]
+    }
+  ],
+  "runtime_samples": [
+    {
+      "at_ms": 20,
+      "sample_kind": "block",
+      "goroutine_id": "g_scheduler_target_g1",
+      "state": "waiting",
+      "wait_reason": "platform_rate_limiter",
+      "stack_fingerprint": "ratelimit.WaitForPlatform/timer_or_mutex",
+      "task_id": "task_scheduler_request_g1",
+      "flow_id": "flow_complex_target",
+      "generation": 1,
+      "linked_event_id": "evt_cx_006",
+      "linked_span_id": "span_limiter_target_g1",
+      "top_frames": ["pkg/ratelimit.WaitForPlatform","live/system.(*Scheduler).request","live/system.(*Scheduler).run"]
+    },
+    {
+      "at_ms": 7003,
+      "sample_kind": "flow",
+      "goroutine_id": "g_http_webui_610",
+      "state": "running",
+      "wait_reason": "cancel_signal_send",
+      "stack_fingerprint": "listener.Close/context.cancel",
+      "task_id": "task_web_command_stop",
+      "flow_id": "flow_complex_target",
+      "generation": 1,
+      "linked_event_id": "evt_cx_012",
+      "from_goroutine_id": "g_http_webui_610",
+      "to_goroutine_id": "g_listener_target_g1",
+      "attrs": {"target_context":"listener.waiter.generation_1"}
+    },
+    {
+      "at_ms": 7006,
+      "sample_kind": "unblock",
+      "goroutine_id": "g_listener_target_g1",
+      "state": "runnable",
+      "wait_reason": "context_cancelled",
+      "stack_fingerprint": "listener.refresh/context.Done",
+      "task_id": "task_listener_waiter_g1",
+      "flow_id": "flow_complex_target",
+      "generation": 1,
+      "linked_event_id": "evt_cx_014",
+      "unblocked_by_event_id": "evt_cx_012"
+    },
+    {
+      "at_ms": 7070,
+      "sample_kind": "block",
+      "goroutine_id": "g_scheduler_target_g2",
+      "state": "waiting",
+      "wait_reason": "platform_rate_limiter",
+      "stack_fingerprint": "ratelimit.WaitForPlatform/timer_or_mutex",
+      "task_id": "task_scheduler_request_g2",
+      "flow_id": "flow_complex_target",
+      "generation": 2,
+      "linked_event_id": "evt_cx_024",
+      "linked_span_id": "span_limiter_target_g2",
+      "top_frames": ["pkg/ratelimit.WaitForPlatform","live/system.(*Scheduler).request","live/system.(*Scheduler).run"]
+    },
+    {
+      "at_ms": 7520,
+      "sample_kind": "unblock",
+      "goroutine_id": "g_scheduler_target_g1",
+      "state": "runnable",
+      "wait_reason": "rate_token_granted",
+      "stack_fingerprint": "ratelimit.WaitForPlatform/return",
+      "task_id": "task_scheduler_request_g1",
+      "flow_id": "flow_complex_target",
+      "generation": 1,
+      "linked_event_id": "evt_cx_027",
+      "unblocked_by_event_id": "evt_cx_027",
+      "attrs": {"listener_waiter_cancelled":true,"scheduler_context_still_active":true}
+    },
+    {
+      "at_ms": 7905,
+      "sample_kind": "flow",
+      "goroutine_id": "g_scheduler_target_g1",
+      "state": "running",
+      "wait_reason": "result_publish_without_recipient",
+      "stack_fingerprint": "Scheduler.notifyWaiters/empty",
+      "task_id": "task_scheduler_request_g1",
+      "flow_id": "flow_complex_target",
+      "generation": 1,
+      "linked_event_id": "evt_cx_030",
+      "from_goroutine_id": "g_scheduler_target_g1",
+      "to_goroutine_id": "g_trace_writer_710",
+      "attrs": {"stale_generation":true,"recipient_count":0}
+    },
+    {
+      "at_ms": 30000,
+      "sample_kind": "snapshot",
+      "goroutine_id": "g_scheduler_target_g2",
+      "state": "waiting",
+      "wait_reason": "platform_rate_limiter",
+      "stack_fingerprint": "ratelimit.WaitForPlatform/timer_or_mutex",
+      "task_id": "task_scheduler_request_g2",
+      "flow_id": "flow_complex_target",
+      "generation": 2,
+      "linked_span_id": "span_limiter_target_g2",
+      "attrs": {"blocked_for_ms":22930,"recheck_count":40}
+    },
+    {
+      "at_ms": 52070,
+      "sample_kind": "unblock",
+      "goroutine_id": "g_scheduler_target_g2",
+      "state": "runnable",
+      "wait_reason": "rate_token_granted",
+      "stack_fingerprint": "ratelimit.WaitForPlatform/return",
+      "task_id": "task_scheduler_request_g2",
+      "flow_id": "flow_complex_target",
+      "generation": 2,
+      "linked_event_id": "evt_cx_039",
+      "unblocked_by_event_id": "evt_cx_039"
+    },
+    {
+      "at_ms": 52460,
+      "sample_kind": "flow",
+      "goroutine_id": "g_listener_target_g2",
+      "state": "running",
+      "wait_reason": "event_dispatch_send",
+      "stack_fingerprint": "events.DispatchEvent/Go",
+      "task_id": "task_listener_target_g2",
+      "flow_id": "flow_complex_target",
+      "generation": 2,
+      "linked_event_id": "evt_cx_044",
+      "from_goroutine_id": "g_listener_target_g2",
+      "to_goroutine_id": "g_event_dispatch_402"
+    },
+    {
+      "at_ms": 52468,
+      "sample_kind": "flow",
+      "goroutine_id": "g_event_dispatch_402",
+      "state": "running",
+      "wait_reason": "recorder_task_created",
+      "stack_fingerprint": "RecorderManager.OnLiveStart/NewRecorder",
+      "task_id": "task_dispatch_live_start_g2",
+      "flow_id": "flow_complex_target",
+      "generation": 2,
+      "linked_event_id": "evt_cx_046",
+      "from_goroutine_id": "g_event_dispatch_402",
+      "to_goroutine_id": "g_recorder_target_g2"
+    },
+    {
+      "at_ms": 54000,
+      "sample_kind": "block",
+      "goroutine_id": "g_recorder_target_g2",
+      "state": "waiting",
+      "wait_reason": "network_io",
+      "stack_fingerprint": "streamprobe.parseFLVStreamInfo/pollWait",
+      "task_id": "task_recorder_target_g2",
+      "flow_id": "flow_complex_target",
+      "generation": 2,
+      "linked_span_id": "span_stream_probe_g2",
+      "top_frames": ["internal/poll.runtime_pollWait","net/http.(*bodyEOFSignal).Read","streamprobe.parseFLVStreamInfo"]
+    }
+  ],
+  "runtime_slices": [
+    {"goroutine_id":"g_listener_target_g1","task_id":"task_listener_waiter_g1","start_ms":15,"end_ms":7003,"state":"waiting","wait_reason":"scheduler_result","generation":1,"flow_id":"flow_complex_target","seq_on_g":1},
+    {"goroutine_id":"g_http_webui_610","task_id":"task_web_command_stop","start_ms":6998,"end_ms":7003,"state":"running","wait_reason":"none","generation":1,"flow_id":"flow_complex_target","seq_on_g":1},
+    {"goroutine_id":"g_listener_target_g1","task_id":"task_listener_waiter_g1","start_ms":7003,"end_ms":7006,"state":"runnable","wait_reason":"context_cancelled","generation":1,"flow_id":"flow_complex_target","seq_on_g":2,"links":[{"rel":"unblocked_by","event_id":"evt_cx_012"}]},
+    {"goroutine_id":"g_scheduler_target_g1","task_id":"task_scheduler_request_g1","start_ms":20,"end_ms":7520,"state":"waiting","wait_reason":"platform_rate_limiter","generation":1,"flow_id":"flow_complex_target","seq_on_g":1},
+    {"goroutine_id":"g_event_dispatch_401","task_id":"task_dispatch_listen_stop_g1","start_ms":7007,"end_ms":7065,"state":"running","wait_reason":"none","generation":1,"flow_id":"flow_complex_target","seq_on_g":1,"links":[{"rel":"caused_by","event_id":"evt_cx_015"}]},
+    {"goroutine_id":"g_scheduler_target_g1","task_id":"task_scheduler_request_g1","start_ms":7520,"end_ms":7900,"state":"syscall","wait_reason":"platform_api_network","generation":1,"flow_id":"flow_complex_target","seq_on_g":2,"links":[{"rel":"unblocked_by","event_id":"evt_cx_027"}]},
+    {"goroutine_id":"g_scheduler_target_g2","task_id":"task_scheduler_request_g2","start_ms":7070,"end_ms":52070,"state":"waiting","wait_reason":"platform_rate_limiter","generation":2,"flow_id":"flow_complex_target","seq_on_g":1},
+    {"goroutine_id":"g_scheduler_target_g2","task_id":"task_scheduler_request_g2","start_ms":52070,"end_ms":52450,"state":"syscall","wait_reason":"platform_api_network","generation":2,"flow_id":"flow_complex_target","seq_on_g":2,"links":[{"rel":"unblocked_by","event_id":"evt_cx_039"}]},
+    {"goroutine_id":"g_listener_target_g2","task_id":"task_listener_waiter_g2","start_ms":52450,"end_ms":52460,"state":"runnable","wait_reason":"scheduler_result_ready","generation":2,"flow_id":"flow_complex_target","seq_on_g":1,"links":[{"rel":"unblocked_by","event_id":"evt_cx_041"}]},
+    {"goroutine_id":"g_event_dispatch_402","task_id":"task_dispatch_live_start_g2","start_ms":52460,"end_ms":52472,"state":"running","wait_reason":"none","generation":2,"flow_id":"flow_complex_target","seq_on_g":1,"links":[{"rel":"caused_by","event_id":"evt_cx_044"}]},
+    {"goroutine_id":"g_recorder_target_g2","task_id":"task_recorder_target_g2","start_ms":52475,"end_ms":52950,"state":"syscall","wait_reason":"stream_resolve_network","generation":2,"flow_id":"flow_complex_target","seq_on_g":1,"links":[{"rel":"caused_by","event_id":"evt_cx_046"}]},
+    {"goroutine_id":"g_recorder_target_g2","task_id":"task_recorder_target_g2","start_ms":52960,"end_ms":55655,"state":"syscall","wait_reason":"stream_probe_network","generation":2,"flow_id":"flow_complex_target","seq_on_g":2},
+    {"goroutine_id":"g_recorder_target_g2","task_id":"task_recorder_target_g2","start_ms":55700,"end_ms":57052,"state":"syscall","wait_reason":"parser_first_byte","generation":2,"flow_id":"flow_complex_target","seq_on_g":3,"links":[{"rel":"caused_by","event_id":"evt_cx_055"}]}
+  ],
+  "expected_analysis": {
+    "fixture_only": true,
+    "root_cause_code": "platform_shared_limiter_recompetition_after_generation_restart",
+    "headline": "恢复操作 2 ms 即被接受；generation 2 重新加入 100 房间共享限流竞争并等待 45 秒",
+    "confidence": 0.99,
+    "time_basis": {
+      "anchor_event_id": "evt_cx_020",
+      "goal_event_id": "evt_cx_057",
+      "resume_to_first_byte_ms": 50000,
+      "process_start_to_first_byte_ms": 57052
+    },
+    "phase_breakdown": [
+      {"phase":"manual_stop_accept","start_ms":7000,"end_ms":7002,"duration_ms":2,"assessment":"normal"},
+      {"phase":"manual_resume_accept","start_ms":7050,"end_ms":7052,"duration_ms":2,"assessment":"normal"},
+      {"phase":"generation_2_shared_limiter_wait","start_ms":7070,"end_ms":52070,"duration_ms":45000,"assessment":"root_cause"},
+      {"phase":"generation_2_platform_api","start_ms":52075,"end_ms":52450,"duration_ms":375,"assessment":"normal"},
+      {"phase":"recording_setup_and_first_byte","start_ms":52468,"end_ms":57052,"duration_ms":4584,"assessment":"normal"}
+    ],
+    "generation_analysis": {
+      "generation_1_cancel_target": "listener.waiter.generation_1",
+      "generation_1_scheduler_context_owner": "wrapped_live.scheduler",
+      "late_event_id": "evt_cx_030",
+      "late_event_disposition": "discarded_no_active_waiter",
+      "generation_2_reentered_shared_limiter": true,
+      "fifo_order_inferred": false
+    },
+    "evidence_event_ids": [
+      "evt_cx_010",
+      "evt_cx_011",
+      "evt_cx_012",
+      "evt_cx_020",
+      "evt_cx_024",
+      "evt_cx_030",
+      "evt_cx_039",
+      "evt_cx_042",
+      "evt_cx_057"
+    ],
+    "ruled_out": [
+      {
+        "cause": "room_offline",
+        "reason": "generation 1 的迟到平台响应和 generation 2 的有效响应都返回 live=true，窗口内没有 live=false 观测"
+      },
+      {
+        "cause": "slow_manual_stop_or_resume_handler",
+        "reason": "停止和恢复请求各在 2 ms 内被 manager 接受；长耗时发生在恢复后的共享 limiter wait"
+      },
+      {
+        "cause": "event_handler_blocked",
+        "reason": "有效 LiveStart 到 Recorder session 仅 8 ms；旧 generation handler 被 generation guard 跳过"
+      },
+      {
+        "cause": "slow_stream_or_disk",
+        "reason": "有效开播观测后约 4.6 秒写出首字节，首字节后写入速率正常"
+      }
+    ],
+    "contributing_factors": [
+      {
+        "code": "generation_restart_recompetition",
+        "explanation": "恢复产生 generation 2；它必须重新参与平台共享限流器竞争，但不能据此推断 FIFO 队列位置"
+      },
+      {
+        "code": "orphaned_scheduler_request",
+        "explanation": "停止只取消 listener waiter，generation 1 的 scheduler-owned 请求继续执行并消耗一次 grant，随后因无接收者被丢弃"
+      }
+    ],
+    "recommendations": [
+      "Viewer 必须以 anchor room 和 generation 过滤里程碑，不能误用其他 99 个房间的更早事件。",
+      "显示 limiter waiter_count、grant_seq、recheck_count 和 total_wait，不显示虚构的 FIFO queue position。",
+      "停止监控时分别展示 listener waiter 与 scheduler-owned request 的 context 所有权和取消传播范围。",
+      "对迟到事件执行 generation 校验，并把 stale/no-active-waiter 作为可搜索的诊断结果。",
+      "启动大量房间时打散初始化，或提供平台级并发/速率压力预估。"
+    ]
+  }
+}

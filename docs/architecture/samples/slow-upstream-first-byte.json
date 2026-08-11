@@ -1,0 +1,785 @@
+{
+  "schema": "bililive.diagnostic-bundle/v1",
+  "manifest": {
+    "bundle_id": "bundle_demo_slow_upstream_first_byte",
+    "run_id": "run_demo_upstream_01",
+    "incident_id": "incident_demo_upstream_01",
+    "time_origin": "2026-07-28T12:00:00+09:00",
+    "capture_start_ms": 0,
+    "capture_end_ms": 56000,
+    "synthetic": true,
+    "app_version": "demo-next",
+    "commit": "synthetic",
+    "go_version": "go1.25.1",
+    "os": "linux",
+    "arch": "amd64",
+    "trace_mode": "diagnostic",
+    "dropped_events": 0,
+    "redaction_version": "demo-v1",
+    "title": "检测正常，但直播流候选连接超时导致首字节延迟"
+  },
+  "configuration": {
+    "room_check_interval_ms": 20000,
+    "stream_candidate_connect_timeout_ms": 15000,
+    "stream_candidate_retry_backoff_ms": 5000,
+    "downloader_type": "native",
+    "diagnostic_ttl_ms": 900000
+  },
+  "entities": [
+    {
+      "type": "room",
+      "id": "room_hmac_demo_d128",
+      "label": "演示直播间 C",
+      "platform": "bilibili",
+      "observed_live_throughout_capture": true
+    },
+    {
+      "type": "recording_session",
+      "id": "recording_demo_upstream_01",
+      "label": "录制会话 #1"
+    }
+  ],
+  "incident": {
+    "type": "recording_start_slow",
+    "title": "检测间隔正常，但上游候选回退耗尽约 48 秒",
+    "anchor_entity_id": "room_hmac_demo_d128",
+    "expected_detection_interval_ms": 20000,
+    "observed_monitor_to_first_byte_ms": 50000,
+    "user_report": "目标直播间一直开播，程序开始监控后约 50 秒才产生 FLV。",
+    "trigger_event_id": "evt_up_032",
+    "known_fixture_truth": "平台在整个合成窗口内保持开播"
+  },
+  "events": [
+    {
+      "seq": 1,
+      "id": "evt_up_001",
+      "at_ms": 0,
+      "severity": "info",
+      "kind": "instant",
+      "name": "monitor.started",
+      "component": "listener",
+      "lane": "直播检测",
+      "flow_id": "flow_upstream_01",
+      "entity_id": "room_hmac_demo_d128",
+      "attrs": {
+        "configured_interval_ms": 20000,
+        "initial_poll": "immediate"
+      }
+    },
+    {
+      "seq": 2,
+      "id": "evt_up_002",
+      "at_ms": 5,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "listener.poll.start",
+      "component": "listener",
+      "lane": "直播检测",
+      "flow_id": "flow_upstream_01",
+      "span_id": "span_up_poll_01",
+      "entity_id": "room_hmac_demo_d128",
+      "attrs": {
+        "reason": "initial_refresh",
+        "poll_no": 1
+      }
+    },
+    {
+      "seq": 3,
+      "id": "evt_up_003",
+      "at_ms": 620,
+      "severity": "info",
+      "kind": "span.end",
+      "name": "listener.poll.end",
+      "component": "listener",
+      "lane": "直播检测",
+      "flow_id": "flow_upstream_01",
+      "span_id": "span_up_poll_01",
+      "entity_id": "room_hmac_demo_d128",
+      "status": "ok",
+      "attrs": {
+        "poll_no": 1,
+        "live": true,
+        "live_evidence": "platform_api",
+        "http_status": 200
+      },
+      "outcome": {
+        "status": "ok",
+        "code": "live",
+        "duration_ms": 615
+      }
+    },
+    {
+      "seq": 4,
+      "id": "evt_up_004",
+      "at_ms": 622,
+      "severity": "debug",
+      "kind": "instant",
+      "name": "event.dispatch",
+      "component": "events",
+      "lane": "事件派发",
+      "flow_id": "flow_upstream_01",
+      "attrs": {
+        "event_type": "LiveStart",
+        "dispatch_id": "dispatch_up_live_start",
+        "handler_count": 3
+      },
+      "links": [
+        { "rel": "caused_by", "event_id": "evt_up_003" }
+      ]
+    },
+    {
+      "seq": 5,
+      "id": "evt_up_005",
+      "at_ms": 624,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "event.handler.start",
+      "component": "events",
+      "lane": "事件派发",
+      "flow_id": "flow_upstream_01",
+      "span_id": "span_up_handler",
+      "attrs": {
+        "event_type": "LiveStart",
+        "handler": "RecorderManager.OnLiveStart",
+        "dispatch_id": "dispatch_up_live_start"
+      }
+    },
+    {
+      "seq": 6,
+      "id": "evt_up_006",
+      "at_ms": 630,
+      "severity": "debug",
+      "kind": "span.end",
+      "name": "event.handler.end",
+      "component": "events",
+      "lane": "事件派发",
+      "flow_id": "flow_upstream_01",
+      "span_id": "span_up_handler",
+      "status": "ok",
+      "outcome": {
+        "status": "ok",
+        "duration_ms": 6
+      }
+    },
+    {
+      "seq": 7,
+      "id": "evt_up_007",
+      "at_ms": 636,
+      "severity": "info",
+      "kind": "instant",
+      "name": "recorder.session.start",
+      "component": "recorder",
+      "lane": "录制控制",
+      "flow_id": "flow_upstream_01",
+      "entity_id": "recording_demo_upstream_01",
+      "attrs": {
+        "reason": "live_start",
+        "attempt_no": 1,
+        "downloader": "native"
+      }
+    },
+    {
+      "seq": 8,
+      "id": "evt_up_008",
+      "at_ms": 640,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "stream.resolve.start",
+      "component": "recorder",
+      "lane": "取流",
+      "flow_id": "flow_upstream_01",
+      "span_id": "span_up_resolve",
+      "parent_span_id": "recording_demo_upstream_01"
+    },
+    {
+      "seq": 9,
+      "id": "evt_up_009",
+      "at_ms": 1000,
+      "severity": "info",
+      "kind": "span.end",
+      "name": "stream.resolve.end",
+      "component": "recorder",
+      "lane": "取流",
+      "flow_id": "flow_upstream_01",
+      "span_id": "span_up_resolve",
+      "parent_span_id": "recording_demo_upstream_01",
+      "status": "ok",
+      "attrs": {
+        "candidate_count": 3,
+        "selected_format": "flv"
+      },
+      "outcome": {
+        "status": "ok",
+        "duration_ms": 360
+      }
+    },
+    {
+      "seq": 10,
+      "id": "evt_up_010",
+      "at_ms": 1010,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "stream.probe.start",
+      "component": "streamprobe",
+      "lane": "取流探测",
+      "flow_id": "flow_upstream_01",
+      "span_id": "span_up_probe",
+      "parent_span_id": "recording_demo_upstream_01",
+      "attrs": {
+        "candidate_count": 3
+      }
+    },
+    {
+      "seq": 11,
+      "id": "evt_up_011",
+      "at_ms": 1020,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "stream.probe.candidate.start",
+      "component": "streamprobe",
+      "lane": "取流探测",
+      "flow_id": "flow_upstream_01",
+      "span_id": "span_up_candidate_1",
+      "parent_span_id": "span_up_probe",
+      "attrs": {
+        "candidate_no": 1,
+        "cdn": "cdn-a.example.invalid",
+        "url_fingerprint": "url_hmac_demo_up_a"
+      }
+    },
+    {
+      "seq": 12,
+      "id": "evt_up_012",
+      "at_ms": 16020,
+      "severity": "warn",
+      "kind": "span.end",
+      "name": "stream.probe.candidate.end",
+      "component": "streamprobe",
+      "lane": "取流探测",
+      "flow_id": "flow_upstream_01",
+      "span_id": "span_up_candidate_1",
+      "parent_span_id": "span_up_probe",
+      "status": "timeout",
+      "attrs": {
+        "candidate_no": 1,
+        "cdn": "cdn-a.example.invalid",
+        "bytes_received": 0
+      },
+      "outcome": {
+        "status": "timeout",
+        "code": "upstream.connect_timeout",
+        "duration_ms": 15000,
+        "retryable": true
+      }
+    },
+    {
+      "seq": 13,
+      "id": "evt_up_013",
+      "at_ms": 16020,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "stream.probe.backoff.start",
+      "component": "streamprobe",
+      "lane": "取流探测",
+      "flow_id": "flow_upstream_01",
+      "span_id": "span_up_backoff_1",
+      "parent_span_id": "span_up_probe",
+      "attrs": {
+        "after_candidate_no": 1,
+        "scheduled_ms": 5000
+      }
+    },
+    {
+      "seq": 14,
+      "id": "evt_up_015",
+      "at_ms": 20380,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "listener.poll.start",
+      "component": "listener",
+      "lane": "直播检测",
+      "flow_id": "flow_upstream_01",
+      "span_id": "span_up_poll_02",
+      "entity_id": "room_hmac_demo_d128",
+      "attrs": {
+        "reason": "interval",
+        "poll_no": 2
+      }
+    },
+    {
+      "seq": 15,
+      "id": "evt_up_016",
+      "at_ms": 20680,
+      "severity": "debug",
+      "kind": "span.end",
+      "name": "listener.poll.end",
+      "component": "listener",
+      "lane": "直播检测",
+      "flow_id": "flow_upstream_01",
+      "span_id": "span_up_poll_02",
+      "entity_id": "room_hmac_demo_d128",
+      "status": "ok",
+      "attrs": {
+        "poll_no": 2,
+        "live": true,
+        "live_evidence": "platform_api"
+      },
+      "outcome": {
+        "status": "ok",
+        "code": "live",
+        "duration_ms": 300
+      }
+    },
+    {
+      "seq": 16,
+      "id": "evt_up_014",
+      "at_ms": 21020,
+      "severity": "debug",
+      "kind": "span.end",
+      "name": "stream.probe.backoff.end",
+      "component": "streamprobe",
+      "lane": "取流探测",
+      "flow_id": "flow_upstream_01",
+      "span_id": "span_up_backoff_1",
+      "parent_span_id": "span_up_probe",
+      "status": "ok",
+      "outcome": {
+        "status": "ok",
+        "duration_ms": 5000
+      }
+    },
+    {
+      "seq": 17,
+      "id": "evt_up_017",
+      "at_ms": 21020,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "stream.probe.candidate.start",
+      "component": "streamprobe",
+      "lane": "取流探测",
+      "flow_id": "flow_upstream_01",
+      "span_id": "span_up_candidate_2",
+      "parent_span_id": "span_up_probe",
+      "attrs": {
+        "candidate_no": 2,
+        "cdn": "cdn-b.example.invalid",
+        "url_fingerprint": "url_hmac_demo_up_b"
+      },
+      "links": [
+        { "rel": "retries", "event_id": "evt_up_012" }
+      ]
+    },
+    {
+      "seq": 18,
+      "id": "evt_up_018",
+      "at_ms": 36020,
+      "severity": "warn",
+      "kind": "span.end",
+      "name": "stream.probe.candidate.end",
+      "component": "streamprobe",
+      "lane": "取流探测",
+      "flow_id": "flow_upstream_01",
+      "span_id": "span_up_candidate_2",
+      "parent_span_id": "span_up_probe",
+      "status": "timeout",
+      "attrs": {
+        "candidate_no": 2,
+        "cdn": "cdn-b.example.invalid",
+        "bytes_received": 0
+      },
+      "outcome": {
+        "status": "timeout",
+        "code": "upstream.tls_handshake_timeout",
+        "duration_ms": 15000,
+        "retryable": true
+      }
+    },
+    {
+      "seq": 19,
+      "id": "evt_up_019",
+      "at_ms": 36020,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "stream.probe.backoff.start",
+      "component": "streamprobe",
+      "lane": "取流探测",
+      "flow_id": "flow_upstream_01",
+      "span_id": "span_up_backoff_2",
+      "parent_span_id": "span_up_probe",
+      "attrs": {
+        "after_candidate_no": 2,
+        "scheduled_ms": 5000
+      }
+    },
+    {
+      "seq": 20,
+      "id": "evt_up_021",
+      "at_ms": 40680,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "listener.poll.start",
+      "component": "listener",
+      "lane": "直播检测",
+      "flow_id": "flow_upstream_01",
+      "span_id": "span_up_poll_03",
+      "entity_id": "room_hmac_demo_d128",
+      "attrs": {
+        "reason": "interval",
+        "poll_no": 3
+      }
+    },
+    {
+      "seq": 21,
+      "id": "evt_up_022",
+      "at_ms": 40960,
+      "severity": "debug",
+      "kind": "span.end",
+      "name": "listener.poll.end",
+      "component": "listener",
+      "lane": "直播检测",
+      "flow_id": "flow_upstream_01",
+      "span_id": "span_up_poll_03",
+      "entity_id": "room_hmac_demo_d128",
+      "status": "ok",
+      "attrs": {
+        "poll_no": 3,
+        "live": true,
+        "live_evidence": "platform_api"
+      },
+      "outcome": {
+        "status": "ok",
+        "code": "live",
+        "duration_ms": 280
+      }
+    },
+    {
+      "seq": 22,
+      "id": "evt_up_020",
+      "at_ms": 41020,
+      "severity": "debug",
+      "kind": "span.end",
+      "name": "stream.probe.backoff.end",
+      "component": "streamprobe",
+      "lane": "取流探测",
+      "flow_id": "flow_upstream_01",
+      "span_id": "span_up_backoff_2",
+      "parent_span_id": "span_up_probe",
+      "status": "ok",
+      "outcome": {
+        "status": "ok",
+        "duration_ms": 5000
+      }
+    },
+    {
+      "seq": 23,
+      "id": "evt_up_023",
+      "at_ms": 41020,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "stream.probe.candidate.start",
+      "component": "streamprobe",
+      "lane": "取流探测",
+      "flow_id": "flow_upstream_01",
+      "span_id": "span_up_candidate_3",
+      "parent_span_id": "span_up_probe",
+      "attrs": {
+        "candidate_no": 3,
+        "cdn": "cdn-c.example.invalid",
+        "url_fingerprint": "url_hmac_demo_up_c"
+      },
+      "links": [
+        { "rel": "retries", "event_id": "evt_up_018" }
+      ]
+    },
+    {
+      "seq": 24,
+      "id": "evt_up_024",
+      "at_ms": 48990,
+      "severity": "info",
+      "kind": "span.end",
+      "name": "stream.probe.candidate.end",
+      "component": "streamprobe",
+      "lane": "取流探测",
+      "flow_id": "flow_upstream_01",
+      "span_id": "span_up_candidate_3",
+      "parent_span_id": "span_up_probe",
+      "status": "ok",
+      "attrs": {
+        "candidate_no": 3,
+        "cdn": "cdn-c.example.invalid",
+        "bytes_received": 131072,
+        "video_codec": "h264",
+        "resolution": "1920x1080"
+      },
+      "outcome": {
+        "status": "ok",
+        "duration_ms": 7970
+      }
+    },
+    {
+      "seq": 25,
+      "id": "evt_up_025",
+      "at_ms": 49000,
+      "severity": "warn",
+      "kind": "span.end",
+      "name": "stream.probe.end",
+      "component": "streamprobe",
+      "lane": "取流探测",
+      "flow_id": "flow_upstream_01",
+      "span_id": "span_up_probe",
+      "parent_span_id": "recording_demo_upstream_01",
+      "status": "ok",
+      "message": "第三个候选成功，但前两个超时和两次退避累计造成 47.99 秒延迟",
+      "attrs": {
+        "selected_candidate_no": 3,
+        "attempted_candidates": 3,
+        "failed_candidates": 2
+      },
+      "outcome": {
+        "status": "ok",
+        "code": "fallback.success",
+        "duration_ms": 47990
+      }
+    },
+    {
+      "seq": 26,
+      "id": "evt_up_026",
+      "at_ms": 49200,
+      "severity": "info",
+      "kind": "instant",
+      "name": "parser.start",
+      "component": "parser",
+      "lane": "下载器",
+      "flow_id": "flow_upstream_01",
+      "entity_id": "recording_demo_upstream_01",
+      "attrs": {
+        "parser": "native",
+        "input_candidate_no": 3,
+        "output_extension": ".flv"
+      }
+    },
+    {
+      "seq": 27,
+      "id": "evt_up_027",
+      "at_ms": 50000,
+      "severity": "info",
+      "kind": "instant",
+      "name": "segment.first_byte",
+      "component": "recorder",
+      "lane": "文件输出",
+      "flow_id": "flow_upstream_01",
+      "entity_id": "recording_demo_upstream_01",
+      "attrs": {
+        "file_id": "file_hmac_demo_up_01",
+        "size_bytes": 65536,
+        "extension": ".flv",
+        "monitor_to_first_byte_ms": 50000
+      }
+    },
+    {
+      "seq": 28,
+      "id": "evt_up_032",
+      "at_ms": 50001,
+      "severity": "warn",
+      "kind": "instant",
+      "name": "diagnostic.trigger",
+      "component": "diagnostics",
+      "lane": "诊断",
+      "flow_id": "flow_upstream_01",
+      "attrs": {
+        "reason": "recording_start_slow",
+        "threshold_ms": 30000,
+        "observed_ms": 50000,
+        "flight_recorder_snapshot": "requested"
+      }
+    }
+  ],
+  "metrics": [
+    {
+      "name": "stream.upstream_connecting",
+      "unit": "connections",
+      "component": "streamprobe",
+      "labels": { "room": "room_hmac_demo_d128" },
+      "points": [
+        [0, 0],
+        [1020, 1],
+        [16020, 0],
+        [21020, 1],
+        [36020, 0],
+        [41020, 1],
+        [48990, 0]
+      ]
+    },
+    {
+      "name": "stream.upstream_bytes",
+      "unit": "bytes",
+      "component": "streamprobe",
+      "labels": { "room": "room_hmac_demo_d128" },
+      "points": [
+        [0, 0],
+        [16020, 0],
+        [36020, 0],
+        [41020, 0],
+        [45000, 32768],
+        [48990, 131072],
+        [50000, 262144]
+      ]
+    },
+    {
+      "name": "record.output_bytes",
+      "unit": "bytes",
+      "component": "recorder",
+      "labels": { "room": "room_hmac_demo_d128" },
+      "points": [
+        [0, 0],
+        [20000, 0],
+        [40000, 0],
+        [49000, 0],
+        [50000, 65536],
+        [53000, 5242880]
+      ]
+    },
+    {
+      "name": "disk.write_latency_p95",
+      "unit": "ms",
+      "component": "iostats",
+      "points": [
+        [0, 1.1],
+        [10000, 1.2],
+        [20000, 1.0],
+        [30000, 1.3],
+        [40000, 1.2],
+        [50000, 1.4]
+      ]
+    }
+  ],
+  "runtime_samples": [
+    {
+      "at_ms": 10000,
+      "goroutine_id": "g_probe_demo_88",
+      "state": "waiting",
+      "wait_reason": "network_io",
+      "stack_fingerprint": "net.Dialer.DialContext/pollWait",
+      "top_frames": [
+        "internal/poll.runtime_pollWait",
+        "net.(*netFD).connect",
+        "net.(*Dialer).DialContext"
+      ],
+      "linked_span_id": "span_up_candidate_1"
+    },
+    {
+      "at_ms": 30000,
+      "goroutine_id": "g_probe_demo_88",
+      "state": "waiting",
+      "wait_reason": "network_io",
+      "stack_fingerprint": "crypto/tls.handshake/pollWait",
+      "top_frames": [
+        "internal/poll.runtime_pollWait",
+        "crypto/tls.(*Conn).handshakeContext",
+        "net/http.(*Transport).dialConn"
+      ],
+      "linked_span_id": "span_up_candidate_2"
+    },
+    {
+      "at_ms": 45000,
+      "goroutine_id": "g_probe_demo_88",
+      "state": "waiting",
+      "wait_reason": "network_io",
+      "stack_fingerprint": "streamprobe.readHeader/pollWait",
+      "top_frames": [
+        "internal/poll.runtime_pollWait",
+        "net/http.(*bodyEOFSignal).Read",
+        "streamprobe.parseFLVStreamInfo"
+      ],
+      "linked_span_id": "span_up_candidate_3"
+    }
+  ],
+  "expected_analysis": {
+    "fixture_only": true,
+    "root_cause_code": "stream_probe_fallback_timeout",
+    "headline": "直播检测只用了 0.62 秒；两个失败候选与两次退避占用了 40 秒",
+    "confidence": 0.98,
+    "phase_breakdown": [
+      {
+        "phase": "detect_live",
+        "start_ms": 0,
+        "end_ms": 620,
+        "duration_ms": 620,
+        "assessment": "normal"
+      },
+      {
+        "phase": "resolve_streams",
+        "start_ms": 640,
+        "end_ms": 1000,
+        "duration_ms": 360,
+        "assessment": "normal"
+      },
+      {
+        "phase": "candidate_1_timeout",
+        "start_ms": 1020,
+        "end_ms": 16020,
+        "duration_ms": 15000,
+        "assessment": "contributor"
+      },
+      {
+        "phase": "candidate_1_backoff",
+        "start_ms": 16020,
+        "end_ms": 21020,
+        "duration_ms": 5000,
+        "assessment": "contributor"
+      },
+      {
+        "phase": "candidate_2_timeout",
+        "start_ms": 21020,
+        "end_ms": 36020,
+        "duration_ms": 15000,
+        "assessment": "contributor"
+      },
+      {
+        "phase": "candidate_2_backoff",
+        "start_ms": 36020,
+        "end_ms": 41020,
+        "duration_ms": 5000,
+        "assessment": "contributor"
+      },
+      {
+        "phase": "candidate_3_and_first_byte",
+        "start_ms": 41020,
+        "end_ms": 50000,
+        "duration_ms": 8980,
+        "assessment": "normal"
+      }
+    ],
+    "evidence_event_ids": [
+      "evt_up_003",
+      "evt_up_012",
+      "evt_up_018",
+      "evt_up_024",
+      "evt_up_025",
+      "evt_up_027"
+    ],
+    "ruled_out": [
+      {
+        "cause": "room_check_interval_not_applied",
+        "reason": "初始检测 620 ms 完成，后续约 20 秒和 40 秒的观测也均为 live=true"
+      },
+      {
+        "cause": "room_went_offline",
+        "reason": "抓取窗口内三次有效平台 API 观测均为 live=true"
+      },
+      {
+        "cause": "ffmpeg_initialization",
+        "reason": "样本使用 native downloader，且没有工具等待 span"
+      },
+      {
+        "cause": "slow_disk",
+        "reason": "磁盘写入 P95 约 1 ms，首字节后写入速率正常"
+      }
+    ],
+    "recommendations": [
+      "在候选 URL 列表中记录脱敏后的 CDN 指纹及各自失败阶段。",
+      "将 connect、TLS handshake、响应头和 FLV 头读取分别设定超时并展示。",
+      "考虑根据近期成功率调整候选顺序，避免每次都先等待两个已知异常 CDN。"
+    ]
+  }
+}

@@ -31,7 +31,7 @@ func writeJsonWithStatusCode(w http.ResponseWriter, code int, obj any) {
 		writeMsg(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	w.WriteHeader(code)
 	w.Header().Set(contentType, contentTypeJSON)
+	w.WriteHeader(code)
 	_, _ = w.Write(b)
 }

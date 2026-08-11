@@ -8,6 +8,7 @@ import (
 	_ "net/http/pprof"
 	"net/url"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -30,7 +31,8 @@ const (
 )
 
 type Server struct {
-	server *http.Server
+	server    *http.Server
+	closeOnce sync.Once
 }
 
 // dynamicHandler 持有一个可热切换的 http.Handler。
@@ -92,8 +94,8 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/lives/{id}/name-history", getLiveNameHistory).Methods("GET")   // 获取名称变更历史
 	apiRoute.HandleFunc("/lives/{id}/history", getLiveHistory).Methods("GET")            // 获取统一历史事件（支持分页筛选）
 	apiRoute.HandleFunc("/lives/{id}/switchStream", switchStreamHandler).Methods("POST") // 切换流设置（需要请求体，必须在通配符之前）
-	apiRoute.HandleFunc("/lives/{id}/startRecord", startRecordDirect).Methods("POST")   // 直接启动录制（适用于 NotifyOnly 房间）
-	apiRoute.HandleFunc("/lives/{id}/stopRecord", stopRecordDirect).Methods("POST")     // 直接停止录制
+	apiRoute.HandleFunc("/lives/{id}/startRecord", startRecordDirect).Methods("POST")    // 直接启动录制（适用于 NotifyOnly 房间）
+	apiRoute.HandleFunc("/lives/{id}/stopRecord", stopRecordDirect).Methods("POST")      // 直接停止录制
 	apiRoute.HandleFunc("/lives/{id}/{action}", parseLiveAction).Methods("GET")          // 通配符路由必须放在最后
 	apiRoute.HandleFunc("/file/{path:.*}", getFileInfo).Methods("GET")
 	apiRoute.HandleFunc("/file/{path:.*}", renameFile).Methods("PUT")
@@ -152,6 +154,10 @@ func initMux(ctx context.Context) *mux.Router {
 	// OpenList (云上传) API 路由
 	apiRoute.HandleFunc("/openlist/status", getOpenListStatus).Methods("GET")
 	apiRoute.HandleFunc("/openlist/check-storage", checkOpenListStorageHealth).Methods("GET")
+
+	// 诊断运行、调查包和 Go Flight Recorder API。
+	// 路由始终存在；诊断模块尚未初始化时会返回明确的 503 JSON。
+	registerDiagnosticHandlers(apiRoute)
 
 	// Pipeline 任务路由
 	inst := instance.GetInstance(ctx)
@@ -347,16 +353,25 @@ func (s *Server) Start(ctx context.Context) error {
 }
 
 func (s *Server) Close(ctx context.Context) {
-	inst := instance.GetInstance(ctx)
-	inst.WaitGroup.Done()
-	// 先关闭所有 SSE 连接，避免 Shutdown 时等待
-	GetSSEHub().Close()
-	ctx2, cancel := context.WithCancel(ctx)
-	if err := s.server.Shutdown(ctx2); err != nil {
-		applog.GetLogger().WithError(err).Error("failed to shutdown server")
-	}
-	defer cancel()
-	applog.GetLogger().Infof("Server close")
+	s.closeOnce.Do(func() {
+		inst := instance.GetInstance(ctx)
+
+		// 先关闭所有 SSE 连接，避免 Shutdown 时等待。root context 在进入
+		// Close 前通常已经取消，因此 Shutdown 必须使用独立的超时 context。
+		GetSSEHub().Close()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := s.server.Shutdown(shutdownCtx); err != nil {
+			applog.GetLogger().WithError(err).Error("failed to shutdown server")
+		}
+
+		// 只有 HTTP Shutdown 完成（或明确超时）后才向全局 WaitGroup 报告完成，
+		// 避免上层过早写入“正常退出”标记。
+		if inst != nil {
+			inst.WaitGroup.Done()
+		}
+		applog.GetLogger().Infof("Server close")
+	})
 }
 
 // setupRecorderStatusBroadcast 设置录制器状态广播回调
@@ -369,15 +384,15 @@ func setupRecorderStatusBroadcast() {
 	// 设置弹幕广播回调，让 recorders 包能够将弹幕消息推送到 SSE
 	recorders.SetBroadcastDanmakuFunc(func(liveId types.LiveID, msgType, username, content string, extra map[string]interface{}) {
 		GetSSEHub().BroadcastDanmaku(liveId, map[string]interface{}{
-			"type":       msgType,
-			"username":   username,
-			"content":    content,
-			"color":      extra["color"],
-			"timestamp":  extra["timestamp"],
-			"gift_name":  extra["gift_name"],
-			"num":        extra["num"],
-			"price":      extra["price"],
-			"coin_type":  extra["coin_type"],
+			"type":      msgType,
+			"username":  username,
+			"content":   content,
+			"color":     extra["color"],
+			"timestamp": extra["timestamp"],
+			"gift_name": extra["gift_name"],
+			"num":       extra["num"],
+			"price":     extra["price"],
+			"coin_type": extra["coin_type"],
 		})
 	})
 

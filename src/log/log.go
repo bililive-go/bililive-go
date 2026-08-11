@@ -2,6 +2,10 @@ package log
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -19,6 +23,8 @@ import (
 
 var (
 	stopDebugWatcher context.CancelFunc
+	debugWatcherDone chan struct{}
+	activeLogSyncers []interface{ Sync() error }
 	watcherMu        sync.Mutex
 )
 
@@ -38,13 +44,14 @@ func New(ctx context.Context) *interfaces.Logger {
 	isLauncherManaged := os.Getenv("BILILIVE_LAUNCHER") == "1"
 
 	outputFolder := config.Log.OutPutFolder
-	if _, err := os.Stat(outputFolder); os.IsNotExist(err) {
+	outputInfo, err := os.Stat(outputFolder)
+	if err != nil {
 		log.Fatalf("err: \"%s\", Failed to determine log output folder: %s", err, outputFolder)
+	} else if !outputInfo.IsDir() {
+		log.Fatalf("Failed to determine log output folder: %s is not a directory", outputFolder)
 	} else {
 		if config.Log.SaveEveryLog {
-			runID := time.Now().Format("run-2006-01-02-15-04-05")
-			logLocation := filepath.Join(outputFolder, runID+".log")
-			logFile, err := os.OpenFile(logLocation, os.O_CREATE|os.O_WRONLY, 0644)
+			logFile, logLocation, err := openUniqueRunLog(outputFolder, time.Now())
 			if err != nil {
 				log.Fatalf("Failed to open log file %s for output: %s", logLocation, err)
 			} else {
@@ -53,16 +60,8 @@ func New(ctx context.Context) *interfaces.Logger {
 			}
 		}
 		if config.Log.SaveLastLog {
-			// 由 Launcher 启动时（版本切换）不清理旧日志
-			// 因为前一版本的进程可能仍持有日志文件的写入句柄
-			// 在 Linux/Docker 上删除会导致前一版本的最后日志丢失
-			if !isLauncherManaged {
-				purgePattern := filepath.Join(outputFolder, "bililive-go-*.log")
-				matches, _ := filepath.Glob(purgePattern)
-				for _, f := range matches {
-					_ = os.Remove(f)
-				}
-			}
+			// 不在启动时删除旧日志。异常退出后的下一次启动必须仍能调查上一运行；
+			// 过期日志只交给 dailyRotatingWriter 的 RotateDays 保留策略清理。
 			// 按天滚动写入日志（使用 O_APPEND 追加模式，不会覆盖已有内容）
 			rot := newDailyRotatingWriter(outputFolder, "bililive-go", config.Log.RotateDays)
 			writers = append(writers, rot)
@@ -87,12 +86,24 @@ func New(ctx context.Context) *interfaces.Logger {
 	watcherMu.Lock()
 	if stopDebugWatcher != nil {
 		stopDebugWatcher()
+		if debugWatcherDone != nil {
+			<-debugWatcherDone
+		}
 	}
 	watcherCtx, cancel := context.WithCancel(ctx)
+	watcherDone := make(chan struct{})
 	stopDebugWatcher = cancel
+	debugWatcherDone = watcherDone
+	activeLogSyncers = activeLogSyncers[:0]
+	for _, closer := range closers {
+		if syncer, ok := closer.(interface{ Sync() error }); ok {
+			activeLogSyncers = append(activeLogSyncers, syncer)
+		}
+	}
 	watcherMu.Unlock()
 
 	bilisentry.GoWithContext(watcherCtx, func(ctx context.Context) {
+		defer close(watcherDone)
 		ticker := time.NewTicker(500 * time.Millisecond)
 		defer ticker.Stop()
 		prev := config.Debug
@@ -101,6 +112,9 @@ func New(ctx context.Context) *interfaces.Logger {
 			case <-ctx.Done():
 				// context 取消时关闭所有日志文件句柄
 				for _, c := range closers {
+					if syncer, ok := c.(interface{ Sync() error }); ok {
+						_ = syncer.Sync()
+					}
 					_ = c.Close()
 				}
 				return
@@ -129,6 +143,68 @@ func New(ctx context.Context) *interfaces.Logger {
 	return &interfaces.Logger{Logger: logrus.StandardLogger()}
 }
 
+// Close 同步并关闭当前日志文件，且等待后台 watcher 退出。
+// 正常 shutdown 必须显式调用它，不能只依赖已取消的应用 root context。
+func Close() {
+	watcherMu.Lock()
+	cancel := stopDebugWatcher
+	done := debugWatcherDone
+	stopDebugWatcher = nil
+	debugWatcherDone = nil
+	activeLogSyncers = nil
+	if cancel != nil {
+		cancel()
+	}
+	watcherMu.Unlock()
+	if done != nil {
+		<-done
+	}
+}
+
+// Sync 把当前文本日志的确定字节前缀刷入稳定存储。诊断包在 stat/复制日志
+// 之前调用它；日志之后仍可继续增长，但下载包只读取 stat 时已经存在的字节。
+func Sync() error {
+	watcherMu.Lock()
+	defer watcherMu.Unlock()
+	var result error
+	for _, syncer := range activeLogSyncers {
+		if err := syncer.Sync(); err != nil && !errors.Is(err, io.ErrClosedPipe) {
+			result = errors.Join(result, err)
+		}
+	}
+	return result
+}
+
+// openUniqueRunLog 为每次进程运行创建不可覆盖的独立日志文件。
+// 纳秒时间、PID 和随机后缀共同避免“同一秒崩溃并重启”覆盖上一运行日志。
+func openUniqueRunLog(dir string, now time.Time) (*os.File, string, error) {
+	var lastPath string
+	for attempt := 0; attempt < 8; attempt++ {
+		var randomBytes [6]byte
+		if _, err := rand.Read(randomBytes[:]); err != nil {
+			// 极少数随机源不可用场景仍用 attempt 保证本次调用内不重复；
+			// O_EXCL 是最终的不覆盖保证。
+			randomBytes = [6]byte{}
+			randomBytes[0] = byte(attempt)
+		}
+		runID := fmt.Sprintf(
+			"run-%s-p%d-%s",
+			now.UTC().Format("20060102T150405.000000000Z"),
+			os.Getpid(),
+			hex.EncodeToString(randomBytes[:]),
+		)
+		lastPath = filepath.Join(dir, runID+".log")
+		file, err := os.OpenFile(lastPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			return file, lastPath, nil
+		}
+		if !os.IsExist(err) {
+			return nil, lastPath, err
+		}
+	}
+	return nil, lastPath, fmt.Errorf("连续生成的日志文件名均已存在")
+}
+
 // dailyRotatingWriter 按“天”切分日志文件，文件名形如：<base>-YYYY-MM-DD.log
 // 可选保留最近 N 天（retentionDays<=0 时不清理）。
 type dailyRotatingWriter struct {
@@ -139,6 +215,7 @@ type dailyRotatingWriter struct {
 	mu     sync.Mutex
 	curDay string
 	file   *os.File
+	closed bool
 }
 
 func newDailyRotatingWriter(dir, base string, retentionDays int) *dailyRotatingWriter {
@@ -150,6 +227,9 @@ func newDailyRotatingWriter(dir, base string, retentionDays int) *dailyRotatingW
 func (w *dailyRotatingWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.closed {
+		return 0, io.ErrClosedPipe
+	}
 	if err := w.rotateIfNeededLocked(time.Now()); err != nil {
 		return 0, err
 	}
@@ -160,6 +240,9 @@ func (w *dailyRotatingWriter) Write(p []byte) (int, error) {
 }
 
 func (w *dailyRotatingWriter) rotateIfNeededLocked(now time.Time) error {
+	if w.closed {
+		return io.ErrClosedPipe
+	}
 	day := now.Format("2006-01-02")
 	if w.file != nil && day == w.curDay {
 		return nil
@@ -214,12 +297,30 @@ func (w *dailyRotatingWriter) cleanupLocked(now time.Time) {
 func (w *dailyRotatingWriter) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.closed {
+		return nil
+	}
+	w.closed = true
 	if w.file != nil {
+		_ = w.file.Sync()
 		err := w.file.Close()
 		w.file = nil
 		return err
 	}
 	return nil
+}
+
+// Sync 将当前 daily 文件同步到稳定存储。
+func (w *dailyRotatingWriter) Sync() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.file == nil {
+		if w.closed {
+			return io.ErrClosedPipe
+		}
+		return nil
+	}
+	return w.file.Sync()
 }
 
 // GetLogger 返回全局唯一的 logrus Logger。

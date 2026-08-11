@@ -25,6 +25,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/metrics"
 	"github.com/bililive-go/bililive-go/src/pipeline"
 	"github.com/bililive-go/bililive-go/src/pipeline/stages"
+	"github.com/bililive-go/bililive-go/src/pkg/diagnostics"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
 	"github.com/bililive-go/bililive-go/src/pkg/iostats"
 	"github.com/bililive-go/bililive-go/src/pkg/kliveproxy"
@@ -218,6 +219,57 @@ func main() {
 
 	configs.SetCurrentConfig(config)
 
+	// 必须在文件日志和其它后台模块之前创建独立 run。这样即使后续初始化 Fatal、
+	// panic、OOM 或被 SIGKILL，下一次启动也只会新建目录，不会覆盖上一现场。
+	diagnosticsManager, diagnosticsErr := diagnostics.Init(diagnostics.Config{
+		AppDataPath: config.AppDataPath,
+		AppVersion:  consts.AppVersion,
+		Commit:      consts.GitHash,
+		TraceMode:   "business+go-flight-recorder",
+		Configuration: map[string]any{
+			"configured_room_count": len(config.LiveRooms),
+			"detection_interval_s":  config.Interval,
+			"rpc_enabled":           config.RPC.Enable,
+			"debug":                 config.Debug,
+		},
+		HeartbeatInterval: 2 * time.Second,
+		EventSyncInterval: time.Second,
+		Flight: diagnostics.FlightConfig{
+			Enabled:          true,
+			SnapshotInterval: 15 * time.Second,
+			MinAge:           10 * time.Second,
+			MaxBytes:         32 << 20,
+			KeepSnapshots:    2,
+		},
+	})
+	shutdownCompleted := false
+	if diagnosticsErr != nil {
+		fmt.Fprintf(os.Stderr, "警告: 本地诊断轨迹初始化失败: %v\n", diagnosticsErr)
+	} else {
+		// 终态只在 main 真正返回时发布：统一 shutdown 未完成则 Abort；完成后才
+		// Close。这样后续 Launcher 过渡若 panic/失败，也不会提前留下 clean marker。
+		defer func() {
+			if shutdownCompleted {
+				_ = diagnosticsManager.Close()
+			} else {
+				_ = diagnosticsManager.Abort()
+			}
+		}()
+		defer bilisentryPkg.SetPanicHook(nil)
+		defer diagnostics.RecoverPanic()
+		bilisentryPkg.SetPanicHook(func(ctx context.Context, recovered any) {
+			_ = diagnosticsManager.RecordPanic(ctx, recovered)
+		})
+		diagnostics.Record(context.Background(), "process.start", diagnostics.Fields{
+			"component":        "process",
+			"lane":             "Runtime",
+			"severity":         "info",
+			"status":           "starting",
+			"run_id":           diagnosticsManager.RunID(),
+			"configured_rooms": len(config.LiveRooms),
+		})
+	}
+
 	// 初始化元数据存储（用于存储设备 ID、升级状态等关键信息）
 	if err := metadata.Init(filepath.Join(config.AppDataPath, "db")); err != nil {
 		fmt.Fprintf(os.Stderr, "警告: 元数据存储初始化失败: %v\n", err)
@@ -261,9 +313,38 @@ func main() {
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	ctx := context.WithValue(rootCtx, instance.Key, inst)
 	inst.Ctx = ctx
+	shutdownRequests := make(chan string, 1)
+	requestShutdown := func(reason string) {
+		select {
+		case shutdownRequests <- reason:
+		default:
+			// 关闭已经在进行时，重复请求不阻塞调用方。
+		}
+	}
 
-	logger := log.New(ctx)
+	// Logger 的生命周期必须覆盖完整 shutdown。不能复用 rootCtx：rootCancel 会在各
+	// 模块 Close 之前触发，否则 MultiWriter 提前关闭文件并丢失最关键的收尾日志。
+	logCtx, logCancel := context.WithCancel(context.Background())
+	defer logCancel()
+	logger := log.New(logCtx)
+	defer log.Close()
 	logger.Infof("%s Version: %s Link Start", consts.AppName, consts.AppVersion)
+	if diagnosticsManager != nil {
+		startup := diagnosticsManager.StartupStatus()
+		if len(startup.UncleanRuns) > 0 {
+			logger.Warnf(
+				"发现 %d 个未确认正常结束的历史运行，现场已保存在 WebUI 诊断分析中（不会被本次启动覆盖）",
+				len(startup.UncleanRuns),
+			)
+			diagnostics.Record(ctx, "process.previous_run.detected", diagnostics.Fields{
+				"component":         "process",
+				"lane":              "Runtime",
+				"severity":          "warn",
+				"status":            "unclean",
+				"unclean_run_count": len(startup.UncleanRuns),
+			})
+		}
+	}
 
 	// 发送启动统计（异步）
 	telemetry.GetInstance().SendStartup(ctx)
@@ -281,6 +362,7 @@ func main() {
 	// 提前声明信号通道，以便后续 OnShutdownRequest 闭包可以引用它
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(c)
 
 	// 初始化更新管理器并尝试连接到启动器（如果由启动器启动）
 	var updateManager *update.Manager
@@ -318,14 +400,11 @@ func main() {
 				logger.Infof("收到启动器关闭请求，优雅期 %d 秒", gracePeriod)
 				// 发送关闭确认
 				updateManager.AckShutdown()
-				// 触发完整关闭流程（包括 tools.Cleanup），而非仅 rootCancel。
-				// 确保 bililive-tools 等子进程在 Launcher 超时重启时被正确清理，
-				// 避免端口占用导致下次启动失败（issue #1129）。
-				select {
-				case c <- syscall.SIGTERM:
-				default:
-				}
-				// 立即取消 context，确保关闭请求即时生效（即使关闭 goroutine 尚未启动也能中断初始化流程）
+				// 进入与 SIGTERM/WebUI 相同的完整关闭流程（包括 Dispatcher drain
+				// 与 tools.Cleanup），避免 Launcher 超时重启后旧子进程仍占用端口。
+				requestShutdown("launcher")
+				// 关闭协程可能还未创建；立即取消根 context，先中断平台初始化、
+				// 调度等待和其它后台生产者，之后仍由统一流程完成全部 Close。
 				rootCancel()
 			})
 		}
@@ -797,21 +876,36 @@ func main() {
 
 	logger.Infof("Created %d live rooms (%d listening, %d not listening)",
 		inst.Lives.Len(), len(listeningRooms), len(nonListeningRooms))
-
-	msgChan := c
+	diagnostics.Record(ctx, "process.ready", diagnostics.Fields{
+		"component":       "process",
+		"lane":            "Runtime",
+		"severity":        "info",
+		"status":          "ready",
+		"live_room_count": inst.Lives.Len(),
+		"listening_count": len(listeningRooms),
+	})
 
 	// 注册关闭回调，供更新系统在热重启时触发优雅关闭
 	servers.SetShutdownFunc(func() {
-		select {
-		case c <- os.Interrupt:
-		default:
-		}
+		requestShutdown("webui")
 	})
 	shutdownComplete := make(chan struct{})
 	bilisentryPkg.Go(func() {
 		defer close(shutdownComplete)
-		<-msgChan
-		logger.Info("Received shutdown signal, closing...")
+		reason := ""
+		select {
+		case received := <-c:
+			reason = received.String()
+		case reason = <-shutdownRequests:
+		}
+		logger.Infof("Received shutdown request (%s), closing...", reason)
+		diagnostics.Record(ctx, "process.shutdown.start", diagnostics.Fields{
+			"component": "process",
+			"lane":      "Runtime",
+			"severity":  "info",
+			"status":    "stopping",
+			"reason":    reason,
+		})
 		// 取消根 context，这会导致所有派生的 context 被取消
 		// 包括：WrappedLive 的调度器、非监听直播间的初始化循环等
 		rootCancel()
@@ -845,18 +939,27 @@ func main() {
 		// 终止所有子进程（bililive-tools 等）并关闭 remotetools WebUI。
 		// 在所有关闭路径下执行，确保端口被释放（issue #1129）。
 		tools.Cleanup()
+
+		// 所有会生产业务事件的 manager/pipeline 都已经关闭。现在关闭外部派发
+		// 闸门，并等待关闭过程中已接收的异步/同步 handler（含其嵌套事件）完成。
+		// process.shutdown.complete 必须在 drain 之后写出，否则 clean marker 可能
+		// 早于最后一个 event.handler.complete。
+		ed.Close(context.Background())
+		diagnostics.Record(context.Background(), "process.shutdown.complete", diagnostics.Fields{
+			"component": "process",
+			"lane":      "Runtime",
+			"severity":  "info",
+			"status":    "ok",
+			"reason":    reason,
+		})
 		logger.Info("Shutdown complete")
 	})
 
+	// 不再把 WaitGroup 归零当作 clean shutdown 证据：部分模块的 Done 早于其实际
+	// 收尾。只有统一关闭协程执行到最后，才允许写 clean marker。
+	<-shutdownComplete
 	inst.WaitGroup.Wait()
-	// WaitGroup 只覆盖 Server、ListenerManager 和 RecorderManager。
-	// 收到关闭请求后还必须等待其余模块和 tools.Cleanup() 完成，避免主程序退出后
-	// Launcher 立即启动新版本，与尚未退出的 bililive-tools 等子进程争用端口。
-	select {
-	case <-rootCtx.Done():
-		<-shutdownComplete
-	default:
-	}
+	shutdownCompleted = true
 
 	// 检查是否需要就地切换到 launcher 模式
 	// 如果用户在前端点击了"立即更新"，doApplyUpdate 会设置此标志并触发服务关闭

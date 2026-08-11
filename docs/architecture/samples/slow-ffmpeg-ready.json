@@ -1,0 +1,745 @@
+{
+  "schema": "bililive.diagnostic-bundle/v1",
+  "manifest": {
+    "bundle_id": "bundle_demo_slow_ffmpeg_ready",
+    "run_id": "run_demo_ffmpeg_01",
+    "incident_id": "incident_demo_ffmpeg_01",
+    "time_origin": "2026-07-28T10:00:00+09:00",
+    "capture_start_ms": 0,
+    "capture_end_ms": 56000,
+    "synthetic": true,
+    "app_version": "demo-next",
+    "commit": "synthetic",
+    "go_version": "go1.25.1",
+    "os": "linux",
+    "arch": "amd64",
+    "trace_mode": "diagnostic",
+    "dropped_events": 0,
+    "redaction_version": "demo-v1",
+    "title": "检测很快，但等待 FFmpeg 就绪导致 50 秒后才写出 FLV"
+  },
+  "configuration": {
+    "room_check_interval_ms": 20000,
+    "downloader_type": "ffmpeg",
+    "ffmpeg_path_source": "managed_download",
+    "stream_timeout_us": 60000000,
+    "diagnostic_ttl_ms": 900000
+  },
+  "entities": [
+    {
+      "type": "room",
+      "id": "room_hmac_demo_7c31",
+      "label": "演示直播间 A",
+      "platform": "bilibili",
+      "observed_live_throughout_capture": true
+    },
+    {
+      "type": "recording_session",
+      "id": "recording_demo_ffmpeg_01",
+      "label": "录制会话 #1"
+    },
+    {
+      "type": "tool",
+      "id": "tool_ffmpeg_managed",
+      "label": "托管 FFmpeg"
+    }
+  ],
+  "incident": {
+    "type": "recording_start_slow",
+    "title": "开始监控后 50 秒才出现 FLV 首字节",
+    "anchor_entity_id": "room_hmac_demo_7c31",
+    "expected_detection_interval_ms": 20000,
+    "observed_monitor_to_first_byte_ms": 50000,
+    "user_report": "直播间一直开播，检测间隔设置为 20 秒，但程序启动后约 50 秒才真正录到 FLV。",
+    "trigger_event_id": "evt_ff_026",
+    "known_fixture_truth": "平台在整个合成窗口内保持开播"
+  },
+  "events": [
+    {
+      "seq": 1,
+      "id": "evt_ff_001",
+      "at_ms": 0,
+      "severity": "info",
+      "kind": "instant",
+      "name": "monitor.started",
+      "component": "listener",
+      "lane": "直播检测",
+      "flow_id": "flow_ffmpeg_01",
+      "entity_id": "room_hmac_demo_7c31",
+      "attrs": {
+        "configured_interval_ms": 20000,
+        "initial_poll": "immediate"
+      }
+    },
+    {
+      "seq": 2,
+      "id": "evt_ff_002",
+      "at_ms": 5,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "listener.poll.start",
+      "component": "listener",
+      "lane": "直播检测",
+      "flow_id": "flow_ffmpeg_01",
+      "span_id": "span_ff_poll_01",
+      "entity_id": "room_hmac_demo_7c31",
+      "links": [
+        { "rel": "caused_by", "event_id": "evt_ff_001" }
+      ],
+      "attrs": {
+        "reason": "initial_refresh",
+        "poll_no": 1
+      }
+    },
+    {
+      "seq": 3,
+      "id": "evt_ff_003",
+      "at_ms": 380,
+      "severity": "info",
+      "kind": "span.end",
+      "name": "listener.poll.end",
+      "component": "listener",
+      "lane": "直播检测",
+      "flow_id": "flow_ffmpeg_01",
+      "span_id": "span_ff_poll_01",
+      "entity_id": "room_hmac_demo_7c31",
+      "status": "ok",
+      "attrs": {
+        "poll_no": 1,
+        "live": true,
+        "live_evidence": "platform_api",
+        "http_status": 200
+      },
+      "outcome": {
+        "status": "ok",
+        "code": "live",
+        "duration_ms": 375
+      }
+    },
+    {
+      "seq": 4,
+      "id": "evt_ff_004",
+      "at_ms": 382,
+      "severity": "debug",
+      "kind": "instant",
+      "name": "event.dispatch",
+      "component": "events",
+      "lane": "事件派发",
+      "flow_id": "flow_ffmpeg_01",
+      "attrs": {
+        "event_type": "LiveStart",
+        "dispatch_id": "dispatch_ff_live_start",
+        "handler_count": 3
+      },
+      "links": [
+        { "rel": "caused_by", "event_id": "evt_ff_003" }
+      ]
+    },
+    {
+      "seq": 5,
+      "id": "evt_ff_005",
+      "at_ms": 384,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "event.handler.start",
+      "component": "events",
+      "lane": "事件派发",
+      "flow_id": "flow_ffmpeg_01",
+      "span_id": "span_ff_handler",
+      "attrs": {
+        "event_type": "LiveStart",
+        "handler": "RecorderManager.OnLiveStart",
+        "dispatch_id": "dispatch_ff_live_start"
+      }
+    },
+    {
+      "seq": 6,
+      "id": "evt_ff_006",
+      "at_ms": 388,
+      "severity": "debug",
+      "kind": "span.end",
+      "name": "event.handler.end",
+      "component": "events",
+      "lane": "事件派发",
+      "flow_id": "flow_ffmpeg_01",
+      "span_id": "span_ff_handler",
+      "status": "ok",
+      "outcome": {
+        "status": "ok",
+        "duration_ms": 4
+      }
+    },
+    {
+      "seq": 7,
+      "id": "evt_ff_007",
+      "at_ms": 390,
+      "severity": "info",
+      "kind": "instant",
+      "name": "recorder.session.start",
+      "component": "recorder",
+      "lane": "录制控制",
+      "flow_id": "flow_ffmpeg_01",
+      "entity_id": "recording_demo_ffmpeg_01",
+      "attrs": {
+        "reason": "live_start",
+        "attempt_no": 1,
+        "downloader": "ffmpeg"
+      },
+      "links": [
+        { "rel": "caused_by", "event_id": "evt_ff_004" }
+      ]
+    },
+    {
+      "seq": 8,
+      "id": "evt_ff_008",
+      "at_ms": 392,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "stream.resolve.start",
+      "component": "recorder",
+      "lane": "取流",
+      "flow_id": "flow_ffmpeg_01",
+      "span_id": "span_ff_resolve",
+      "parent_span_id": "recording_demo_ffmpeg_01",
+      "entity_id": "room_hmac_demo_7c31"
+    },
+    {
+      "seq": 9,
+      "id": "evt_ff_009",
+      "at_ms": 700,
+      "severity": "info",
+      "kind": "span.end",
+      "name": "stream.resolve.end",
+      "component": "recorder",
+      "lane": "取流",
+      "flow_id": "flow_ffmpeg_01",
+      "span_id": "span_ff_resolve",
+      "parent_span_id": "recording_demo_ffmpeg_01",
+      "status": "ok",
+      "attrs": {
+        "candidate_count": 3,
+        "selected_format": "flv",
+        "selected_cdn": "cdn-a.example.invalid"
+      },
+      "outcome": {
+        "status": "ok",
+        "duration_ms": 308
+      }
+    },
+    {
+      "seq": 10,
+      "id": "evt_ff_010",
+      "at_ms": 710,
+      "severity": "info",
+      "kind": "span.start",
+      "name": "tools.ffmpeg.wait.start",
+      "component": "tools",
+      "lane": "工具初始化",
+      "flow_id": "flow_ffmpeg_01",
+      "span_id": "span_ff_tool_wait",
+      "parent_span_id": "recording_demo_ffmpeg_01",
+      "entity_id": "tool_ffmpeg_managed",
+      "attrs": {
+        "state": "downloading",
+        "reason": "selected_downloader_requires_ffmpeg"
+      }
+    },
+    {
+      "seq": 11,
+      "id": "evt_ff_011",
+      "at_ms": 720,
+      "severity": "info",
+      "kind": "span.start",
+      "name": "tools.ffmpeg.download.start",
+      "component": "tools",
+      "lane": "工具初始化",
+      "flow_id": "flow_ffmpeg_01",
+      "span_id": "span_ff_download",
+      "parent_span_id": "span_ff_tool_wait",
+      "entity_id": "tool_ffmpeg_managed",
+      "attrs": {
+        "source": "managed_mirror",
+        "expected_bytes": 89128960
+      }
+    },
+    {
+      "seq": 12,
+      "id": "evt_ff_012",
+      "at_ms": 20380,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "listener.poll.start",
+      "component": "listener",
+      "lane": "直播检测",
+      "flow_id": "flow_ffmpeg_01",
+      "span_id": "span_ff_poll_02",
+      "entity_id": "room_hmac_demo_7c31",
+      "attrs": {
+        "reason": "interval",
+        "poll_no": 2
+      }
+    },
+    {
+      "seq": 13,
+      "id": "evt_ff_013",
+      "at_ms": 20680,
+      "severity": "debug",
+      "kind": "span.end",
+      "name": "listener.poll.end",
+      "component": "listener",
+      "lane": "直播检测",
+      "flow_id": "flow_ffmpeg_01",
+      "span_id": "span_ff_poll_02",
+      "entity_id": "room_hmac_demo_7c31",
+      "status": "ok",
+      "attrs": {
+        "poll_no": 2,
+        "live": true,
+        "live_evidence": "platform_api"
+      },
+      "outcome": {
+        "status": "ok",
+        "code": "live",
+        "duration_ms": 300
+      }
+    },
+    {
+      "seq": 14,
+      "id": "evt_ff_014",
+      "at_ms": 40680,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "listener.poll.start",
+      "component": "listener",
+      "lane": "直播检测",
+      "flow_id": "flow_ffmpeg_01",
+      "span_id": "span_ff_poll_03",
+      "entity_id": "room_hmac_demo_7c31",
+      "attrs": {
+        "reason": "interval",
+        "poll_no": 3
+      }
+    },
+    {
+      "seq": 15,
+      "id": "evt_ff_015",
+      "at_ms": 40960,
+      "severity": "debug",
+      "kind": "span.end",
+      "name": "listener.poll.end",
+      "component": "listener",
+      "lane": "直播检测",
+      "flow_id": "flow_ffmpeg_01",
+      "span_id": "span_ff_poll_03",
+      "entity_id": "room_hmac_demo_7c31",
+      "status": "ok",
+      "attrs": {
+        "poll_no": 3,
+        "live": true,
+        "live_evidence": "platform_api"
+      },
+      "outcome": {
+        "status": "ok",
+        "code": "live",
+        "duration_ms": 280
+      }
+    },
+    {
+      "seq": 16,
+      "id": "evt_ff_016",
+      "at_ms": 42300,
+      "severity": "info",
+      "kind": "span.end",
+      "name": "tools.ffmpeg.download.end",
+      "component": "tools",
+      "lane": "工具初始化",
+      "flow_id": "flow_ffmpeg_01",
+      "span_id": "span_ff_download",
+      "parent_span_id": "span_ff_tool_wait",
+      "entity_id": "tool_ffmpeg_managed",
+      "status": "ok",
+      "attrs": {
+        "downloaded_bytes": 89128960
+      },
+      "outcome": {
+        "status": "ok",
+        "duration_ms": 41580
+      }
+    },
+    {
+      "seq": 17,
+      "id": "evt_ff_017",
+      "at_ms": 42305,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "tools.ffmpeg.verify_and_extract.start",
+      "component": "tools",
+      "lane": "工具初始化",
+      "flow_id": "flow_ffmpeg_01",
+      "span_id": "span_ff_verify",
+      "parent_span_id": "span_ff_tool_wait",
+      "entity_id": "tool_ffmpeg_managed"
+    },
+    {
+      "seq": 18,
+      "id": "evt_ff_018",
+      "at_ms": 45800,
+      "severity": "info",
+      "kind": "span.end",
+      "name": "tools.ffmpeg.verify_and_extract.end",
+      "component": "tools",
+      "lane": "工具初始化",
+      "flow_id": "flow_ffmpeg_01",
+      "span_id": "span_ff_verify",
+      "parent_span_id": "span_ff_tool_wait",
+      "entity_id": "tool_ffmpeg_managed",
+      "status": "ok",
+      "outcome": {
+        "status": "ok",
+        "duration_ms": 3495
+      }
+    },
+    {
+      "seq": 19,
+      "id": "evt_ff_019",
+      "at_ms": 45810,
+      "severity": "warn",
+      "kind": "span.end",
+      "name": "tools.ffmpeg.wait.end",
+      "component": "tools",
+      "lane": "工具初始化",
+      "flow_id": "flow_ffmpeg_01",
+      "span_id": "span_ff_tool_wait",
+      "parent_span_id": "recording_demo_ffmpeg_01",
+      "entity_id": "tool_ffmpeg_managed",
+      "status": "ok",
+      "message": "FFmpeg 已就绪，但本次录制已等待 45.1 秒",
+      "attrs": {
+        "state_from": "downloading",
+        "state_to": "ready"
+      },
+      "outcome": {
+        "status": "ok",
+        "code": "tool.ready",
+        "duration_ms": 45100
+      }
+    },
+    {
+      "seq": 20,
+      "id": "evt_ff_020",
+      "at_ms": 45820,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "stream.probe.start",
+      "component": "streamprobe",
+      "lane": "取流探测",
+      "flow_id": "flow_ffmpeg_01",
+      "span_id": "span_ff_probe",
+      "parent_span_id": "recording_demo_ffmpeg_01",
+      "attrs": {
+        "candidate_count": 1
+      }
+    },
+    {
+      "seq": 21,
+      "id": "evt_ff_021",
+      "at_ms": 45821,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "stream.probe.candidate.start",
+      "component": "streamprobe",
+      "lane": "取流探测",
+      "flow_id": "flow_ffmpeg_01",
+      "span_id": "span_ff_probe_candidate_1",
+      "parent_span_id": "span_ff_probe",
+      "attrs": {
+        "candidate_no": 1,
+        "cdn": "cdn-a.example.invalid",
+        "url_fingerprint": "url_hmac_demo_ff_a"
+      }
+    },
+    {
+      "seq": 22,
+      "id": "evt_ff_022",
+      "at_ms": 48890,
+      "severity": "info",
+      "kind": "span.end",
+      "name": "stream.probe.candidate.end",
+      "component": "streamprobe",
+      "lane": "取流探测",
+      "flow_id": "flow_ffmpeg_01",
+      "span_id": "span_ff_probe_candidate_1",
+      "parent_span_id": "span_ff_probe",
+      "status": "ok",
+      "attrs": {
+        "candidate_no": 1,
+        "cdn": "cdn-a.example.invalid",
+        "video_codec": "h264",
+        "resolution": "1920x1080"
+      },
+      "outcome": {
+        "status": "ok",
+        "duration_ms": 3069
+      }
+    },
+    {
+      "seq": 23,
+      "id": "evt_ff_023",
+      "at_ms": 48900,
+      "severity": "info",
+      "kind": "span.end",
+      "name": "stream.probe.end",
+      "component": "streamprobe",
+      "lane": "取流探测",
+      "flow_id": "flow_ffmpeg_01",
+      "span_id": "span_ff_probe",
+      "parent_span_id": "recording_demo_ffmpeg_01",
+      "status": "ok",
+      "attrs": {
+        "selected_candidate_no": 1,
+        "attempted_candidates": 1
+      },
+      "outcome": {
+        "status": "ok",
+        "duration_ms": 3080
+      }
+    },
+    {
+      "seq": 24,
+      "id": "evt_ff_024",
+      "at_ms": 49100,
+      "severity": "info",
+      "kind": "instant",
+      "name": "parser.start",
+      "component": "parser",
+      "lane": "下载器",
+      "flow_id": "flow_ffmpeg_01",
+      "entity_id": "recording_demo_ffmpeg_01",
+      "attrs": {
+        "parser": "ffmpeg",
+        "input": "streamprobe_local_proxy",
+        "output_extension": ".flv"
+      },
+      "links": [
+        { "rel": "caused_by", "event_id": "evt_ff_023" }
+      ]
+    },
+    {
+      "seq": 25,
+      "id": "evt_ff_025",
+      "at_ms": 50000,
+      "severity": "info",
+      "kind": "instant",
+      "name": "segment.first_byte",
+      "component": "recorder",
+      "lane": "文件输出",
+      "flow_id": "flow_ffmpeg_01",
+      "entity_id": "recording_demo_ffmpeg_01",
+      "attrs": {
+        "file_id": "file_hmac_demo_ff_01",
+        "size_bytes": 32768,
+        "extension": ".flv",
+        "monitor_to_first_byte_ms": 50000
+      },
+      "links": [
+        { "rel": "caused_by", "event_id": "evt_ff_024" }
+      ]
+    },
+    {
+      "seq": 26,
+      "id": "evt_ff_026",
+      "at_ms": 50001,
+      "severity": "warn",
+      "kind": "instant",
+      "name": "diagnostic.trigger",
+      "component": "diagnostics",
+      "lane": "诊断",
+      "flow_id": "flow_ffmpeg_01",
+      "attrs": {
+        "reason": "recording_start_slow",
+        "threshold_ms": 30000,
+        "observed_ms": 50000,
+        "flight_recorder_snapshot": "requested"
+      }
+    },
+    {
+      "seq": 27,
+      "id": "evt_ff_027",
+      "at_ms": 53000,
+      "severity": "debug",
+      "kind": "instant",
+      "name": "segment.progress",
+      "component": "recorder",
+      "lane": "文件输出",
+      "flow_id": "flow_ffmpeg_01",
+      "entity_id": "recording_demo_ffmpeg_01",
+      "attrs": {
+        "size_bytes": 3145728,
+        "write_bps": 8300000
+      }
+    }
+  ],
+  "metrics": [
+    {
+      "name": "tools.ffmpeg.downloaded_bytes",
+      "unit": "bytes",
+      "component": "tools",
+      "labels": { "tool": "ffmpeg" },
+      "points": [
+        [0, 0],
+        [5000, 8388608],
+        [10000, 18874368],
+        [20000, 39845888],
+        [30000, 60817408],
+        [40000, 81788928],
+        [42300, 89128960],
+        [50000, 89128960]
+      ]
+    },
+    {
+      "name": "record.output_bytes",
+      "unit": "bytes",
+      "component": "recorder",
+      "labels": { "room": "room_hmac_demo_7c31" },
+      "points": [
+        [0, 0],
+        [10000, 0],
+        [20000, 0],
+        [30000, 0],
+        [40000, 0],
+        [49000, 0],
+        [50000, 32768],
+        [53000, 3145728]
+      ]
+    },
+    {
+      "name": "process.cpu_percent",
+      "unit": "percent",
+      "component": "runtime",
+      "points": [
+        [0, 2.1],
+        [10000, 2.4],
+        [20000, 1.9],
+        [30000, 2.2],
+        [40000, 7.8],
+        [45000, 18.4],
+        [50000, 4.1]
+      ]
+    },
+    {
+      "name": "disk.write_latency_p95",
+      "unit": "ms",
+      "component": "iostats",
+      "points": [
+        [0, 1.2],
+        [10000, 1.1],
+        [20000, 1.3],
+        [30000, 1.2],
+        [40000, 1.4],
+        [50000, 1.5]
+      ]
+    }
+  ],
+  "runtime_samples": [
+    {
+      "at_ms": 10000,
+      "goroutine_id": "g_recorder_demo_41",
+      "state": "waiting",
+      "wait_reason": "select",
+      "stack_fingerprint": "tools.WaitFFmpegAsyncInitDone/select",
+      "top_frames": [
+        "tools.WaitFFmpegAsyncInitDone",
+        "recorders.(*recorder).tryRecord",
+        "recorders.(*recorder).run"
+      ],
+      "linked_span_id": "span_ff_tool_wait"
+    },
+    {
+      "at_ms": 30000,
+      "goroutine_id": "g_recorder_demo_41",
+      "state": "waiting",
+      "wait_reason": "select",
+      "stack_fingerprint": "tools.WaitFFmpegAsyncInitDone/select",
+      "top_frames": [
+        "tools.WaitFFmpegAsyncInitDone",
+        "recorders.(*recorder).tryRecord",
+        "recorders.(*recorder).run"
+      ],
+      "linked_span_id": "span_ff_tool_wait"
+    },
+    {
+      "at_ms": 45000,
+      "goroutine_id": "g_recorder_demo_41",
+      "state": "waiting",
+      "wait_reason": "select",
+      "stack_fingerprint": "tools.WaitFFmpegAsyncInitDone/select",
+      "top_frames": [
+        "tools.WaitFFmpegAsyncInitDone",
+        "recorders.(*recorder).tryRecord",
+        "recorders.(*recorder).run"
+      ],
+      "linked_span_id": "span_ff_tool_wait"
+    }
+  ],
+  "expected_analysis": {
+    "fixture_only": true,
+    "root_cause_code": "ffmpeg_async_initialization",
+    "headline": "检测只用了 0.38 秒；45.1 秒消耗在等待 FFmpeg 就绪",
+    "confidence": 0.99,
+    "phase_breakdown": [
+      {
+        "phase": "detect_live",
+        "start_ms": 0,
+        "end_ms": 380,
+        "duration_ms": 380,
+        "assessment": "normal"
+      },
+      {
+        "phase": "event_handoff_and_resolve",
+        "start_ms": 380,
+        "end_ms": 710,
+        "duration_ms": 330,
+        "assessment": "normal"
+      },
+      {
+        "phase": "wait_ffmpeg_ready",
+        "start_ms": 710,
+        "end_ms": 45810,
+        "duration_ms": 45100,
+        "assessment": "root_cause"
+      },
+      {
+        "phase": "probe_and_first_byte",
+        "start_ms": 45810,
+        "end_ms": 50000,
+        "duration_ms": 4190,
+        "assessment": "normal"
+      }
+    ],
+    "evidence_event_ids": [
+      "evt_ff_003",
+      "evt_ff_010",
+      "evt_ff_019",
+      "evt_ff_025"
+    ],
+    "ruled_out": [
+      {
+        "cause": "room_check_interval_not_applied",
+        "reason": "初始 poll 在 380 ms 即确认开播，之后约 20 秒一次的 poll 也正常"
+      },
+      {
+        "cause": "room_was_offline",
+        "reason": "抓取窗口内三次有效平台 API 观测均为 live=true"
+      },
+      {
+        "cause": "slow_disk",
+        "reason": "磁盘写入 P95 始终约 1–2 ms"
+      }
+    ],
+    "recommendations": [
+      "在程序宣布服务就绪前完成 FFmpeg 检查，或明确显示“工具仍在下载”状态。",
+      "容器镜像内预置 FFmpeg，或将托管工具目录持久化，避免每次重建容器重复下载。",
+      "把 WaitFFmpegAsyncInitDone 独立显示为录制前置阶段，而不是归入“正在录制”。"
+    ]
+  }
+}

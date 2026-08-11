@@ -27,16 +27,17 @@ const (
 )
 
 type DouyuClient struct {
-	roomID    string
-	cookies   string
-	conn      net.Conn
-	onDanmaku func(username, content string, color int)
-	onGift    func(username, giftName string, num int)
-	done      chan struct{}
-	closeOnce sync.Once
-	logger    *logrus.Entry
-	mu        sync.Mutex
-	running   bool
+	roomID     string
+	cookies    string
+	conn       net.Conn
+	onDanmaku  func(username, content string, color int)
+	onGift     func(username, giftName string, num int)
+	done       chan struct{}
+	closeOnce  sync.Once
+	workers    sync.WaitGroup
+	logger     *logrus.Entry
+	mu         sync.Mutex
+	running    bool
 	cachedAddr string
 }
 
@@ -104,8 +105,15 @@ func (c *DouyuClient) Start(ctx context.Context) error {
 		return fmt.Errorf("加入房间失败: %w", err)
 	}
 
-	go c.readLoopWithReconnect(ctx)
-	go c.heartbeatLoop(ctx)
+	c.workers.Add(2)
+	go func() {
+		defer c.workers.Done()
+		c.readLoopWithReconnect(ctx)
+	}()
+	go func() {
+		defer c.workers.Done()
+		c.heartbeatLoop(ctx)
+	}()
 
 	c.logger.Info("斗鱼弹幕连接成功")
 	return nil
@@ -113,15 +121,14 @@ func (c *DouyuClient) Start(ctx context.Context) error {
 
 func (c *DouyuClient) Stop() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if !c.running {
-		return
-	}
 	c.running = false
 	c.closeOnce.Do(func() { close(c.done) })
-	if c.conn != nil {
-		c.conn.Close()
+	conn := c.conn
+	c.mu.Unlock()
+	if conn != nil {
+		_ = conn.Close()
 	}
+	c.workers.Wait()
 }
 
 func (c *DouyuClient) resolveServerAddr() string {

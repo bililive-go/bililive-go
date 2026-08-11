@@ -349,6 +349,17 @@ func (w *WrappedLive) GetCachedInfo() (*Info, bool) {
 }
 
 func (w *WrappedLive) GetInfo() (*Info, error) {
+	return w.GetInfoWithContext(w.schedulerCtx)
+}
+
+// GetInfoWithContext 立即请求一次直播间信息，并把调用方的业务因果上下文继续
+// 传给平台限流器。它不是 Live 接口的一部分，listener 会以可选能力使用它；
+// 旧的 Live 实现无需改动。
+func (w *WrappedLive) GetInfoWithContext(ctx context.Context) (*Info, error) {
+	if ctx == nil {
+		ctx = w.schedulerCtx
+	}
+
 	// forceRefresh 与调度器可能同时进入 GetInfo。若允许它们并发，较早开始但较晚写缓存的
 	// 失败请求可能覆盖较新的成功结果；整个请求链串行后，缓存提交顺序与请求顺序一致。
 	w.requestMu.Lock()
@@ -365,8 +376,11 @@ func (w *WrappedLive) GetInfo() (*Info, error) {
 
 	// 在通用位置获取平台请求许可。许可同时约束请求开始间隔和同平台在途数量，
 	// 防止启动或工具恢复时几百个房间一起进入平台实现。
-	releasePlatform, ok := w.acquirePlatformRequest()
+	releasePlatform, ok := w.acquirePlatformRequest(ctx)
 	if !ok {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		return nil, w.schedulerCtx.Err()
 	}
 	defer releasePlatform()
@@ -667,8 +681,21 @@ func (w *WrappedLive) runScheduler() {
 		w.mu.Unlock()
 
 		if hasWaiters {
+			// 同一个 WrappedLive 通常只有一个 listener 等待者。保留首个仍有效
+			// 等待者的 diagnostics context，使共享平台限流的等待能归因到具体
+			// room_scope_id / generation / flow_id；没有有效等待者时退回调度器
+			// 生命周期 context。
+			requestCtx := w.schedulerCtx
+			w.mu.Lock()
+			for _, pending := range w.waiters {
+				if pending.ctx != nil && pending.ctx.Err() == nil {
+					requestCtx = pending.ctx
+					break
+				}
+			}
+			w.mu.Unlock()
 			// 发送请求（GetInfo 会通知所有等待者）
-			w.GetInfo()
+			_, _ = w.GetInfoWithContext(requestCtx)
 		}
 	}
 }
@@ -765,8 +792,12 @@ func (w *WrappedLive) platformToolsReadyWithReason() (bool, string) {
 }
 
 // acquirePlatformRequest 在通用位置获取平台请求许可。
-// 使用 scheduler 的 context，这样在关闭时可以取消排队。
-func (w *WrappedLive) acquirePlatformRequest() (release func(), ok bool) {
+// 调用方 context 同时控制排队取消并携带 room/generation/flow，使等待
+// in-flight 槽位和访问间隔都出现在正确的 diagnostics 业务轨迹上。
+func (w *WrappedLive) acquirePlatformRequest(ctx context.Context) (release func(), ok bool) {
+	if ctx == nil {
+		ctx = w.schedulerCtx
+	}
 	platformKey := configs.GetPlatformKeyFromUrl(w.GetRawUrl())
 	if platformKey != "" {
 		minInterval := 1
@@ -777,7 +808,7 @@ func (w *WrappedLive) acquirePlatformRequest() (release func(), ok bool) {
 		// 添加新平台的第一个房间时，Live 会先于配置持久化创建；在请求入口兜底补齐
 		// 默认限制，避免该时间窗内首次请求直接放行。
 		rateLimiter.EnsurePlatformLimit(platformKey, minInterval)
-		return rateLimiter.AcquirePlatformWithContext(w.schedulerCtx, platformKey)
+		return rateLimiter.AcquirePlatformWithContext(ctx, platformKey)
 	}
 	return func() {}, true
 }

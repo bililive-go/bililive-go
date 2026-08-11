@@ -4,7 +4,10 @@ package ratelimit
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/bililive-go/bililive-go/src/pkg/diagnostics"
 )
 
 // PlatformRateLimiter 管理各个直播平台的访问频率限制
@@ -19,6 +22,13 @@ type PlatformLimiter struct {
 	lastAccess  time.Time     // 上次访问时间
 	mu          sync.Mutex    // 保护访问时间的互斥锁
 	inFlight    chan struct{} // 限制同一平台最多一个请求在途
+
+	// 下列计数只用于可观测性。等待者不是 FIFO 队列，grantSeq 也只表示
+	// 实际获得访问许可的顺序，不能解释为入队位置。
+	waiters     atomic.Int64
+	peakWaiters atomic.Int64
+	rechecks    atomic.Uint64
+	grantSeq    atomic.Uint64
 }
 
 var globalRateLimiter = &PlatformRateLimiter{
@@ -49,6 +59,9 @@ func (prl *PlatformRateLimiter) SetPlatformLimit(platform string, intervalSec in
 		// 更新现有限制器的间隔
 		limiter.mu.Lock()
 		limiter.minInterval = interval
+		if limiter.inFlight == nil {
+			limiter.inFlight = make(chan struct{}, 1)
+		}
 		limiter.mu.Unlock()
 	} else {
 		// 创建新的限制器
@@ -99,7 +112,7 @@ func (prl *PlatformRateLimiter) WaitForPlatformWithContext(ctx context.Context, 
 		return true
 	}
 
-	return waitForLimiterWithContext(ctx, limiter)
+	return waitForLimiterWithContext(ctx, platform, limiter)
 }
 
 // AcquirePlatformWithContext 获取指定平台的请求许可，并保证同一平台最多只有一个请求在途。
@@ -108,6 +121,9 @@ func (prl *PlatformRateLimiter) WaitForPlatformWithContext(ctx context.Context, 
 // 仅限制请求开始间隔不足以保护启动阶段：当前一个请求耗时超过最小间隔时，后续请求仍会
 // 重叠执行。这里把并发槽位与开始间隔合并为一次许可，使大量直播间并发初始化时仍按平台串行。
 func (prl *PlatformRateLimiter) AcquirePlatformWithContext(ctx context.Context, platform string) (release func(), ok bool) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	prl.mu.RLock()
 	limiter, exists := prl.limiters[platform]
 	prl.mu.RUnlock()
@@ -115,29 +131,154 @@ func (prl *PlatformRateLimiter) AcquirePlatformWithContext(ctx context.Context, 
 		return func() {}, true
 	}
 
+	inFlight := limiter.inFlightSlot()
+	slotWaitStartedAt := time.Now()
+	slotFields := diagnostics.Fields{
+		"component":       "ratelimit",
+		"lane":            "listener",
+		"platform":        platform,
+		"in_flight_limit": 1,
+		"queue_kind":      "platform_request_serialization",
+	}
+	slotCtx, endSlotWait := diagnostics.StartSpan(
+		ctx,
+		"scheduler.rate_limit.in_flight.wait",
+		slotFields,
+	)
+	diagnostics.Record(slotCtx, "scheduler.rate_limit.in_flight.enter", slotFields)
 	select {
-	case limiter.inFlight <- struct{}{}:
+	case inFlight <- struct{}{}:
+		waitMS := durationMilliseconds(time.Since(slotWaitStartedAt))
+		diagnostics.Record(slotCtx, "scheduler.rate_limit.in_flight.acquired", diagnostics.Fields{
+			"component":       "ratelimit",
+			"platform":        platform,
+			"in_flight_limit": 1,
+			"total_wait_ms":   waitMS,
+		})
+		endSlotWait(diagnostics.Fields{
+			"status":        "ok",
+			"result":        "acquired",
+			"total_wait_ms": waitMS,
+		})
 	case <-ctx.Done():
+		waitMS := durationMilliseconds(time.Since(slotWaitStartedAt))
+		diagnostics.Record(slotCtx, "scheduler.rate_limit.in_flight.cancelled", diagnostics.Fields{
+			"component":     "ratelimit",
+			"platform":      platform,
+			"cancel_reason": contextErrorCode(ctx.Err()),
+			"total_wait_ms": waitMS,
+		})
+		endSlotWait(diagnostics.Fields{
+			"status":        "cancelled",
+			"result":        "cancelled",
+			"cancel_reason": contextErrorCode(ctx.Err()),
+			"total_wait_ms": waitMS,
+		})
 		return nil, false
 	}
 
-	releaseSlot := func() { <-limiter.inFlight }
-	if !waitForLimiterWithContext(ctx, limiter) {
-		releaseSlot()
+	slotAcquiredAt := time.Now()
+	releaseSlot := func(reason string) {
+		// 先记录释放事件再腾出 channel 槽位，确保全局 observation seq 中
+		// release 一定早于下一个请求的 acquired，便于还原真实串行顺序。
+		diagnostics.Record(ctx, "scheduler.rate_limit.in_flight.released", diagnostics.Fields{
+			"component":      "ratelimit",
+			"platform":       platform,
+			"release_reason": reason,
+			"held_ms":        durationMilliseconds(time.Since(slotAcquiredAt)),
+		})
+		<-inFlight
+	}
+	if !waitForLimiterWithContext(ctx, platform, limiter) {
+		releaseSlot("rate_wait_cancelled")
 		return nil, false
 	}
 
 	var once sync.Once
 	return func() {
-		once.Do(releaseSlot)
+		once.Do(func() {
+			releaseSlot("request_finished")
+		})
 	}, true
 }
 
-func waitForLimiterWithContext(ctx context.Context, limiter *PlatformLimiter) bool {
+func (limiter *PlatformLimiter) inFlightSlot() chan struct{} {
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
+	if limiter.inFlight == nil {
+		limiter.inFlight = make(chan struct{}, 1)
+	}
+	return limiter.inFlight
+}
+
+func waitForLimiterWithContext(ctx context.Context, platform string, limiter *PlatformLimiter) bool {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	waitStartedAt := time.Now()
+	waiterCountAtEnter := limiter.waiters.Add(1)
+	updatePeakWaiters(&limiter.peakWaiters, waiterCountAtEnter)
+	defer limiter.waiters.Add(-1)
+
+	limiter.mu.Lock()
+	minIntervalAtEnter := limiter.minInterval
+	lastAccessAtEnter := limiter.lastAccess
+	limiter.mu.Unlock()
+	lastAccessAgeAtEnter := time.Duration(0)
+	if !lastAccessAtEnter.IsZero() {
+		lastAccessAgeAtEnter = time.Since(lastAccessAtEnter)
+	}
+
+	baseFields := diagnostics.Fields{
+		"component":             "ratelimit",
+		"lane":                  "listener",
+		"platform":              platform,
+		"min_interval_ms":       durationMilliseconds(minIntervalAtEnter),
+		"last_access_age_ms":    durationMilliseconds(lastAccessAgeAtEnter),
+		"waiter_count_at_enter": waiterCountAtEnter,
+	}
+	waitCtx, endWait := diagnostics.StartSpan(ctx, "scheduler.rate_limit.wait", baseFields)
+	diagnostics.Record(waitCtx, "scheduler.rate_limit.enter", baseFields)
+	localRechecks := uint64(0)
+	localPeakWaiters := waiterCountAtEnter
+	observeWaiters := func() {
+		if current := limiter.waiters.Load(); current > localPeakWaiters {
+			localPeakWaiters = current
+		}
+	}
+	finish := func(status string, extra diagnostics.Fields) {
+		observeWaiters()
+		fields := diagnostics.Fields{
+			"status":                  status,
+			"total_wait_ms":           durationMilliseconds(time.Since(waitStartedAt)),
+			"waiter_count_peak":       localPeakWaiters,
+			"waiter_count_peak_total": limiter.peakWaiters.Load(),
+			// finish 在 defer waiters.Add(-1) 之前执行，因此显式减去当前
+			// 等待者，给 Viewer 一个离开后的真实并发等待数。
+			"waiter_count_after_exit": maxInt64(0, limiter.waiters.Load()-1),
+			"recheck_count":           localRechecks,
+			"recheck_total":           limiter.rechecks.Load(),
+		}
+		for key, value := range extra {
+			fields[key] = value
+		}
+		endWait(fields)
+	}
 	for {
+		observeWaiters()
 		// 检查 context 是否已取消
 		select {
 		case <-ctx.Done():
+			diagnostics.Record(waitCtx, "scheduler.rate_limit.cancelled", diagnostics.Fields{
+				"component":     "ratelimit",
+				"platform":      platform,
+				"cancel_reason": contextErrorCode(ctx.Err()),
+				"total_wait_ms": durationMilliseconds(time.Since(waitStartedAt)),
+			})
+			finish("cancelled", diagnostics.Fields{
+				"cancel_reason": contextErrorCode(ctx.Err()),
+				"result":        "cancelled",
+			})
 			return false
 		default:
 		}
@@ -150,7 +291,18 @@ func waitForLimiterWithContext(ctx context.Context, limiter *PlatformLimiter) bo
 		if elapsed >= limiter.minInterval {
 			// 已经等待足够长时间，更新访问时间并返回
 			limiter.lastAccess = now
+			grantSeq := limiter.grantSeq.Add(1)
 			limiter.mu.Unlock()
+			diagnostics.Record(waitCtx, "scheduler.rate_limit.granted", diagnostics.Fields{
+				"component":     "ratelimit",
+				"platform":      platform,
+				"grant_seq":     grantSeq,
+				"total_wait_ms": durationMilliseconds(time.Since(waitStartedAt)),
+			})
+			finish("ok", diagnostics.Fields{
+				"grant_seq": grantSeq,
+				"result":    "granted",
+			})
 			return true
 		}
 
@@ -163,11 +315,30 @@ func waitForLimiterWithContext(ctx context.Context, limiter *PlatformLimiter) bo
 		select {
 		case <-ctx.Done():
 			timer.Stop()
+			diagnostics.Record(waitCtx, "scheduler.rate_limit.cancelled", diagnostics.Fields{
+				"component":     "ratelimit",
+				"platform":      platform,
+				"cancel_reason": contextErrorCode(ctx.Err()),
+				"total_wait_ms": durationMilliseconds(time.Since(waitStartedAt)),
+			})
+			finish("cancelled", diagnostics.Fields{
+				"cancel_reason": contextErrorCode(ctx.Err()),
+				"result":        "cancelled",
+			})
 			return false
 		case <-timer.C:
 			// 循环回去重新检查
+			localRechecks++
+			limiter.rechecks.Add(1)
 		}
 	}
+}
+
+func maxInt64(left, right int64) int64 {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 // GetPlatformNextAllowedTime 获取平台下次允许访问的时间
@@ -263,10 +434,43 @@ func (prl *PlatformRateLimiter) ForceAccess(platform string) time.Duration {
 	}
 
 	limiter.mu.Lock()
-	defer limiter.mu.Unlock()
-
 	now := time.Now()
 	elapsed := now.Sub(limiter.lastAccess)
 	limiter.lastAccess = now
+	limiter.mu.Unlock()
+
+	diagnostics.Record(context.Background(), "scheduler.rate_limit.force_access", diagnostics.Fields{
+		"component":              "ratelimit",
+		"platform":               platform,
+		"previous_access_age_ms": durationMilliseconds(elapsed),
+		"waiter_count":           limiter.waiters.Load(),
+	})
 	return elapsed
+}
+
+func updatePeakWaiters(peak *atomic.Int64, current int64) {
+	for {
+		old := peak.Load()
+		if current <= old || peak.CompareAndSwap(old, current) {
+			return
+		}
+	}
+}
+
+func durationMilliseconds(duration time.Duration) float64 {
+	return float64(duration) / float64(time.Millisecond)
+}
+
+func contextErrorCode(err error) string {
+	switch err {
+	case context.Canceled:
+		return "context_canceled"
+	case context.DeadlineExceeded:
+		return "deadline_exceeded"
+	default:
+		if err == nil {
+			return "unknown"
+		}
+		return "context_error"
+	}
 }

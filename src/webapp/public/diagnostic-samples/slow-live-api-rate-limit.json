@@ -1,0 +1,601 @@
+{
+  "schema": "bililive.diagnostic-bundle/v1",
+  "manifest": {
+    "bundle_id": "bundle_demo_slow_live_api_rate_limit",
+    "run_id": "run_demo_rate_01",
+    "incident_id": "incident_demo_rate_01",
+    "time_origin": "2026-07-28T11:00:00+09:00",
+    "capture_start_ms": 0,
+    "capture_end_ms": 55000,
+    "synthetic": true,
+    "app_version": "demo-next",
+    "commit": "synthetic",
+    "go_version": "go1.25.1",
+    "os": "linux",
+    "arch": "amd64",
+    "trace_mode": "diagnostic",
+    "dropped_events": 0,
+    "redaction_version": "demo-v1",
+    "title": "初始直播检测被平台全局限流队列阻塞"
+  },
+  "configuration": {
+    "room_check_interval_ms": 20000,
+    "platform_request_rate_per_second": 0.5,
+    "platform_request_burst": 1,
+    "configured_room_count": 28,
+    "downloader_type": "native",
+    "diagnostic_ttl_ms": 900000
+  },
+  "entities": [
+    {
+      "type": "room",
+      "id": "room_hmac_demo_91a2",
+      "label": "演示直播间 B",
+      "platform": "bilibili",
+      "fixture_live_throughout_capture": true
+    },
+    {
+      "type": "recording_session",
+      "id": "recording_demo_rate_01",
+      "label": "录制会话 #1"
+    }
+  ],
+  "incident": {
+    "type": "recording_start_slow",
+    "title": "20 秒检测间隔下，约 45 秒后才确认开播",
+    "anchor_entity_id": "room_hmac_demo_91a2",
+    "expected_detection_interval_ms": 20000,
+    "observed_monitor_to_first_byte_ms": 50000,
+    "user_report": "直播间始终开播，程序启动后约 50 秒才出现 FLV。",
+    "trigger_event_id": "evt_rl_022",
+    "known_fixture_truth": "平台在整个合成窗口内保持开播"
+  },
+  "events": [
+    {
+      "seq": 1,
+      "id": "evt_rl_001",
+      "at_ms": 0,
+      "severity": "info",
+      "kind": "instant",
+      "name": "monitor.started",
+      "component": "listener",
+      "lane": "直播检测",
+      "flow_id": "flow_rate_01",
+      "entity_id": "room_hmac_demo_91a2",
+      "attrs": {
+        "configured_interval_ms": 20000,
+        "initial_poll": "immediate"
+      }
+    },
+    {
+      "seq": 2,
+      "id": "evt_rl_002",
+      "at_ms": 5,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "listener.poll.start",
+      "component": "listener",
+      "lane": "直播检测",
+      "flow_id": "flow_rate_01",
+      "span_id": "span_rl_poll_01",
+      "entity_id": "room_hmac_demo_91a2",
+      "attrs": {
+        "reason": "initial_refresh",
+        "poll_no": 1
+      }
+    },
+    {
+      "seq": 3,
+      "id": "evt_rl_003",
+      "at_ms": 10,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "scheduler.rate_limit.wait.start",
+      "component": "live_scheduler",
+      "lane": "平台限流",
+      "flow_id": "flow_rate_01",
+      "span_id": "span_rl_rate_wait",
+      "parent_span_id": "span_rl_poll_01",
+      "attrs": {
+        "platform": "bilibili",
+        "queue_position": 23,
+        "rate_per_second": 0.5,
+        "burst": 1
+      }
+    },
+    {
+      "seq": 4,
+      "id": "evt_rl_004",
+      "at_ms": 15000,
+      "severity": "debug",
+      "kind": "instant",
+      "name": "runtime.blocked",
+      "component": "runtime",
+      "lane": "Go Runtime",
+      "flow_id": "flow_rate_01",
+      "span_id": "span_rl_rate_wait",
+      "attrs": {
+        "goroutine_id": "g_listener_demo_77",
+        "state": "waiting",
+        "wait_reason": "rate_limiter_token",
+        "blocked_for_ms": 14990
+      }
+    },
+    {
+      "seq": 5,
+      "id": "evt_rl_005",
+      "at_ms": 35000,
+      "severity": "warn",
+      "kind": "instant",
+      "name": "runtime.blocked",
+      "component": "runtime",
+      "lane": "Go Runtime",
+      "flow_id": "flow_rate_01",
+      "span_id": "span_rl_rate_wait",
+      "attrs": {
+        "goroutine_id": "g_listener_demo_77",
+        "state": "waiting",
+        "wait_reason": "rate_limiter_token",
+        "blocked_for_ms": 34990
+      }
+    },
+    {
+      "seq": 6,
+      "id": "evt_rl_006",
+      "at_ms": 45010,
+      "severity": "warn",
+      "kind": "span.end",
+      "name": "scheduler.rate_limit.wait.end",
+      "component": "live_scheduler",
+      "lane": "平台限流",
+      "flow_id": "flow_rate_01",
+      "span_id": "span_rl_rate_wait",
+      "parent_span_id": "span_rl_poll_01",
+      "status": "ok",
+      "attrs": {
+        "queue_position_at_release": 0
+      },
+      "outcome": {
+        "status": "ok",
+        "code": "token.acquired",
+        "duration_ms": 45000
+      }
+    },
+    {
+      "seq": 7,
+      "id": "evt_rl_007",
+      "at_ms": 45015,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "live.api.request.start",
+      "component": "live",
+      "lane": "平台 API",
+      "flow_id": "flow_rate_01",
+      "span_id": "span_rl_api_01",
+      "parent_span_id": "span_rl_poll_01",
+      "attrs": {
+        "endpoint_fingerprint": "bilibili.room_info",
+        "request_no": 1
+      }
+    },
+    {
+      "seq": 8,
+      "id": "evt_rl_008",
+      "at_ms": 45395,
+      "severity": "info",
+      "kind": "span.end",
+      "name": "live.api.request.end",
+      "component": "live",
+      "lane": "平台 API",
+      "flow_id": "flow_rate_01",
+      "span_id": "span_rl_api_01",
+      "parent_span_id": "span_rl_poll_01",
+      "status": "ok",
+      "attrs": {
+        "http_status": 200,
+        "live": true
+      },
+      "outcome": {
+        "status": "ok",
+        "duration_ms": 380
+      }
+    },
+    {
+      "seq": 9,
+      "id": "evt_rl_009",
+      "at_ms": 45400,
+      "severity": "warn",
+      "kind": "span.end",
+      "name": "listener.poll.end",
+      "component": "listener",
+      "lane": "直播检测",
+      "flow_id": "flow_rate_01",
+      "span_id": "span_rl_poll_01",
+      "entity_id": "room_hmac_demo_91a2",
+      "status": "ok",
+      "attrs": {
+        "poll_no": 1,
+        "live": true,
+        "live_evidence": "platform_api",
+        "rate_limit_wait_ms": 45000
+      },
+      "outcome": {
+        "status": "ok",
+        "code": "live",
+        "duration_ms": 45395
+      }
+    },
+    {
+      "seq": 10,
+      "id": "evt_rl_010",
+      "at_ms": 45402,
+      "severity": "debug",
+      "kind": "instant",
+      "name": "event.dispatch",
+      "component": "events",
+      "lane": "事件派发",
+      "flow_id": "flow_rate_01",
+      "attrs": {
+        "event_type": "LiveStart",
+        "dispatch_id": "dispatch_rl_live_start",
+        "handler_count": 3
+      },
+      "links": [
+        { "rel": "caused_by", "event_id": "evt_rl_009" }
+      ]
+    },
+    {
+      "seq": 11,
+      "id": "evt_rl_011",
+      "at_ms": 45404,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "event.handler.start",
+      "component": "events",
+      "lane": "事件派发",
+      "flow_id": "flow_rate_01",
+      "span_id": "span_rl_handler",
+      "attrs": {
+        "event_type": "LiveStart",
+        "handler": "RecorderManager.OnLiveStart",
+        "dispatch_id": "dispatch_rl_live_start"
+      }
+    },
+    {
+      "seq": 12,
+      "id": "evt_rl_012",
+      "at_ms": 45408,
+      "severity": "debug",
+      "kind": "span.end",
+      "name": "event.handler.end",
+      "component": "events",
+      "lane": "事件派发",
+      "flow_id": "flow_rate_01",
+      "span_id": "span_rl_handler",
+      "status": "ok",
+      "outcome": {
+        "status": "ok",
+        "duration_ms": 4
+      }
+    },
+    {
+      "seq": 13,
+      "id": "evt_rl_013",
+      "at_ms": 45410,
+      "severity": "info",
+      "kind": "instant",
+      "name": "recorder.session.start",
+      "component": "recorder",
+      "lane": "录制控制",
+      "flow_id": "flow_rate_01",
+      "entity_id": "recording_demo_rate_01",
+      "attrs": {
+        "reason": "live_start",
+        "attempt_no": 1,
+        "downloader": "native"
+      }
+    },
+    {
+      "seq": 14,
+      "id": "evt_rl_014",
+      "at_ms": 45420,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "stream.resolve.start",
+      "component": "recorder",
+      "lane": "取流",
+      "flow_id": "flow_rate_01",
+      "span_id": "span_rl_resolve",
+      "parent_span_id": "recording_demo_rate_01"
+    },
+    {
+      "seq": 15,
+      "id": "evt_rl_015",
+      "at_ms": 46000,
+      "severity": "info",
+      "kind": "span.end",
+      "name": "stream.resolve.end",
+      "component": "recorder",
+      "lane": "取流",
+      "flow_id": "flow_rate_01",
+      "span_id": "span_rl_resolve",
+      "parent_span_id": "recording_demo_rate_01",
+      "status": "ok",
+      "attrs": {
+        "candidate_count": 1,
+        "selected_format": "flv"
+      },
+      "outcome": {
+        "status": "ok",
+        "duration_ms": 580
+      }
+    },
+    {
+      "seq": 16,
+      "id": "evt_rl_016",
+      "at_ms": 46010,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "stream.probe.start",
+      "component": "streamprobe",
+      "lane": "取流探测",
+      "flow_id": "flow_rate_01",
+      "span_id": "span_rl_probe",
+      "parent_span_id": "recording_demo_rate_01",
+      "attrs": {
+        "candidate_count": 1
+      }
+    },
+    {
+      "seq": 17,
+      "id": "evt_rl_017",
+      "at_ms": 46020,
+      "severity": "debug",
+      "kind": "span.start",
+      "name": "stream.probe.candidate.start",
+      "component": "streamprobe",
+      "lane": "取流探测",
+      "flow_id": "flow_rate_01",
+      "span_id": "span_rl_candidate_1",
+      "parent_span_id": "span_rl_probe",
+      "attrs": {
+        "candidate_no": 1,
+        "cdn": "cdn-a.example.invalid"
+      }
+    },
+    {
+      "seq": 18,
+      "id": "evt_rl_018",
+      "at_ms": 48400,
+      "severity": "info",
+      "kind": "span.end",
+      "name": "stream.probe.candidate.end",
+      "component": "streamprobe",
+      "lane": "取流探测",
+      "flow_id": "flow_rate_01",
+      "span_id": "span_rl_candidate_1",
+      "parent_span_id": "span_rl_probe",
+      "status": "ok",
+      "attrs": {
+        "candidate_no": 1,
+        "video_codec": "h264"
+      },
+      "outcome": {
+        "status": "ok",
+        "duration_ms": 2380
+      }
+    },
+    {
+      "seq": 19,
+      "id": "evt_rl_019",
+      "at_ms": 48410,
+      "severity": "info",
+      "kind": "span.end",
+      "name": "stream.probe.end",
+      "component": "streamprobe",
+      "lane": "取流探测",
+      "flow_id": "flow_rate_01",
+      "span_id": "span_rl_probe",
+      "parent_span_id": "recording_demo_rate_01",
+      "status": "ok",
+      "attrs": {
+        "selected_candidate_no": 1
+      },
+      "outcome": {
+        "status": "ok",
+        "duration_ms": 2400
+      }
+    },
+    {
+      "seq": 20,
+      "id": "evt_rl_020",
+      "at_ms": 49000,
+      "severity": "info",
+      "kind": "instant",
+      "name": "parser.start",
+      "component": "parser",
+      "lane": "下载器",
+      "flow_id": "flow_rate_01",
+      "entity_id": "recording_demo_rate_01",
+      "attrs": {
+        "parser": "native",
+        "output_extension": ".flv"
+      }
+    },
+    {
+      "seq": 21,
+      "id": "evt_rl_021",
+      "at_ms": 50000,
+      "severity": "info",
+      "kind": "instant",
+      "name": "segment.first_byte",
+      "component": "recorder",
+      "lane": "文件输出",
+      "flow_id": "flow_rate_01",
+      "entity_id": "recording_demo_rate_01",
+      "attrs": {
+        "file_id": "file_hmac_demo_rl_01",
+        "size_bytes": 65536,
+        "extension": ".flv",
+        "monitor_to_first_byte_ms": 50000
+      }
+    },
+    {
+      "seq": 22,
+      "id": "evt_rl_022",
+      "at_ms": 50001,
+      "severity": "warn",
+      "kind": "instant",
+      "name": "diagnostic.trigger",
+      "component": "diagnostics",
+      "lane": "诊断",
+      "flow_id": "flow_rate_01",
+      "attrs": {
+        "reason": "recording_start_slow",
+        "threshold_ms": 30000,
+        "observed_ms": 50000,
+        "flight_recorder_snapshot": "requested"
+      }
+    }
+  ],
+  "metrics": [
+    {
+      "name": "platform.rate_limiter.queue_depth",
+      "unit": "requests",
+      "component": "live_scheduler",
+      "labels": { "platform": "bilibili" },
+      "points": [
+        [0, 23],
+        [10000, 18],
+        [20000, 13],
+        [30000, 8],
+        [40000, 3],
+        [45010, 0],
+        [50000, 0]
+      ]
+    },
+    {
+      "name": "platform.rate_limiter.waiting_rooms",
+      "unit": "rooms",
+      "component": "live_scheduler",
+      "labels": { "platform": "bilibili" },
+      "points": [
+        [0, 23],
+        [10000, 18],
+        [20000, 13],
+        [30000, 8],
+        [40000, 3],
+        [45010, 0]
+      ]
+    },
+    {
+      "name": "record.output_bytes",
+      "unit": "bytes",
+      "component": "recorder",
+      "labels": { "room": "room_hmac_demo_91a2" },
+      "points": [
+        [0, 0],
+        [20000, 0],
+        [40000, 0],
+        [49000, 0],
+        [50000, 65536],
+        [53000, 4194304]
+      ]
+    },
+    {
+      "name": "process.cpu_percent",
+      "unit": "percent",
+      "component": "runtime",
+      "points": [
+        [0, 3.2],
+        [10000, 2.8],
+        [20000, 3.0],
+        [30000, 2.7],
+        [40000, 2.9],
+        [50000, 4.5]
+      ]
+    }
+  ],
+  "runtime_samples": [
+    {
+      "at_ms": 15000,
+      "goroutine_id": "g_listener_demo_77",
+      "state": "waiting",
+      "wait_reason": "select",
+      "stack_fingerprint": "rate.Limiter.WaitN/select",
+      "top_frames": [
+        "golang.org/x/time/rate.(*Limiter).wait",
+        "live/system.(*Scheduler).waitRateLimit",
+        "live/system.(*Scheduler).run"
+      ],
+      "linked_span_id": "span_rl_rate_wait"
+    },
+    {
+      "at_ms": 35000,
+      "goroutine_id": "g_listener_demo_77",
+      "state": "waiting",
+      "wait_reason": "select",
+      "stack_fingerprint": "rate.Limiter.WaitN/select",
+      "top_frames": [
+        "golang.org/x/time/rate.(*Limiter).wait",
+        "live/system.(*Scheduler).waitRateLimit",
+        "live/system.(*Scheduler).run"
+      ],
+      "linked_span_id": "span_rl_rate_wait"
+    }
+  ],
+  "expected_analysis": {
+    "fixture_only": true,
+    "root_cause_code": "platform_rate_limiter_queue",
+    "headline": "45.0 秒消耗在平台全局限流排队，真正 API 请求只用了 0.38 秒",
+    "confidence": 0.98,
+    "phase_breakdown": [
+      {
+        "phase": "rate_limit_queue",
+        "start_ms": 10,
+        "end_ms": 45010,
+        "duration_ms": 45000,
+        "assessment": "root_cause"
+      },
+      {
+        "phase": "platform_api",
+        "start_ms": 45015,
+        "end_ms": 45395,
+        "duration_ms": 380,
+        "assessment": "normal"
+      },
+      {
+        "phase": "recording_setup_and_first_byte",
+        "start_ms": 45410,
+        "end_ms": 50000,
+        "duration_ms": 4590,
+        "assessment": "normal"
+      }
+    ],
+    "evidence_event_ids": [
+      "evt_rl_003",
+      "evt_rl_006",
+      "evt_rl_009",
+      "evt_rl_021"
+    ],
+    "ruled_out": [
+      {
+        "cause": "slow_platform_http_response",
+        "reason": "拿到限流 token 后，平台 API 请求只用了 380 ms"
+      },
+      {
+        "cause": "slow_stream_probe",
+        "reason": "stream.probe 总耗时 2.4 秒"
+      },
+      {
+        "cause": "slow_disk",
+        "reason": "首字节后输出速率正常，且无磁盘阻塞证据"
+      }
+    ],
+    "recommendations": [
+      "在 WebUI 中区分“等待检测调度”和“平台 API 请求中”。",
+      "启动大量房间时采用公平队列或打散初次检测，而不是让单个房间在队尾等待多个检测周期。",
+      "把实际调度延迟和平台 limiter 队列深度加入房间诊断页。"
+    ]
+  }
+}

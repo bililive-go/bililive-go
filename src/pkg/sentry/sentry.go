@@ -17,6 +17,10 @@ var (
 	initialized bool
 	// initMu 保护初始化状态
 	initMu sync.RWMutex
+	// panicHook 在 Sentry 上报前把 panic 写入本地诊断轨迹。
+	// 它独立于 Sentry 是否启用，因此离线用户也能在重启后调查后台任务异常。
+	panicHook   func(context.Context, any)
+	panicHookMu sync.RWMutex
 )
 
 // 敏感关键字列表，用于过滤敏感数据
@@ -82,6 +86,33 @@ func Flush(timeout time.Duration) {
 	sentry.Flush(timeout)
 }
 
+// SetPanicHook 设置进程内 panic 的本地持久化回调。
+// hook 必须快速返回；耗时的 Flight Recorder 落盘应由 hook 自身做超时控制。
+func SetPanicHook(hook func(context.Context, any)) {
+	panicHookMu.Lock()
+	panicHook = hook
+	panicHookMu.Unlock()
+}
+
+func notifyPanicHook(ctx context.Context, recovered any) {
+	panicHookMu.RLock()
+	hook := panicHook
+	panicHookMu.RUnlock()
+	if hook == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// 诊断系统本身的故障不能遮蔽原始 panic，也不能影响既有 Sentry 恢复语义。
+	func() {
+		defer func() {
+			_ = recover()
+		}()
+		hook(ctx, recovered)
+	}()
+}
+
 // RecoverWithContext 用于 goroutine 的 panic 恢复
 // 应在 goroutine 开始时使用 defer 调用
 // 注意：必须先调用 recover()，再检查 Sentry 状态，否则 panic 不会被捕获
@@ -90,6 +121,8 @@ func RecoverWithContext(ctx context.Context) {
 	if err == nil {
 		return
 	}
+
+	notifyPanicHook(ctx, err)
 
 	// 尝试上报给 Sentry，但即使失败也不应该再次 panic
 	if IsInitialized() {
@@ -112,6 +145,8 @@ func Recover() {
 	if err == nil {
 		return
 	}
+
+	notifyPanicHook(context.Background(), err)
 
 	// 尝试上报给 Sentry，但即使失败也不应该再次 panic
 	if IsInitialized() {
