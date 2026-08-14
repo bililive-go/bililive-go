@@ -8,6 +8,21 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+type closeableEventSource struct {
+	closed bool
+}
+
+func (s *closeableEventSource) IsClosed() bool {
+	return s.closed
+}
+
+func TestSourceClosed(t *testing.T) {
+	assert.False(t, SourceClosed(nil))
+	assert.False(t, SourceClosed(NewEvent("test", nil)))
+	assert.False(t, SourceClosed(NewEventWithSource("test", nil, &closeableEventSource{})))
+	assert.True(t, SourceClosed(NewEventWithSource("test", nil, &closeableEventSource{closed: true})))
+}
+
 func TestAddAndRemoveEventListener(t *testing.T) {
 	d := NewDispatcher(context.Background()).(*dispatcher)
 	l := NewEventListener(func(event *Event) {})

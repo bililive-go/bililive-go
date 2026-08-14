@@ -21,16 +21,18 @@
 3. **提交前检查**：确保 `make build-web dev`、`make lint`、`make test` 全部通过
 4. **禁止擅自提交**：不要主动执行 `git commit`、`git push` 等 git 操作，除非用户明确要求
 
-## 详细指南（Skills）
+## 领域知识沉淀（Skills）
 
-更多详细信息请查阅 `.agent/skills/` 目录下的相关指南：
+`.agent/skills/` 用于沉淀可复用的项目领域知识。执行任务时，如果遇到下表领域相关、对后续开发具有普遍参考价值的信息，应将其总结并写入对应的 `SKILL.md`；文件不存在时再创建，不要为了填充目录而编造内容。
 
-| Skill | 说明 |
-|-------|------|
-| `build` | 编译命令、build tags、代码检查 |
-| `config-modification` | 配置修改同步、层级配置系统 |
-| `test-e2e` | Playwright E2E 测试 |
-| `version-switching` | 不停机版本切换设计规范（Docker/独立运行） |
+写入前必须去除本机绝对路径、用户名、邮箱、密钥、Cookie、Token、内网地址、私有部署信息、个人配置和用户数据等本地或隐私内容，只保留可公开、与具体环境无关且具有公共性的技能知识。
+
+| Skill | 文件 | 说明 |
+|-------|------|------|
+| `build` | `.agent/skills/build/SKILL.md` | 编译命令、build tags、代码检查 |
+| `config-modification` | `.agent/skills/config-modification/SKILL.md` | 配置修改同步、层级配置系统 |
+| `test-e2e` | `.agent/skills/test-e2e/SKILL.md` | Playwright E2E 测试 |
+| `version-switching` | `.agent/skills/version-switching/SKILL.md` | 不停机版本切换设计规范（Docker/独立运行） |
 
 ## 快速参考
 

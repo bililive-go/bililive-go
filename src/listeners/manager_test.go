@@ -3,7 +3,9 @@ package listeners
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	gomock "go.uber.org/mock/gomock"
@@ -16,6 +18,19 @@ import (
 	"github.com/bililive-go/bililive-go/src/types"
 )
 
+const concurrentOperationTimeout = time.Second
+
+type doneObservedContext struct {
+	context.Context
+	once     sync.Once
+	observed chan struct{}
+}
+
+func (c *doneObservedContext) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.observed) })
+	return c.Context.Done()
+}
+
 func TestManagerAddAndRemoveListener(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -26,12 +41,12 @@ func TestManagerAddAndRemoveListener(t *testing.T) {
 	newListener = func(ctx context.Context, live live.Live) Listener {
 		ln := NewMockListener(ctrl)
 		ln.EXPECT().Start().Return(nil)
-		ln.EXPECT().Close()
+		ln.EXPECT().CloseSync()
 		return ln
 	}
 	defer func() { newListener = backup }()
 	l := livemock.NewMockLive(ctrl)
-	l.EXPECT().GetLiveId().Return(types.LiveID("test")).Times(3)
+	l.EXPECT().GetLiveId().Return(types.LiveID("test")).Times(2)
 	assert.NoError(t, m.AddListener(context.Background(), l))
 	assert.Equal(t, ErrListenerExist, m.AddListener(context.Background(), l))
 	ln, err := m.GetListener(context.Background(), "test")
@@ -43,6 +58,122 @@ func TestManagerAddAndRemoveListener(t *testing.T) {
 	_, err = m.GetListener(context.Background(), "test")
 	assert.Equal(t, ErrListenerNotExist, err)
 	assert.False(t, m.HasListener(context.Background(), "test"))
+}
+
+func TestManagerAddListenerRejectsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	m := &manager{savers: make(map[types.LiveID]Listener)}
+	liveMock := livemock.NewMockLive(gomock.NewController(t))
+	backup := newListener
+	newListener = func(context.Context, live.Live) Listener {
+		t.Fatal("context 已取消时不应创建 listener")
+		return nil
+	}
+	defer func() { newListener = backup }()
+
+	assert.ErrorIs(t, m.AddListener(ctx, liveMock), context.Canceled)
+	assert.Empty(t, m.savers)
+}
+
+func TestManagerAddListenerWaitsForSameLiveIDClosing(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	closeStarted := make(chan struct{})
+	releaseClose := make(chan struct{})
+	oldListener := NewMockListener(ctrl)
+	oldListener.EXPECT().CloseSync().Do(func() {
+		close(closeStarted)
+		<-releaseClose
+	})
+
+	newListenerMock := NewMockListener(ctrl)
+	newListenerMock.EXPECT().Start().Return(nil)
+
+	liveMock := livemock.NewMockLive(ctrl)
+	liveMock.EXPECT().GetLiveId().Return(types.LiveID("test")).Times(2)
+
+	m := &manager{savers: map[types.LiveID]Listener{"test": oldListener}}
+	backup := newListener
+	newListenerCalls := 0
+	newListener = func(context.Context, live.Live) Listener {
+		newListenerCalls++
+		return newListenerMock
+	}
+	defer func() { newListener = backup }()
+
+	removeDone := make(chan error, 1)
+	go func() {
+		removeDone <- m.RemoveListener(context.Background(), "test")
+	}()
+	<-closeStarted
+
+	baseCtx, cancel := context.WithCancel(context.Background())
+	waitCtx := &doneObservedContext{Context: baseCtx, observed: make(chan struct{})}
+	addDone := make(chan error, 1)
+	go func() {
+		addDone <- m.AddListener(waitCtx, liveMock)
+	}()
+	<-waitCtx.observed
+	assert.Zero(t, newListenerCalls, "旧 listener 关闭完成前不应创建新 listener")
+	cancel()
+	assert.ErrorIs(t, <-addDone, context.Canceled)
+
+	close(releaseClose)
+	assert.NoError(t, <-removeDone)
+	assert.NoError(t, m.AddListener(context.Background(), liveMock))
+	assert.Equal(t, 1, newListenerCalls)
+}
+
+func TestManagerRemoveListenerDoesNotBlockOtherLiveID(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	closeStarted := make(chan struct{})
+	releaseClose := make(chan struct{})
+	oldListener := NewMockListener(ctrl)
+	oldListener.EXPECT().CloseSync().Do(func() {
+		close(closeStarted)
+		<-releaseClose
+	})
+
+	otherListener := NewMockListener(ctrl)
+	otherListener.EXPECT().Start().Return(nil)
+	otherLive := livemock.NewMockLive(ctrl)
+	otherLive.EXPECT().GetLiveId().Return(types.LiveID("other"))
+
+	m := &manager{savers: map[types.LiveID]Listener{"test": oldListener}}
+	backup := newListener
+	newListener = func(context.Context, live.Live) Listener { return otherListener }
+	defer func() { newListener = backup }()
+
+	removeDone := make(chan error, 1)
+	go func() {
+		removeDone <- m.RemoveListener(context.Background(), "test")
+	}()
+	<-closeStarted
+
+	addDone := make(chan error, 1)
+	go func() {
+		addDone <- m.AddListener(context.Background(), otherLive)
+	}()
+
+	addCompleted := false
+	select {
+	case err := <-addDone:
+		addCompleted = true
+		assert.NoError(t, err)
+	case <-time.After(concurrentOperationTimeout):
+		t.Error("关闭一个房间时阻塞了其他房间的 AddListener")
+	}
+
+	close(releaseClose)
+	assert.NoError(t, <-removeDone)
+	if !addCompleted {
+		assert.NoError(t, <-addDone)
+	}
 }
 
 func TestManagerStartAndClose(t *testing.T) {

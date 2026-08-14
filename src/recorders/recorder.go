@@ -227,6 +227,8 @@ type Recorder interface {
 	StartTime() time.Time
 	GetStatus() (map[string]interface{}, error)
 	Close()
+	// CloseAndWait 关闭 recorder，并等待 run 与全部文件后处理完成。
+	CloseAndWait()
 	// GetParserPID 获取当前 parser 进程的 PID
 	// 如果 parser 未启动或不支持 PID 获取，返回 0
 	GetParserPID() int
@@ -579,7 +581,9 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		r.getLogger().WithError(err).Error("failed to init parse")
 		return
 	}
-	r.setAndCloseParser(p)
+	if !r.setAndCloseParser(p) {
+		return
+	}
 	r.startTime = time.Now()
 
 	// 弹幕录制（支持哔哩哔哩、抖音、斗鱼平台）
@@ -853,7 +857,7 @@ func (r *recorder) stopRetryForExplicitOffline(err error) bool {
 		return false
 	}
 	r.getLogger().WithError(err).Info("stream source explicitly reported offline, dispatching LiveEnd")
-	r.ed.DispatchEvent(events.NewEvent(listeners.LiveEnd, r.Live))
+	r.ed.DispatchEvent(events.NewEventWithSource(listeners.LiveEnd, r.Live, r))
 	return true
 }
 
@@ -1057,15 +1061,25 @@ func (r *recorder) getParser() parser.Parser {
 	return r.parser
 }
 
-func (r *recorder) setAndCloseParser(p parser.Parser) {
+// setAndCloseParser 安装新的 parser；若录制器已关闭则立即停止它并返回 false。
+// 这避免 Close 与 tryRecord 并发时，Close 先观察到 parser 为 nil，随后 tryRecord
+// 又安装无法被停止的新 parser。
+func (r *recorder) setAndCloseParser(p parser.Parser) bool {
 	r.parserLock.Lock()
 	defer r.parserLock.Unlock()
+	if atomic.LoadUint32(&r.state) == stopped {
+		if err := p.Stop(); err != nil {
+			r.getLogger().WithError(err).Warn("failed to end recorder")
+		}
+		return false
+	}
 	if r.parser != nil {
 		if err := r.parser.Stop(); err != nil {
 			r.getLogger().WithError(err).Warn("failed to end recorder")
 		}
 	}
 	r.parser = p
+	return true
 }
 
 func (r *recorder) Start(ctx context.Context) error {
@@ -1119,12 +1133,16 @@ func (r *recorder) Close() {
 	r.ed.DispatchEvent(events.NewEvent(RecorderStop, r.Live))
 }
 
+func (r *recorder) CloseAndWait() {
+	r.Close()
+	<-r.done
+}
+
 func (r *recorder) CloseForRestart() []notify.RecordingFileDetail {
 	r.recordedFilesMu.Lock()
 	r.suppressSummary = true
 	r.recordedFilesMu.Unlock()
-	r.Close()
-	<-r.done // 等待 run() 完全退出，确保最后一个文件已累积
+	r.CloseAndWait()
 	r.recordedFilesMu.Lock()
 	defer r.recordedFilesMu.Unlock()
 	r.getLogger().Infof("分段重启：携带 %d 个累积文件传递给新 recorder", len(r.recordedFiles))

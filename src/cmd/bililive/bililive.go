@@ -519,7 +519,7 @@ func main() {
 		servers.RegisterSSEEventListeners(inst)
 		// 注册直播间状态持久化事件监听器
 		if liveStateManager != nil {
-			livestate.RegisterEventListeners(ed, liveStateManager, inst.Cache)
+			livestate.RegisterEventListeners(ctx, ed, liveStateManager, inst.Cache, lm, rm)
 		}
 		// 设置日志回调，将日志推送到 SSE
 		livelogger.SetLogCallback(func(roomID string, logLine string) {

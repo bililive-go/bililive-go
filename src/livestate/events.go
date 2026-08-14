@@ -1,20 +1,75 @@
 package livestate
 
 import (
+	"context"
+
 	"github.com/bililive-go/bililive-go/src/listeners"
 	"github.com/bililive-go/bililive-go/src/live"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
 	"github.com/bililive-go/bililive-go/src/recorders"
+	"github.com/bililive-go/bililive-go/src/types"
 	"github.com/bluele/gcache"
 	"github.com/sirupsen/logrus"
 )
 
+type listenerSourceLookup interface {
+	GetListener(ctx context.Context, liveID types.LiveID) (listeners.Listener, error)
+}
+
+type recorderSourceLookup interface {
+	GetRecorder(ctx context.Context, liveID types.LiveID) (recorders.Recorder, error)
+}
+
+// liveEndSourceReplaced 判断 LiveEnd 是否来自已被同类新实例替换的来源。
+//
+// 不能只检查来源是否已关闭：listener 在关闭前确认并派发的 LiveEnd 可能晚于
+// CloseSync 执行，此时只要尚未出现替代实例，该事件仍应结束当前直播会话。
+// recorder 也可能在 recorder manager 处理同一个 LiveEnd 时先被关闭，因此需要
+// 比较当前实例身份，而不是把“已关闭”等同于“已失效”。
+func liveEndSourceReplaced(
+	ctx context.Context,
+	event *events.Event,
+	liveID types.LiveID,
+	listenerManager listenerSourceLookup,
+	recorderManager recorderSourceLookup,
+) bool {
+	if event == nil || event.Source == nil {
+		return false
+	}
+	switch source := event.Source.(type) {
+	case listeners.Listener:
+		if listenerManager == nil {
+			return false
+		}
+		current, err := listenerManager.GetListener(ctx, liveID)
+		return err == nil && current != source
+	case recorders.Recorder:
+		if recorderManager == nil {
+			return false
+		}
+		current, err := recorderManager.GetRecorder(ctx, liveID)
+		return err == nil && current != source
+	default:
+		return false
+	}
+}
+
 // RegisterEventListeners 注册事件监听器，用于在直播状态变化时更新数据库
 // 参数：
+//   - ctx: 应用级 context
 //   - ed: 事件分发器
 //   - manager: LiveStateManager 实例
 //   - cache: 缓存实例，用于获取直播间信息
-func RegisterEventListeners(ed events.Dispatcher, manager *Manager, cache gcache.Cache) {
+//   - listenerManager: listener 当前实例查询器
+//   - recorderManager: recorder 当前实例查询器
+func RegisterEventListeners(
+	ctx context.Context,
+	ed events.Dispatcher,
+	manager *Manager,
+	cache gcache.Cache,
+	listenerManager listeners.Manager,
+	recorderManager recorders.Manager,
+) {
 	if manager == nil {
 		logrus.Debug("LiveStateManager 未初始化，跳过事件监听器注册")
 		return
@@ -22,6 +77,9 @@ func RegisterEventListeners(ed events.Dispatcher, manager *Manager, cache gcache
 
 	// 监听直播开始事件
 	ed.AddEventListener(listeners.LiveStart, events.NewEventListener(func(event *events.Event) {
+		if events.SourceClosed(event) {
+			return
+		}
 		l, ok := event.Object.(live.Live)
 		if !ok {
 			return
@@ -54,8 +112,11 @@ func RegisterEventListeners(ed events.Dispatcher, manager *Manager, cache gcache
 			return
 		}
 
-		liveID := string(l.GetLiveId())
-		manager.OnLiveEnd(liveID)
+		liveID := l.GetLiveId()
+		if liveEndSourceReplaced(ctx, event, liveID, listenerManager, recorderManager) {
+			return
+		}
+		manager.OnLiveEnd(string(liveID))
 	}))
 
 	// 监听录制开始事件

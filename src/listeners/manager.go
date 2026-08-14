@@ -17,7 +17,8 @@ var newListener = NewListener
 
 func NewManager(ctx context.Context) Manager {
 	lm := &manager{
-		savers: make(map[types.LiveID]Listener),
+		savers:  make(map[types.LiveID]Listener),
+		closing: make(map[types.LiveID]chan struct{}),
 	}
 	instance.GetInstance(ctx).ListenerManager = lm
 	return lm
@@ -32,8 +33,9 @@ type Manager interface {
 }
 
 type manager struct {
-	lock   sync.RWMutex
-	savers map[types.LiveID]Listener
+	lock    sync.RWMutex
+	savers  map[types.LiveID]Listener
+	closing map[types.LiveID]chan struct{}
 }
 
 func (m *manager) registryListener(ctx context.Context, ed events.Dispatcher) {
@@ -103,26 +105,61 @@ func (m *manager) Close(ctx context.Context) {
 }
 
 func (m *manager) AddListener(ctx context.Context, live live.Live) error {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-
-	if _, ok := m.savers[live.GetLiveId()]; ok {
-		return ErrListenerExist
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	listener := newListener(ctx, live)
-	m.savers[live.GetLiveId()] = listener
-	return listener.Start()
+	liveID := live.GetLiveId()
+	for {
+		m.lock.Lock()
+		if err := ctx.Err(); err != nil {
+			m.lock.Unlock()
+			return err
+		}
+		if done, ok := m.closing[liveID]; ok {
+			m.lock.Unlock()
+			select {
+			case <-done:
+				continue
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		if _, ok := m.savers[liveID]; ok {
+			m.lock.Unlock()
+			return ErrListenerExist
+		}
+		listener := newListener(ctx, live)
+		m.savers[liveID] = listener
+		err := listener.Start()
+		m.lock.Unlock()
+		return err
+	}
 }
 
 func (m *manager) RemoveListener(ctx context.Context, liveId types.LiveID) error {
 	m.lock.Lock()
-	defer m.lock.Unlock()
 	listener, ok := m.savers[liveId]
 	if !ok {
+		m.lock.Unlock()
 		return ErrListenerNotExist
 	}
-	listener.Close()
+	if m.closing == nil {
+		m.closing = make(map[types.LiveID]chan struct{})
+	}
+	done := make(chan struct{})
+	m.closing[liveId] = done
 	delete(m.savers, liveId)
+	m.lock.Unlock()
+
+	// 同步清理在全局锁外执行，避免阻塞其他房间，也允许事件处理器回调 manager。
+	// 同一房间的 AddListener 会等待 done，再发布新的 LiveStart。
+	defer func() {
+		m.lock.Lock()
+		delete(m.closing, liveId)
+		close(done)
+		m.lock.Unlock()
+	}()
+	listener.CloseSync()
 	return nil
 }
 

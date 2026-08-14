@@ -56,6 +56,18 @@ func (mr *MockRecorderMockRecorder) Close() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockRecorder)(nil).Close))
 }
 
+// CloseAndWait mocks base method.
+func (m *MockRecorder) CloseAndWait() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "CloseAndWait")
+}
+
+// CloseAndWait indicates an expected call of CloseAndWait.
+func (mr *MockRecorderMockRecorder) CloseAndWait() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CloseAndWait", reflect.TypeOf((*MockRecorder)(nil).CloseAndWait))
+}
+
 // CloseForRestart mocks base method.
 func (m *MockRecorder) CloseForRestart() []notify.RecordingFileDetail {
 	m.ctrl.T.Helper()

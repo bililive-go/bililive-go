@@ -53,7 +53,7 @@ func TestRefresh(t *testing.T) {
 	live.EXPECT().GetInfo().Return(&livepkg.Info{Status: true}, nil)
 	live.EXPECT().SetLastStartTime(gomock.Any())
 	live.EXPECT().GetPlatformCNName().Return("platform").AnyTimes()
-	ed.EXPECT().DispatchEvent(events.NewEvent(LiveStart, live))
+	ed.EXPECT().DispatchEvent(events.NewEventWithSource(LiveStart, live, l))
 	l.refresh()
 	assert.True(t, l.status.roomStatus)
 
@@ -68,14 +68,14 @@ func TestRefresh(t *testing.T) {
 	live.EXPECT().GetInfo().Return(&livepkg.Info{Status: true, RoomName: "b"}, nil)
 	live.EXPECT().GetRawUrl().Return("").AnyTimes()                 // 添加对GetRawUrl方法的期望调用
 	live.EXPECT().GetPlatformCNName().Return("platform").AnyTimes() // 添加对GetPlatformCNName方法的期望调用
-	ed.EXPECT().DispatchEvent(events.NewEvent(RoomNameChanged, live))
+	ed.EXPECT().DispatchEvent(events.NewEventWithSource(RoomNameChanged, live, l))
 	l.refresh()
 
 	// true -> false
 	live.EXPECT().GetInfo().Return(&livepkg.Info{Status: false}, nil)
 	live.EXPECT().GetRawUrl().Return("").AnyTimes() // 添加对GetRawUrl方法的期望调用
 	live.EXPECT().GetPlatformCNName().Return("platform").AnyTimes()
-	ed.EXPECT().DispatchEvent(events.NewEvent(LiveEnd, live))
+	ed.EXPECT().DispatchEvent(events.NewEventWithSource(LiveEnd, live, l))
 	l.refresh()
 	assert.False(t, l.status.roomStatus)
 }
@@ -145,7 +145,7 @@ func TestClosedListenerDoesNotPublishInfo(t *testing.T) {
 	live := livemock.NewMockLive(ctrl)
 	l := NewListener(ctx, live).(*listener)
 	atomic.StoreUint32(&l.state, running)
-	ed.EXPECT().DispatchEvent(events.NewEvent(ListenStop, live))
+	ed.EXPECT().DispatchEvent(events.NewEventWithSource(ListenStop, live, l))
 	l.Close()
 
 	// 模拟网络请求在 listener 关闭后才返回开播信息；不得再发布 LiveStart。
@@ -162,7 +162,7 @@ func TestListenerCloseSyncWaitsForStopHandlers(t *testing.T) {
 	live := livemock.NewMockLive(ctrl)
 	l := NewListener(ctx, live).(*listener)
 	atomic.StoreUint32(&l.state, running)
-	ed.EXPECT().DispatchEventSync(events.NewEvent(ListenStop, live))
+	ed.EXPECT().DispatchEventSync(events.NewEventWithSource(ListenStop, live, l))
 
 	l.CloseSync()
 	assert.True(t, l.isStopped())

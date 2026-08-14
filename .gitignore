@@ -166,9 +166,11 @@ node_modules
 .vscode/*
 !.vscode/*.example.json
 
-# AI agent 临时文件（保留 rules 目录）
+# AI agent 临时文件（保留 rules 和可公开的 skills 目录）
 .agent/*
 !.agent/rules/
+!.agent/skills/
+!.agent/skills/**
 
 !src/cmd/build/
 .appdata/
