@@ -7,6 +7,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/pkg/ratelimit"
 	"github.com/bililive-go/bililive-go/src/types"
 	"github.com/stretchr/testify/assert"
+	"gopkg.in/yaml.v3"
 )
 
 func TestNewConfig(t *testing.T) {
@@ -145,6 +146,32 @@ live_rooms:
 	resolved := cfg.ResolveConfigForRoom(&cfg.LiveRooms[0], "bilibili")
 	assert.Equal(t, 30, resolved.Interval)
 	assert.Equal(t, "./", resolved.OutPutPath)
+}
+
+func TestLiveRoomPinnedConfigCompatibility(t *testing.T) {
+	configYAML := `
+rpc:
+  enable: true
+  bind: :8080
+interval: 30
+out_put_path: ./
+live_rooms:
+- url: https://live.bilibili.com/100
+  is_listening: true
+  pinned: true
+- url: https://live.bilibili.com/200
+  is_listening: true
+`
+
+	cfg, err := NewConfigWithBytes([]byte(configYAML))
+	assert.NoError(t, err)
+	assert.True(t, cfg.LiveRooms[0].Pinned)
+	assert.False(t, cfg.LiveRooms[1].Pinned)
+
+	encoded, err := yaml.Marshal(cfg.LiveRooms)
+	assert.NoError(t, err)
+	assert.Contains(t, string(encoded), "pinned: true")
+	assert.NotContains(t, string(encoded), "pinned: false")
 }
 
 func TestGetPlatformKeyFromUrl(t *testing.T) {

@@ -21,6 +21,9 @@ func (c liveSlice) Swap(i, j int) {
 	c[i], c[j] = c[j], c[i]
 }
 func (c liveSlice) Less(i, j int) bool {
+	if c[i].Pinned != c[j].Pinned {
+		return c[i].Pinned
+	}
 	return c[i].Live.GetLiveId() < c[j].Live.GetLiveId()
 }
 

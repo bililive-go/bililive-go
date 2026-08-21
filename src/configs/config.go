@@ -941,6 +941,7 @@ type LiveRoom struct {
 	Url         string       `yaml:"url" json:"url"`
 	IsListening bool         `yaml:"is_listening" json:"is_listening"`
 	LiveId      types.LiveID `yaml:"-" json:"live_id,omitempty"`
+	Pinned      bool         `yaml:"pinned,omitempty" json:"pinned,omitempty"`
 	Quality     int          `yaml:"quality,omitempty" json:"quality,omitempty"`
 	AudioOnly   bool         `yaml:"audio_only,omitempty" json:"audio_only,omitempty"`
 	NickName    string       `yaml:"nick_name,omitempty" json:"nick_name,omitempty"`

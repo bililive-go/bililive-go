@@ -18,3 +18,11 @@
         text-overflow: ellipsis;
     }
 }
+
+.pinned-live-row > td {
+    background-color: #fffbe6 !important;
+}
+
+.pinned-live-row:hover > td {
+    background-color: #fff7cc !important;
+}

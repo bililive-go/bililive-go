@@ -276,6 +276,15 @@ class API {
     }
 
     /**
+     * 设置直播间置顶状态
+     * @param liveId 直播间ID
+     * @param pinned 是否置顶
+     */
+    setRoomPinned(liveId: string, pinned: boolean) {
+        return this.updateRoomConfigById(liveId, { pinned });
+    }
+
+    /**
      * 预览输出模板生成的路径
      * @param template 模板字符串
      * @param outPutPath 输出路径
@@ -501,4 +510,3 @@ class API {
 }
 
 export default API;
-

@@ -1,6 +1,6 @@
 import React from "react";
 import { Button, Divider, Table, Tag, Tabs, Row, Col, Tooltip, message, List, Typography, Switch, Space, Popconfirm, Select, Spin } from 'antd';
-import { EditOutlined, SyncOutlined, CloudSyncOutlined, ReloadOutlined, SwapOutlined, CheckCircleOutlined, ExclamationCircleOutlined, CommentOutlined } from '@ant-design/icons';
+import { EditOutlined, SyncOutlined, CloudSyncOutlined, ReloadOutlined, SwapOutlined, CheckCircleOutlined, ExclamationCircleOutlined, CommentOutlined, PushpinOutlined, PushpinFilled } from '@ant-design/icons';
 import PopDialog from '../pop-dialog/index';
 import BatchAddRoomDialog from '../batch-add-room-dialog/index';
 import LogPanel from '../log-panel/index';
@@ -15,6 +15,7 @@ import { useNavigate, NavigateFunction } from "react-router-dom";
 import EditCookieDialog from "../edit-cookie/index";
 import { RoomConfigForm } from "../config-info";
 import { StreamAttributes } from '../../types/stream';
+import { comparePinnedForTable, TableSortOrder } from './pinning';
 
 const api = new API();
 const { Text } = Typography;
@@ -330,6 +331,7 @@ interface ItemData {
     notifyOnly: boolean
     isLive: boolean
     isRecording: boolean
+    pinned: boolean
 }
 interface CookieItemData {
     Platform_cn_name: string,
@@ -392,14 +394,19 @@ class LiveList extends React.Component<Props, IState> {
                 })}
             </span>
         ),
-        sorter: (a: ItemData, b: ItemData) => {
+        sorter: (a: ItemData, b: ItemData, sortOrder?: TableSortOrder) => {
             // 录制中 > 录制准备中 > 其他
             const getRecordingPriority = (tags: string[]) => {
                 if (tags.includes('录制中')) return 2;
                 if (tags.includes('录制准备中')) return 1;
                 return 0;
             };
-            return getRecordingPriority(a.tags) - getRecordingPriority(b.tags);
+            return comparePinnedForTable(
+                a,
+                b,
+                sortOrder,
+                () => getRecordingPriority(a.tags) - getRecordingPriority(b.tags)
+            );
         },
         defaultSortOrder: 'descend',
     };
@@ -410,6 +417,17 @@ class LiveList extends React.Component<Props, IState> {
         dataIndex: 'listening',
         render: (listening: boolean, data: ItemData) => (
             <span onClick={(e) => e.stopPropagation()}>
+                <Tooltip title={data.pinned ? "取消后该直播间将恢复普通排序" : "将该直播间固定在列表顶部"}>
+                    <Button
+                        type="link"
+                        size="small"
+                        icon={data.pinned ? <PushpinFilled /> : <PushpinOutlined />}
+                        onClick={() => this.toggleRoomPinned(data)}
+                    >
+                        {data.pinned ? "取消置顶" : "置顶"}
+                    </Button>
+                </Tooltip>
+                <Divider type="vertical" />
                 <PopDialog
                     title={listening ? "确定停止监控？" : "确定开启监控？"}
                     onConfirm={(e) => {
@@ -514,10 +532,19 @@ class LiveList extends React.Component<Props, IState> {
             title: '主播名称',
             dataIndex: 'name',
             key: 'name',
-            sorter: (a: ItemData, b: ItemData) => {
-                return a.name.localeCompare(b.name);
+            sorter: (a: ItemData, b: ItemData, sortOrder?: TableSortOrder) => {
+                return comparePinnedForTable(a, b, sortOrder, () => a.name.localeCompare(b.name));
             },
-            render: (name: string) => <span>{name}</span>
+            render: (name: string, data: ItemData) => (
+                <span>
+                    {data.pinned && (
+                        <Tooltip title="已置顶">
+                            <PushpinFilled style={{ color: '#faad14', marginRight: 6 }} />
+                        </Tooltip>
+                    )}
+                    {name}
+                </span>
+            )
         },
         {
             title: '直播间名称',
@@ -538,8 +565,8 @@ class LiveList extends React.Component<Props, IState> {
             title: '直播平台',
             dataIndex: 'address',
             key: 'address',
-            sorter: (a: ItemData, b: ItemData) => {
-                return a.address.localeCompare(b.address);
+            sorter: (a: ItemData, b: ItemData, sortOrder?: TableSortOrder) => {
+                return comparePinnedForTable(a, b, sortOrder, () => a.address.localeCompare(b.address));
             },
             render: (address: string) => <span>{address}</span>
         },
@@ -554,6 +581,11 @@ class LiveList extends React.Component<Props, IState> {
             key: 'name',
             render: (name: string, data: ItemData) => (
                 <span>
+                    {data.pinned && (
+                        <Tooltip title="已置顶">
+                            <PushpinFilled style={{ color: '#faad14', marginRight: 6 }} />
+                        </Tooltip>
+                    )}
                     <a href={data.room.url} rel="noopener noreferrer" target="_blank" onClick={(e) => e.stopPropagation()}>{name}</a>
                     {data.room.lastError && (
                         <Tooltip title={data.room.lastError}>
@@ -924,6 +956,22 @@ class LiveList extends React.Component<Props, IState> {
     }
 
     /**
+     * 切换直播间置顶状态。
+     * 置顶属于服务端房间配置，刷新页面或从其他浏览器访问时仍会保留。
+     */
+    toggleRoomPinned = async (data: ItemData) => {
+        const nextPinned = !data.pinned;
+        try {
+            await api.setRoomPinned(data.roomId, nextPinned);
+            message.success(nextPinned ? '直播间已置顶' : '已取消置顶');
+            this.requestListData();
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            message.error(`${nextPinned ? '置顶' : '取消置顶'}失败: ${reason}`);
+        }
+    }
+
+    /**
      * 加载列表数据
      */
     requestListData() {
@@ -971,6 +1019,7 @@ class LiveList extends React.Component<Props, IState> {
                         notifyOnly: item.notify_only || false,
                         isLive: item.status || false,
                         isRecording: (item.recording || item.recording_preparing) || false,
+                        pinned: item.pinned || false,
                     };
                 });
             })
@@ -2120,6 +2169,7 @@ class LiveList extends React.Component<Props, IState> {
                                     }
                                 }
                             })}
+                            rowClassName={(record) => record.pinned ? 'pinned-live-row' : ''}
                             onChange={this.handleTableChange}
                         />
                     </Tabs.TabPane>

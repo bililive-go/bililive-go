@@ -61,6 +61,7 @@ type Info struct {
 	CustomLiveId         string
 	AudioOnly            bool
 	NotifyOnly           bool // 仅开播提醒模式
+	Pinned               bool // 是否在直播间列表中置顶
 	// 最近一次 API 请求的错误信息（用于前端显示错误提示）
 	LastError string
 	// 可用流列表（最近一次获取的）
@@ -91,6 +92,7 @@ func (i *Info) MarshalJSON() ([]byte, error) {
 		LastStartTimeUnix         int64                  `json:"last_start_time_unix,omitempty"`
 		AudioOnly                 bool                   `json:"audio_only"`
 		NotifyOnly                bool                   `json:"notify_only"`
+		Pinned                    bool                   `json:"pinned"`
 		NickName                  string                 `json:"nick_name"`
 		LastError                 string                 `json:"last_error,omitempty"`
 		AvailableStreams          []*AvailableStreamInfo `json:"available_streams,omitempty"`
@@ -108,6 +110,7 @@ func (i *Info) MarshalJSON() ([]byte, error) {
 		Initializing:              i.Initializing,
 		AudioOnly:                 i.AudioOnly,
 		NotifyOnly:                i.NotifyOnly,
+		Pinned:                    i.Pinned,
 		NickName:                  i.Live.GetOptions().NickName,
 		LastError:                 i.LastError,
 		AvailableStreams:          i.AvailableStreams,
