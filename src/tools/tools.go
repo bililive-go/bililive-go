@@ -701,9 +701,7 @@ func startBTools() error {
 
 	nodeFolder := filepath.Dir(node.GetToolPath())
 	btoolsFolder := filepath.Dir(btools.GetToolPath())
-	env := []string{
-		"PATH=" + nodeFolder + string(os.PathListSeparator) + os.Getenv("PATH"),
-	}
+	env := btoolsCommandEnv(nodeFolder)
 	nodePath, err := filepath.Abs(node.GetToolPath())
 	if err != nil {
 		currentBToolsStatus.Store(int32(BToolsStatusFailed))
@@ -748,6 +746,14 @@ func startBTools() error {
 		blog.GetLogger().WithError(err).Warnln("bililive-tools 进程已退出，依赖它的平台（如抖音）将暂停请求")
 	}
 	return err
+}
+
+func btoolsCommandEnv(nodeFolder string) []string {
+	// 必须继承父进程环境。只传 PATH 会丢失 HOME；当容器使用的 PUID
+	// 不存在于 /etc/passwd 时，Node.js 无法推导主目录并报 uv_os_homedir ENOENT。
+	return append(os.Environ(),
+		"PATH="+nodeFolder+string(os.PathListSeparator)+os.Getenv("PATH"),
+	)
 }
 
 func AsyncDownloadIfNecessary(toolName string) {
