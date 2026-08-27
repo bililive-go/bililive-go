@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -1915,11 +1916,19 @@ func extractCookiesString(l live.Live) string {
 }
 
 // extractDouyinRoomID 从抖音直播 URL 中提取房间号（字符串）。
-// 抖音房间号是数字字符串，直接从 URL 路径中提取。
+// 抖音房间号（web_rid）直接是 URL 路径的第一段，但手机版分享链接
+// （v.douyin.com/xxx）的路径只是一个短链跳转码，并不是 web_rid，
+// 必须先跟随跳转解析出真实的 live.douyin.com/{web_rid} 地址，
+// 否则弹幕 WebSocket 会带着错误的 room_id 连接，被服务端拒绝握手。
 func extractDouyinRoomID(l live.Live) string {
 	u, err := url.Parse(l.GetRawUrl())
 	if err != nil {
 		return ""
+	}
+	if strings.Contains(u.Host, "v.douyin.com") {
+		if resolved, resolveErr := resolveDouyinShortURL(u.String()); resolveErr == nil {
+			u = resolved
+		}
 	}
 	paths := strings.Split(strings.Trim(u.Path, "/"), "/")
 	if len(paths) < 1 {
@@ -1930,6 +1939,29 @@ func extractDouyinRoomID(l live.Live) string {
 		return ""
 	}
 	return roomID
+}
+
+// resolveDouyinShortURL 跟随 HTTP 重定向，将抖音手机版分享短链
+// （v.douyin.com/xxx）解析为最终的 live.douyin.com/{web_rid} 地址。
+func resolveDouyinShortURL(shortURL string) (*url.URL, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	req, err := http.NewRequest(http.MethodGet, shortURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.Request == nil || resp.Request.URL == nil {
+		return nil, fmt.Errorf("无法解析抖音短链跳转地址")
+	}
+	return resp.Request.URL, nil
 }
 
 // extractDouyuRoomID 从斗鱼直播 URL 中提取房间号（字符串）。

@@ -2,6 +2,8 @@ package recorders
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -381,5 +383,45 @@ func TestFinalRecorder_SummaryNotSuppressed(t *testing.T) {
 	recB.pipelineState.mu.Unlock()
 	if bSuppress {
 		t.Fatal("最终 recorder 的 suppressSummary 应为 false（不应从旧 recorder 继承）")
+	}
+}
+
+func TestExtractDouyinRoomID_WebURL(t *testing.T) {
+	// 网页版链接（live.douyin.com/{web_rid}）的 web_rid 直接是路径的第一段，
+	// 不需要经过任何重定向解析。
+	ctrl := gomock.NewController(t)
+	l := livemock.NewMockLive(ctrl)
+	l.EXPECT().GetRawUrl().Return("https://live.douyin.com/745505113760").AnyTimes()
+
+	if got := extractDouyinRoomID(l); got != "745505113760" {
+		t.Fatalf("extractDouyinRoomID() = %q, want %q", got, "745505113760")
+	}
+}
+
+func TestExtractDouyinRoomID_MobileShareURL(t *testing.T) {
+	// 手机版分享短链（v.douyin.com/xxx）的路径只是跳转码，必须先跟随
+	// 重定向拿到真实的 live.douyin.com/{web_rid} 地址，否则弹幕会用错误的
+	// room_id 连接 WebSocket，被服务端拒绝握手（见 issue #1185）。
+	final := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer final.Close()
+
+	short := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, final.URL+"/745505113760", http.StatusFound)
+	}))
+	defer short.Close()
+
+	shortURL, err := url.Parse(short.URL + "/i8xxxxx/")
+	if err != nil {
+		t.Fatalf("解析测试用短链失败: %v", err)
+	}
+	// 测试服务器的 host 不是真实的 v.douyin.com，直接调用重定向解析函数验证行为。
+	resolved, err := resolveDouyinShortURL(shortURL.String())
+	if err != nil {
+		t.Fatalf("resolveDouyinShortURL() 返回错误: %v", err)
+	}
+	if resolved.Path != "/745505113760" {
+		t.Fatalf("resolveDouyinShortURL() 解析路径 = %q, want %q", resolved.Path, "/745505113760")
 	}
 }
