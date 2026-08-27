@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -751,9 +752,27 @@ func startBTools() error {
 func btoolsCommandEnv(nodeFolder string) []string {
 	// 必须继承父进程环境。只传 PATH 会丢失 HOME；当容器使用的 PUID
 	// 不存在于 /etc/passwd 时，Node.js 无法推导主目录并报 uv_os_homedir ENOENT。
-	return append(os.Environ(),
-		"PATH="+nodeFolder+string(os.PathListSeparator)+os.Getenv("PATH"),
-	)
+	parentEnv := os.Environ()
+	env := make([]string, 1, len(parentEnv)+1)
+	env[0] = "PATH=" + nodeFolder + string(os.PathListSeparator) + os.Getenv("PATH")
+	for _, entry := range parentEnv {
+		if environmentEntryHasKey(entry, "PATH") {
+			continue
+		}
+		env = append(env, entry)
+	}
+	return env
+}
+
+func environmentEntryHasKey(entry, key string) bool {
+	name, _, ok := strings.Cut(entry, "=")
+	if !ok {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(name, key)
+	}
+	return name == key
 }
 
 func AsyncDownloadIfNecessary(toolName string) {

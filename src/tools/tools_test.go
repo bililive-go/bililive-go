@@ -15,25 +15,38 @@ func TestBToolsCommandEnvInheritsParentEnvironment(t *testing.T) {
 	nodeFolder := filepath.Join("opt", "bililive", "tools", "node")
 	env := btoolsCommandEnv(nodeFolder)
 
-	if got := lastEnvironmentValue(env, "HOME"); got != "/tmp/bililive-home" {
+	if got := firstEnvironmentValue(env, "HOME"); got != "/tmp/bililive-home" {
 		t.Fatalf("HOME 未被继承，实际值为 %q", got)
 	}
-	if got := lastEnvironmentValue(env, "HTTPS_PROXY"); got != "http://proxy.example.com" {
+	if got := firstEnvironmentValue(env, "HTTPS_PROXY"); got != "http://proxy.example.com" {
 		t.Fatalf("HTTPS_PROXY 未被继承，实际值为 %q", got)
 	}
 	wantPath := nodeFolder + string(os.PathListSeparator) + "/usr/bin"
-	if got := lastEnvironmentValue(env, "PATH"); got != wantPath {
+	if got := firstEnvironmentValue(env, "PATH"); got != wantPath {
 		t.Fatalf("PATH = %q，期望 %q", got, wantPath)
+	}
+	if count := environmentKeyCount(env, "PATH"); count != 1 {
+		t.Fatalf("PATH 出现了 %d 次，期望仅出现一次", count)
 	}
 }
 
-func lastEnvironmentValue(env []string, key string) string {
-	var value string
+func firstEnvironmentValue(env []string, key string) string {
 	for _, entry := range env {
 		name, current, ok := strings.Cut(entry, "=")
 		if ok && strings.EqualFold(name, key) {
-			value = current
+			return current
 		}
 	}
-	return value
+	return ""
+}
+
+func environmentKeyCount(env []string, key string) int {
+	count := 0
+	for _, entry := range env {
+		name, _, ok := strings.Cut(entry, "=")
+		if ok && strings.EqualFold(name, key) {
+			count++
+		}
+	}
+	return count
 }
