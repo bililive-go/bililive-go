@@ -2,6 +2,7 @@ package recorders
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"strings"
 	"testing"
@@ -53,6 +54,57 @@ func TestTryRecordStopsWithoutPanicWhenFilenameRenderFails(t *testing.T) {
 	}
 	if !strings.Contains(logs, "render failed") {
 		t.Fatalf("日志未保留原始模板错误: %s", logs)
+	}
+}
+
+func TestTryRecordStopsBeforeCreatingInvalidOutputPath(t *testing.T) {
+	previousConfig := configs.GetCurrentConfig()
+	previousValidator := validateOutputFilePath
+	previousMkdir := mkdir
+	cfg := configs.NewConfig()
+	cfg.OutputTmpl = `recording.flv`
+	configs.SetCurrentConfig(cfg)
+
+	mkdirCalled := false
+	validateOutputFilePath = func(string) error {
+		return errors.New("输出文件完整路径过长")
+	}
+	mkdir = func(string) error {
+		mkdirCalled = true
+		return nil
+	}
+	t.Cleanup(func() {
+		configs.SetCurrentConfig(previousConfig)
+		validateOutputFilePath = previousValidator
+		mkdir = previousMkdir
+	})
+
+	ctrl := gomock.NewController(t)
+	l := livemock.NewMockLive(ctrl)
+	logger := livelogger.New(0, logrus.Fields{"test": t.Name()})
+	streamURL := &url.URL{Scheme: "https", Host: "example.com", Path: "/stream.flv"}
+
+	l.EXPECT().GetRawUrl().Return("https://example.com/room").AnyTimes()
+	l.EXPECT().GetStreamInfos().Return([]*live.StreamUrlInfo{{Url: streamURL}}, nil)
+	l.EXPECT().GetLogger().Return(logger)
+
+	cache := gcache.New(1).LRU().Build()
+	if err := cache.Set(l, &live.Info{Live: l}); err != nil {
+		t.Fatalf("写入直播信息缓存失败: %v", err)
+	}
+	r := &recorder{Live: l, cache: cache}
+
+	r.tryRecord(context.Background())
+
+	if mkdirCalled {
+		t.Fatal("路径校验失败后不应创建输出目录")
+	}
+	logs := logger.GetLogs()
+	if !strings.Contains(logs, "输出文件路径不兼容 Windows，已取消本次录制") {
+		t.Fatalf("未记录路径校验失败日志: %s", logs)
+	}
+	if !strings.Contains(logs, "输出文件完整路径过长") {
+		t.Fatalf("日志未保留路径校验错误: %s", logs)
 	}
 }
 

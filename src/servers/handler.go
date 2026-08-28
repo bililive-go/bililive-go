@@ -1452,6 +1452,15 @@ func previewOutputTmpl(writer http.ResponseWriter, r *http.Request) {
 	// 计算最终路径
 	absOutPutPath, _ := filepath.Abs(outPutPath)
 	previewPath := filepath.Join(absOutPutPath, buf.String())
+	if err := utils.ValidateOutputFilePath(previewPath); err != nil {
+		writeJSON(writer, map[string]interface{}{
+			"success":      false,
+			"error":        err.Error(),
+			"error_type":   "path_too_long",
+			"preview_path": previewPath,
+		})
+		return
+	}
 
 	writeJSON(writer, map[string]interface{}{
 		"success":       true,

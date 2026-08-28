@@ -74,6 +74,8 @@ var (
 			os.Remove(file)
 		}
 	}
+
+	validateOutputFilePath = utils.ValidateOutputFilePath
 )
 
 // videoExtensions 用于匹配弹幕文件对应的视频文件
@@ -442,6 +444,10 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	}
 	// 使用层级配置的 OutPutPath
 	fileName := filepath.Join(resolvedConfig.OutPutPath, buf.String())
+	if err = validateOutputFilePath(fileName); err != nil {
+		r.getLogger().WithError(err).Error("输出文件路径不兼容 Windows，已取消本次录制")
+		return
+	}
 	outputPath, _ := filepath.Split(fileName)
 
 	// TODO 根据配置选择最佳流
