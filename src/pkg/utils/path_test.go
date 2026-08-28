@@ -16,6 +16,18 @@ func TestValidateWindowsCompatibleAbsoluteFilePath(t *testing.T) {
 			path: "/recordings/平台/主播/2026-08-29 03-29-00.flv",
 		},
 		{
+			name: "单个名称恰好达到上限",
+			path: "/" + strings.Repeat("a", windowsMaxComponentLength),
+		},
+		{
+			name: "完整文件路径恰好达到上限",
+			path: "/" + strings.Repeat("a/", 120) + strings.Repeat("b", 18),
+		},
+		{
+			name: "文件夹路径恰好达到上限",
+			path: "/" + strings.Repeat("a/", 122) + "bb/x.flv",
+		},
+		{
 			name:        "单个名称超过上限",
 			path:        "/recordings/" + strings.Repeat("a", windowsMaxComponentLength+1) + ".flv",
 			errorSubstr: "单个名称过长",
@@ -51,5 +63,17 @@ func TestValidateWindowsCompatibleAbsoluteFilePath(t *testing.T) {
 func TestWindowsUTF16Length(t *testing.T) {
 	if got := windowsUTF16Length("中文😀"); got != 4 {
 		t.Fatalf("UTF-16 长度期望为 4，实际为 %d", got)
+	}
+
+	// utf16.RuneLen 对代理项返回 -1，长度统计必须进行下限保护。
+	if got := windowsUTF16RuneLength(rune(0xd800)); got != 1 {
+		t.Fatalf("非法代理项应按一个 UTF-16 码元计数，实际为 %d", got)
+	}
+}
+
+func TestValidateOutputFilePathOnCurrentPlatform(t *testing.T) {
+	err := ValidateOutputFilePath("recording.flv")
+	if err != nil {
+		t.Fatalf("普通输出路径不应校验失败: %v", err)
 	}
 }

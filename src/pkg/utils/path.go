@@ -26,6 +26,9 @@ func ValidateOutputFilePath(filePath string) error {
 }
 
 func validateWindowsCompatibleFilePath(filePath string) error {
+	if filepath.IsAbs(filePath) {
+		return validateWindowsCompatibleAbsoluteFilePath(filePath)
+	}
 	absolutePath, err := filepath.Abs(filePath)
 	if err != nil {
 		return fmt.Errorf("无法解析输出文件绝对路径: %w", err)
@@ -71,7 +74,16 @@ func validateWindowsCompatibleAbsoluteFilePath(filePath string) error {
 func windowsUTF16Length(value string) int {
 	length := 0
 	for _, r := range value {
-		length += utf16.RuneLen(r)
+		length += windowsUTF16RuneLength(r)
 	}
 	return length
+}
+
+func windowsUTF16RuneLength(r rune) int {
+	runeLength := utf16.RuneLen(r)
+	if runeLength < 1 {
+		// 非法代理项不能让总长度倒退；按一个 UTF-16 码元保守计数。
+		return 1
+	}
+	return runeLength
 }

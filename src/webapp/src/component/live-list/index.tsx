@@ -986,13 +986,18 @@ class LiveList extends React.Component<Props, IState> {
                         tags.push('仅提醒')
                     }
 
+                    const roomErrors = [
+                        item.last_error,
+                        item.recording_error ? `录制错误：${item.recording_error}` : ''
+                    ].filter(Boolean);
+
                     return {
                         key: index + 1,
                         name: item.nick_name || item.host_name,
                         room: {
                             roomName: item.room_name,
                             url: item.live_url,
-                            lastError: item.last_error
+                            lastError: roomErrors.join('\n') || undefined
                         },
                         address: item.platform_cn_name,
                         tags,
@@ -1586,6 +1591,15 @@ class LiveList extends React.Component<Props, IState> {
                                         {detail.recording ? '录制中' : detail.recording_preparing ? '录制准备中' : '未录制'}
                                     </Tag>
                                 </div>
+                                {detail.recorder_status?.recording_error && (
+                                    <Alert
+                                        message="录制启动失败"
+                                        description={detail.recorder_status.recording_error}
+                                        type="error"
+                                        showIcon
+                                        style={{ margin: '8px 12px' }}
+                                    />
+                                )}
                                 {/* 当前录制画质信息 */}
                                 {detail.recording && detail.recorder_status?.stream_quality && (
                                     <div style={configRowStyle}>

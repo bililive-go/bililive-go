@@ -43,6 +43,12 @@ import (
 	"github.com/bililive-go/bililive-go/src/types"
 )
 
+var validatePreviewOutputFilePath = utils.ValidateOutputFilePath
+
+type recordingErrorProvider interface {
+	RecordingError() string
+}
+
 // FIXME: remove this
 func parseInfo(ctx context.Context, l live.Live) *live.Info {
 	inst := instance.GetInstance(ctx)
@@ -62,7 +68,10 @@ func parseInfo(ctx context.Context, l live.Live) *live.Info {
 			Initializing: true,
 		}
 	} else {
-		info = obj.(*live.Info)
+		// API 状态字段只写入副本，避免修改缓存中可能被其他 goroutine 读取的 Info。
+		cachedInfo := obj.(*live.Info)
+		infoCopy := *cachedInfo
+		info = &infoCopy
 	}
 
 	info.Listening = inst.ListenerManager.(listeners.Manager).HasListener(ctx, l.GetLiveId())
@@ -70,14 +79,21 @@ func parseInfo(ctx context.Context, l live.Live) *live.Info {
 	// HasRecorder=true 但输出文件没有数据时，说明在重试（获取流 URL、连接失败等）
 	// 前端应显示"录制准备中"而非"录制中"，避免用户误以为正在正常录制
 	//
-	// 注意：info 是从缓存获取的共享对象，必须先重置两个互斥字段，
-	// 否则前一次调用的残留值会导致 recording=true + recording_preparing=true 同时返回
+	// 每次从当前 Recorder 状态重新计算这些临时 API 字段。
 	info.Recording = false
 	info.RecordingPreparing = false
+	info.RecordingError = ""
 	recorderMgr := inst.RecorderManager.(recorders.Manager)
 	if recorderMgr.HasRecorder(ctx, l.GetLiveId()) {
-		if recorder, err := recorderMgr.GetRecorder(ctx, l.GetLiveId()); err == nil && recorder.IsRecording() {
-			info.Recording = true
+		if recorder, err := recorderMgr.GetRecorder(ctx, l.GetLiveId()); err == nil {
+			if recorder.IsRecording() {
+				info.Recording = true
+			} else {
+				info.RecordingPreparing = true
+			}
+			if provider, ok := recorder.(recordingErrorProvider); ok {
+				info.RecordingError = provider.RecordingError()
+			}
 		} else {
 			// 有 recorder 但尚未真正开始录制（例如流 URL 404 导致不断重试）
 			info.RecordingPreparing = true
@@ -1452,7 +1468,7 @@ func previewOutputTmpl(writer http.ResponseWriter, r *http.Request) {
 	// 计算最终路径
 	absOutPutPath, _ := filepath.Abs(outPutPath)
 	previewPath := filepath.Join(absOutPutPath, buf.String())
-	if err := utils.ValidateOutputFilePath(previewPath); err != nil {
+	if err := validatePreviewOutputFilePath(previewPath); err != nil {
 		writeJSON(writer, map[string]interface{}{
 			"success":      false,
 			"error":        err.Error(),

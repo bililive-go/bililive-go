@@ -1,8 +1,10 @@
 package servers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"testing"
 
@@ -69,4 +71,36 @@ func TestGetPlatformStatsReportsDisabledRateLimit(t *testing.T) {
 		assert.Equal(t, configs.PlatformKeyDouyin, response.Platforms[0].PlatformKey)
 		assert.Empty(t, response.Platforms[0].WarningMessage)
 	}
+}
+
+func TestPreviewOutputTmplReportsPathTooLong(t *testing.T) {
+	previousConfig := configs.GetCurrentConfig()
+	previousValidator := validatePreviewOutputFilePath
+	configs.SetCurrentConfig(configs.NewConfig())
+	validatePreviewOutputFilePath = func(string) error {
+		return errors.New("输出文件完整路径过长")
+	}
+	t.Cleanup(func() {
+		configs.SetCurrentConfig(previousConfig)
+		validatePreviewOutputFilePath = previousValidator
+	})
+
+	body := bytes.NewBufferString(`{"template":"recording.flv","out_put_path":"."}`)
+	request := httptest.NewRequest("POST", "/api/config/preview-template", body)
+	recorder := httptest.NewRecorder()
+
+	previewOutputTmpl(recorder, request)
+
+	assert.Equal(t, 200, recorder.Code)
+	var response struct {
+		Success     bool   `json:"success"`
+		Error       string `json:"error"`
+		ErrorType   string `json:"error_type"`
+		PreviewPath string `json:"preview_path"`
+	}
+	assert.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.False(t, response.Success)
+	assert.Equal(t, "输出文件完整路径过长", response.Error)
+	assert.Equal(t, "path_too_long", response.ErrorType)
+	assert.NotEmpty(t, response.PreviewPath)
 }

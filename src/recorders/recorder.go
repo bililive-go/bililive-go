@@ -49,7 +49,10 @@ const (
 	stopped
 )
 
-const soopRetryWarnInterval = time.Minute
+const (
+	soopRetryWarnInterval       = time.Minute
+	bililiveRecorderPart0Suffix = "_PART000"
+)
 
 // for test
 var (
@@ -171,6 +174,16 @@ func findBililiveRecorderOutputFiles(expectedFileName string) []string {
 	}
 
 	return validFiles
+}
+
+func replaceOutputFileExtension(fileName, extension string) string {
+	currentExtension := filepath.Ext(fileName)
+	return strings.TrimSuffix(fileName, currentExtension) + extension
+}
+
+func bililiveRecorderPart0FileName(fileName string) string {
+	extension := filepath.Ext(fileName)
+	return strings.TrimSuffix(fileName, extension) + bililiveRecorderPart0Suffix + extension
 }
 
 // resolveParserName 根据下载器类型返回实际使用的 parser 名称
@@ -362,6 +375,9 @@ type recorder struct {
 	lastRetryLogKey         string
 	lastRetryLogAt          time.Time
 	suppressedRetryLogCount int
+
+	recordingErrorMu sync.RWMutex
+	recordingError   string
 }
 
 func NewRecorder(ctx context.Context, live live.Live) (Recorder, error) {
@@ -444,19 +460,39 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	}
 	// 使用层级配置的 OutPutPath
 	fileName := filepath.Join(resolvedConfig.OutPutPath, buf.String())
-	if err = validateOutputFilePath(fileName); err != nil {
-		r.getLogger().WithError(err).Error("输出文件路径不兼容 Windows，已取消本次录制")
-		return
-	}
-	outputPath, _ := filepath.Split(fileName)
 
 	// TODO 根据配置选择最佳流
 	streamInfo := r.selectPreferredStream(streamInfos)
+	url := streamInfo.Url
+
+	if strings.Contains(url.Path, "m3u8") {
+		fileName = replaceOutputFileExtension(fileName, ".ts")
+	}
+
+	if info.AudioOnly {
+		fileName = replaceOutputFileExtension(fileName, ".aac")
+	}
+
+	// 使用层级配置的下载器类型
+	downloaderType := resolvedConfig.Feature.GetEffectiveDownloaderType()
+	effectiveParserName := resolveParserName(downloaderType, strings.Contains(url.Path, ".flv"), nil)
+	pathToValidate := fileName
+	if downloaderType == configs.DownloaderBililiveRecorder {
+		// BililiveRecorder 首个实际落盘文件会追加 _PART000，必须校验真实候选路径。
+		pathToValidate = bililiveRecorderPart0FileName(fileName)
+	}
+	if err = validateOutputFilePath(pathToValidate); err != nil {
+		if r.setRecordingError(err) {
+			r.getLogger().WithError(err).Error("输出文件路径不兼容 Windows，已取消本次录制")
+		} else {
+			r.getLogger().WithError(err).Debug("输出文件路径仍不兼容 Windows，继续跳过本次录制")
+		}
+		return
+	}
+	r.clearRecordingError()
 	r.saveCurrentStreamInfo(streamInfo)
 	// 更新可用流信息到 info（用于API展示）
 	r.updateAvailableStreams(ctx, info, streamInfos)
-
-	url := streamInfo.Url
 
 	// 保存原始流 URL 和 Headers（供前端调试展示）
 	r.currentFileLock.Lock()
@@ -464,14 +500,7 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	r.currentStreamHeaders = streamInfo.HeadersForDownloader
 	r.currentFileLock.Unlock()
 
-	if strings.Contains(url.Path, "m3u8") {
-		fileName = fileName[:len(fileName)-4] + ".ts"
-	}
-
-	if info.AudioOnly {
-		fileName = fileName[:strings.LastIndex(fileName, ".")] + ".aac"
-	}
-
+	outputPath, _ := filepath.Split(fileName)
 	if err = mkdir(outputPath); err != nil {
 		r.getLogger().WithError(err).Errorf("failed to create output path[%s]", outputPath)
 		return
@@ -480,8 +509,6 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		"timeout_in_us": strconv.Itoa(resolvedConfig.TimeoutInUs),
 		"audio_only":    strconv.FormatBool(info.AudioOnly),
 	}
-	// 使用层级配置的下载器类型
-	downloaderType := resolvedConfig.Feature.GetEffectiveDownloaderType()
 
 	// 如果启用了 FLV 代理分段且使用 FFmpeg 下载器，传递配置
 	if resolvedConfig.Feature.EnableFlvProxySegment && downloaderType == configs.DownloaderFFmpeg {
@@ -496,7 +523,7 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	// 直接否决。只有当前直播间实际取不到 FFmpeg 且后台仍在 checking/downloading
 	// 时才等待；终态后仍取不到则直接返回，不再连接上游 / 启动 StreamProbe，避免
 	// FFmpeg 缺失或下载失败时每 5 秒重试都触碰直播源、触发平台限流。
-	if resolveParserName(downloaderType, strings.Contains(url.Path, ".flv"), nil) == ffmpeg.Name {
+	if effectiveParserName == ffmpeg.Name {
 		_, ffmpegPathErr := utils.GetFFmpegPathForLive(ctx, r.Live)
 		ffmpegState := tools.GetFFmpegStatus().State
 		if ffmpegPathErr != nil && resolvedConfig.FfmpegPath != "" {
@@ -1527,6 +1554,33 @@ func (r *recorder) getCurrentFilePath() string {
 	return r.currentFilePath
 }
 
+// RecordingError 返回当前阻止录制启动的永久性错误，供 API 向前端展示。
+func (r *recorder) RecordingError() string {
+	r.recordingErrorMu.RLock()
+	defer r.recordingErrorMu.RUnlock()
+	return r.recordingError
+}
+
+// setRecordingError 保存错误，并返回错误内容是否发生变化。
+func (r *recorder) setRecordingError(err error) bool {
+	message := ""
+	if err != nil {
+		message = err.Error()
+	}
+
+	r.recordingErrorMu.Lock()
+	defer r.recordingErrorMu.Unlock()
+	if r.recordingError == message {
+		return false
+	}
+	r.recordingError = message
+	return true
+}
+
+func (r *recorder) clearRecordingError() {
+	r.setRecordingError(nil)
+}
+
 func (r *recorder) GetStatus() (map[string]interface{}, error) {
 	var status map[string]interface{}
 
@@ -1543,6 +1597,9 @@ func (r *recorder) GetStatus() (map[string]interface{}, error) {
 	}
 	if status == nil {
 		status = make(map[string]interface{})
+	}
+	if recordingError := r.RecordingError(); recordingError != "" {
+		status["recording_error"] = recordingError
 	}
 
 	// 添加文件路径和文件大小信息
