@@ -930,15 +930,29 @@ func removeLive(writer http.ResponseWriter, r *http.Request) {
 func removeLiveImpl(ctx context.Context, live live.Live) error {
 	inst := instance.GetInstance(ctx)
 	liveId := live.GetLiveId()
+	rawURL := live.GetRawUrl()
 	lm := inst.ListenerManager.(listeners.Manager)
-	if lm.HasListener(ctx, liveId) {
-		if err := lm.RemoveListener(ctx, liveId); err != nil {
-			return err
+	if _, err := configs.RemoveLiveRoomByUrl(rawURL); err != nil {
+		return err
+	}
+	// 初始化完成事件可能正在把临时 LiveID 替换为平台 LiveID。
+	// 按原始 URL 原子删除，确保并发交接后的对象也不会残留在 map 中。
+	removedLives := inst.Lives.DeleteByRawURL(rawURL)
+	liveIDs := map[types.LiveID]struct{}{liveId: {}}
+	for _, removedLive := range removedLives {
+		liveIDs[removedLive.GetLiveId()] = struct{}{}
+	}
+	// LiveMap 已先删除，初始化交接即使正等待 manager 锁，也会因状态过期而退出。
+	// 若交接已经完成，这里会通过新 LiveID 关闭刚创建的 listener。
+	for id := range liveIDs {
+		if lm.HasListener(ctx, id) {
+			if err := lm.RemoveListener(ctx, id); err != nil {
+				return err
+			}
 		}
 	}
-	inst.Lives.Delete(liveId)
-	if _, err := configs.RemoveLiveRoomByUrl(live.GetRawUrl()); err != nil {
-		return err
+	for _, removedLive := range removedLives {
+		removedLive.Close()
 	}
 	// 广播直播间列表变更事件
 	GetSSEHub().BroadcastListChange(liveId, "room_removed", map[string]interface{}{

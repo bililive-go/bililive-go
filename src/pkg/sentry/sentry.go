@@ -4,12 +4,14 @@ package sentry
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -28,6 +30,10 @@ var sensitiveKeywords = []string{
 
 // 敏感 URL 参数正则表达式
 var sensitiveURLPattern = regexp.MustCompile(`[?&](token|key|secret|password|auth|access_token|session)[=][^&]*`)
+
+// 完整 URL 往往包含直播间 ID、用户配置或临时鉴权参数。错误遥测不需要这些信息，
+// 因此统一移除，既保护隐私，也避免相同错误按不同房间 URL 分裂成大量 issue。
+var fullURLPattern = regexp.MustCompile(`(?i)\bhttps?://[^\s<>"']+`)
 
 // Init 初始化 Sentry SDK
 // dsn 为 Sentry DSN，留空则禁用
@@ -90,6 +96,7 @@ func RecoverWithContext(ctx context.Context) {
 	if err == nil {
 		return
 	}
+	logRecoveredPanic(err)
 
 	// 尝试上报给 Sentry，但即使失败也不应该再次 panic
 	if IsInitialized() {
@@ -101,7 +108,7 @@ func RecoverWithContext(ctx context.Context) {
 			hub.RecoverWithContext(ctx, err)
 		}
 	}
-	// 不重新 panic，让 goroutine 优雅退出
+	// 不重新 panic；本地日志已经保留脱敏后的错误信息。
 }
 
 // Recover 用于 goroutine 的 panic 恢复（无 context 版本）
@@ -112,6 +119,7 @@ func Recover() {
 	if err == nil {
 		return
 	}
+	logRecoveredPanic(err)
 
 	// 尝试上报给 Sentry，但即使失败也不应该再次 panic
 	if IsInitialized() {
@@ -120,7 +128,11 @@ func Recover() {
 			hub.Recover(err)
 		}
 	}
-	// 不重新 panic，让 goroutine 优雅退出
+	// 不重新 panic；本地日志已经保留脱敏后的错误信息。
+}
+
+func logRecoveredPanic(value interface{}) {
+	logrus.WithField("panic", sanitizeString(fmt.Sprint(value))).Error("goroutine panic recovered")
 }
 
 // CaptureException 捕获异常
@@ -170,6 +182,10 @@ func GoWithContext(ctx context.Context, f func(context.Context)) {
 
 // beforeSendHook 在发送事件前清理敏感数据
 func beforeSendHook(event *sentry.Event, hint *sentry.EventHint) *sentry.Event {
+	// 主机名和 SDK 自动补充的用户字段会识别具体部署，只保留匿名设备 ID。
+	event.ServerName = ""
+	event.User = sentry.User{ID: event.User.ID}
+
 	// 清理异常消息中的敏感数据
 	if event.Message != "" {
 		event.Message = sanitizeString(event.Message)
@@ -196,6 +212,15 @@ func beforeSendHook(event *sentry.Event, hint *sentry.EventHint) *sentry.Event {
 	// 清理 Extra 数据
 	event.Extra = sanitizeMap(event.Extra)
 
+	// 清理 Breadcrumb 中可能出现的直播间 URL 和敏感字段。
+	for _, breadcrumb := range event.Breadcrumbs {
+		if breadcrumb == nil {
+			continue
+		}
+		breadcrumb.Message = sanitizeString(breadcrumb.Message)
+		breadcrumb.Data = sanitizeMap(breadcrumb.Data)
+	}
+
 	// 清理 Contexts 数据
 	for key, ctxData := range event.Contexts {
 		sanitizedCtx := make(map[string]interface{})
@@ -213,10 +238,27 @@ func beforeSendHook(event *sentry.Event, hint *sentry.EventHint) *sentry.Event {
 
 	// 清理 Tags 中可能的敏感数据
 	event.Tags = sanitizeTags(event.Tags)
+	delete(event.Tags, "server_name")
 
 	// 清理请求数据
 	if event.Request != nil {
 		event.Request = sanitizeRequest(event.Request)
+	}
+
+	// sentry-go 默认把 Recover 捕获的 panic 标记为 fatal/unhandled，但这些包装器
+	// 已经阻止 panic 逃出 goroutine，应按已处理错误上报，避免误报整个进程崩溃。
+	if hint != nil && hint.RecoveredException != nil {
+		event.Level = sentry.LevelError
+		if event.Tags == nil {
+			event.Tags = make(map[string]string)
+		}
+		event.Tags["panic_handled"] = "true"
+		for i := range event.Exception {
+			if event.Exception[i].Mechanism == nil {
+				event.Exception[i].Mechanism = &sentry.Mechanism{Type: "generic"}
+			}
+			event.Exception[i].Mechanism.Handled = sentry.Pointer(true)
+		}
 	}
 
 	return event
@@ -225,6 +267,9 @@ func beforeSendHook(event *sentry.Event, hint *sentry.EventHint) *sentry.Event {
 // sanitizeString 清理字符串中的敏感数据
 func sanitizeString(s string) string {
 	result := s
+
+	// 先移除完整 URL，防止直播间地址和查询参数进入遥测。
+	result = fullURLPattern.ReplaceAllString(result, "[REDACTED_URL]")
 
 	// 清理 URL 中的敏感参数
 	result = sensitiveURLPattern.ReplaceAllString(result, "$1=[REDACTED]")
@@ -304,27 +349,20 @@ func sanitizeRequest(req *sentry.Request) *sentry.Request {
 
 	// 清理 URL
 	if req.URL != "" {
-		req.URL = sensitiveURLPattern.ReplaceAllString(req.URL, "$1=[REDACTED]")
+		req.URL = sanitizeString(req.URL)
 	}
 
-	// 清理查询字符串
+	// URL 已整体移除，单独的查询字符串也没有排障价值，避免遗漏未知敏感参数。
 	if req.QueryString != "" {
-		req.QueryString = sensitizeQueryString(req.QueryString)
+		req.QueryString = "[REDACTED]"
 	}
 
 	// 清理敏感请求头
 	if req.Headers != nil {
-		sensitiveHeaders := []string{"authorization", "cookie", "x-api-key", "x-auth-token"}
-		for _, header := range sensitiveHeaders {
-			if _, exists := req.Headers[header]; exists {
+		for header := range req.Headers {
+			switch strings.ToLower(header) {
+			case "authorization", "proxy-authorization", "cookie", "x-api-key", "x-auth-token", "x-forwarded-for", "x-real-ip":
 				req.Headers[header] = "[REDACTED]"
-			}
-			// 也检查首字母大写版本（如 Authorization, Cookie 等）
-			if len(header) > 0 {
-				headerCapitalized := strings.ToUpper(header[:1]) + header[1:]
-				if _, exists := req.Headers[headerCapitalized]; exists {
-					req.Headers[headerCapitalized] = "[REDACTED]"
-				}
 			}
 		}
 	}
@@ -340,16 +378,6 @@ func sanitizeRequest(req *sentry.Request) *sentry.Request {
 	}
 
 	return req
-}
-
-// sensitizeQueryString 清理查询字符串中的敏感参数
-func sensitizeQueryString(qs string) string {
-	result := qs
-	for _, keyword := range sensitiveKeywords {
-		pattern := regexp.MustCompile(`(?i)(` + regexp.QuoteMeta(keyword) + `)=([^&]*)`)
-		result = pattern.ReplaceAllString(result, "$1=[REDACTED]")
-	}
-	return result
 }
 
 // isSensitiveKey 检查键名是否为敏感键

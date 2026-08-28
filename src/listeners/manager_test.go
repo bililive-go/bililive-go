@@ -12,8 +12,11 @@ import (
 	"github.com/bililive-go/bililive-go/src/instance"
 	"github.com/bililive-go/bililive-go/src/live"
 	livemock "github.com/bililive-go/bililive-go/src/live/mock"
+	"github.com/bililive-go/bililive-go/src/pkg/events"
 	evtmock "github.com/bililive-go/bililive-go/src/pkg/events/mock"
+	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
 	"github.com/bililive-go/bililive-go/src/types"
+	"github.com/sirupsen/logrus"
 )
 
 func TestManagerAddAndRemoveListener(t *testing.T) {
@@ -88,14 +91,65 @@ func TestReplaceListenerUsesSynchronousHandoverAndInitialInfo(t *testing.T) {
 	oldLive := livemock.NewMockLive(ctrl)
 	oldLive.EXPECT().GetLiveId().Return(types.LiveID("old"))
 	newLive := livemock.NewMockLive(ctrl)
-	newLive.EXPECT().GetLiveId().Return(types.LiveID("new")).Times(2)
+	newLive.EXPECT().GetLiveId().Return(types.LiveID("new"))
+	inst := &instance.Instance{}
+	inst.Lives.Set("new", newLive)
+	ctx := context.WithValue(context.Background(), instance.Key, inst)
 
 	m := &manager{savers: map[types.LiveID]Listener{"old": oldListener}}
 	backup := newListener
 	newListener = func(context.Context, live.Live) Listener { return newListenerMock }
 	defer func() { newListener = backup }()
 
-	assert.NoError(t, m.replaceListener(context.Background(), oldLive, newLive, info))
+	assert.NoError(t, m.replaceListener(ctx, oldLive, newLive, info))
 	assert.Same(t, newListenerMock, m.savers["new"])
 	assert.NotContains(t, m.savers, types.LiveID("old"))
+}
+
+func TestReplaceListenerRejectsExpiredInitializingResult(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	newLive := livemock.NewMockLive(ctrl)
+	newLive.EXPECT().GetLiveId().Return(types.LiveID("new"))
+	ctx := context.WithValue(context.Background(), instance.Key, &instance.Instance{})
+	m := &manager{savers: map[types.LiveID]Listener{"old": NewMockListener(ctrl)}}
+
+	assert.ErrorIs(t, m.replaceListener(ctx, nil, newLive, &live.Info{}), ErrInitializingResultExpired)
+}
+
+func TestInitializingFinishedIgnoresRoomRemovedDuringInitialization(t *testing.T) {
+	previousConfig := configs.GetCurrentConfig()
+	configs.SetCurrentConfig(configs.NewConfig())
+	t.Cleanup(func() { configs.SetCurrentConfig(previousConfig) })
+
+	ctrl := gomock.NewController(t)
+	oldLive := livemock.NewMockLive(ctrl)
+	originalLive := livemock.NewMockLive(ctrl)
+	oldID := types.LiveID("initializing-id")
+	rawURL := "https://example.com/room"
+	oldLive.EXPECT().GetLiveId().Return(oldID)
+	oldLive.EXPECT().Close()
+	originalLive.EXPECT().GetLogger().Return(livelogger.New(0, logrus.Fields{"test": t.Name()}))
+	originalLive.EXPECT().GetRawUrl().Return(rawURL)
+
+	inst := &instance.Instance{}
+	inst.Lives.Set(oldID, oldLive)
+	ctx := context.WithValue(context.Background(), instance.Key, inst)
+	m := &manager{savers: make(map[types.LiveID]Listener)}
+
+	var registered *events.EventListener
+	ed := evtmock.NewMockDispatcher(ctrl)
+	ed.EXPECT().AddEventListener(RoomInitializingFinished, gomock.Any()).Do(
+		func(_ events.EventType, listener *events.EventListener) { registered = listener },
+	)
+	m.registryListener(ctx, ed)
+	assert.NotNil(t, registered)
+
+	assert.NotPanics(t, func() {
+		registered.Handler(events.NewEvent(RoomInitializingFinished, live.InitializingFinishedParam{
+			InitializingLive: oldLive,
+			Live:             originalLive,
+			Info:             &live.Info{},
+		}))
+	})
+	assert.False(t, inst.Lives.Has(oldID), "迟到回调不应把已删除房间留在 LiveMap")
 }

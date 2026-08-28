@@ -6,7 +6,9 @@ import (
 	"testing"
 
 	"github.com/bililive-go/bililive-go/src/live"
+	livemock "github.com/bililive-go/bililive-go/src/live/mock"
 	"github.com/bililive-go/bililive-go/src/types"
+	gomock "go.uber.org/mock/gomock"
 )
 
 // TestLiveMap_ZeroValue 验证 LiveMap 的零值可以安全使用。
@@ -111,25 +113,63 @@ func TestLiveMap_BasicOperations(t *testing.T) {
 	}
 }
 
-// TestLiveMap_ReplaceKey 验证原子替换操作。
-func TestLiveMap_ReplaceKey(t *testing.T) {
+// TestLiveMap_ReplaceKeyIfCurrent 验证带对象身份检查的原子替换操作。
+func TestLiveMap_ReplaceKeyIfCurrent(t *testing.T) {
 	var lm LiveMap
+	ctrl := gomock.NewController(t)
+	current := livemock.NewMockLive(ctrl)
+	unexpected := livemock.NewMockLive(ctrl)
+	replacement := livemock.NewMockLive(ctrl)
+	occupied := livemock.NewMockLive(ctrl)
 
-	lm.Set("old", nil)
+	lm.Set("old", current)
 	if !lm.Has("old") {
 		t.Fatal("old key should exist")
 	}
 
-	lm.ReplaceKey("old", "new", nil)
+	if lm.ReplaceKeyIfCurrent("old", "new", unexpected, replacement) {
+		t.Fatal("expected 不匹配时不应替换")
+	}
+	lm.Set("new", occupied)
+	if lm.ReplaceKeyIfCurrent("old", "new", current, replacement) {
+		t.Fatal("new key 已占用时不应替换")
+	}
+	lm.Delete("new")
+	if !lm.ReplaceKeyIfCurrent("old", "new", current, replacement) {
+		t.Fatal("expected 匹配且 new key 空闲时应替换")
+	}
 
 	if lm.Has("old") {
-		t.Error("old key should be removed after ReplaceKey")
+		t.Error("old key should be removed after ReplaceKeyIfCurrent")
 	}
-	if !lm.Has("new") {
-		t.Error("new key should exist after ReplaceKey")
+	got, ok := lm.Get("new")
+	if !ok || got != replacement {
+		t.Error("new key should point to replacement after ReplaceKeyIfCurrent")
 	}
 	if lm.Len() != 1 {
-		t.Errorf("Len should be 1 after ReplaceKey, got %d", lm.Len())
+		t.Errorf("Len should be 1 after ReplaceKeyIfCurrent, got %d", lm.Len())
+	}
+}
+
+func TestLiveMap_DeleteByRawURL(t *testing.T) {
+	var lm LiveMap
+	ctrl := gomock.NewController(t)
+	first := livemock.NewMockLive(ctrl)
+	second := livemock.NewMockLive(ctrl)
+	other := livemock.NewMockLive(ctrl)
+	first.EXPECT().GetRawUrl().Return("https://example.com/room")
+	second.EXPECT().GetRawUrl().Return("https://example.com/room")
+	other.EXPECT().GetRawUrl().Return("https://example.com/other")
+	lm.Set("initializing", first)
+	lm.Set("platform-id", second)
+	lm.Set("other", other)
+
+	removed := lm.DeleteByRawURL("https://example.com/room")
+	if len(removed) != 2 {
+		t.Fatalf("应删除同 URL 的两个对象，实际删除 %d 个", len(removed))
+	}
+	if lm.Has("initializing") || lm.Has("platform-id") || !lm.Has("other") {
+		t.Fatal("DeleteByRawURL 删除了错误的 map 条目")
 	}
 }
 
@@ -203,7 +243,7 @@ func TestLiveMap_Concurrent(t *testing.T) {
 	// 如果没有 panic 或 race condition，测试通过
 }
 
-// TestLiveMap_ConcurrentReplaceKey 验证 ReplaceKey 在并发场景下的原子性。
+// TestLiveMap_ConcurrentReplaceKey 验证 ReplaceKeyIfCurrent 在并发场景下的原子性。
 func TestLiveMap_ConcurrentReplaceKey(t *testing.T) {
 	var lm LiveMap
 	const goroutines = 10
@@ -217,7 +257,7 @@ func TestLiveMap_ConcurrentReplaceKey(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(goroutines * 2) // ReplaceKey + 并发读
 
-	// 并发 ReplaceKey
+	// 并发 ReplaceKeyIfCurrent
 	for g := 0; g < goroutines; g++ {
 		go func(g int) {
 			defer wg.Done()
@@ -225,7 +265,7 @@ func TestLiveMap_ConcurrentReplaceKey(t *testing.T) {
 				idx := g*iterations + i
 				oldID := types.LiveID(fmt.Sprintf("old-%d", idx))
 				newID := types.LiveID(fmt.Sprintf("new-%d", idx))
-				lm.ReplaceKey(oldID, newID, nil)
+				lm.ReplaceKeyIfCurrent(oldID, newID, nil, nil)
 			}
 		}(g)
 	}

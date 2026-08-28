@@ -2,6 +2,7 @@ package listeners
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/bililive-go/bililive-go/src/configs"
@@ -42,19 +43,27 @@ func (m *manager) registryListener(ctx context.Context, ed events.Dispatcher) {
 		initializingLive := param.InitializingLive
 		originalLive := param.Live
 		info := param.Info
+		inst := instance.GetInstance(ctx)
+		logger := originalLive.GetLogger()
+		rawURL := originalLive.GetRawUrl()
+		oldLiveID := initializingLive.GetLiveId()
+
+		// GetInfo 可能在用户删除房间后才返回。先确认配置仍存在，避免迟到的初始化
+		// 回调重新插入已删除的房间，更不能把这种正常竞态升级成 panic。
+		cfg := configs.GetCurrentConfig()
+		if _, err := getConfiguredRoom(cfg, rawURL); err != nil {
+			logger.Debug("直播间初始化完成时配置已不存在，忽略迟到结果")
+			m.discardInitializingLive(ctx, inst, oldLiveID, initializingLive)
+			return
+		}
+
 		if info.CustomLiveId != "" {
 			originalLive.SetLiveIdByString(info.CustomLiveId)
 		}
-		inst := instance.GetInstance(ctx)
-		logger := originalLive.GetLogger()
 
 		// 将原始 Live 包装为 WrappedLive（使用全局缓存）
 		// 传入 ctx 以便调度器可以被统一取消
-		oldLiveId := initializingLive.GetLiveId()
 		wrappedLive := live.NewWrappedLive(ctx, originalLive, inst.Cache)
-
-		// 原子地替换 Lives map 中的条目（删除旧 InitializingLive，添加新 wrappedLive）
-		inst.Lives.ReplaceKey(oldLiveId, wrappedLive.GetLiveId(), wrappedLive)
 
 		// 将已有的 info 注入新的 WrappedLive，避免 listener 交接后立即重复请求平台，
 		// 同时让新调度器从本次成功请求开始计算下一轮间隔。
@@ -63,23 +72,52 @@ func (m *manager) registryListener(ctx context.Context, ed events.Dispatcher) {
 			logger.WithError(err).Warn("failed to cache info for new live")
 		}
 
-		cfg := configs.GetCurrentConfig()
-		room, err := cfg.GetLiveRoomByUrl(wrappedLive.GetRawUrl())
-		if err != nil {
-			logger.WithFields(map[string]any{
-				"room": wrappedLive.GetRawUrl(),
-			}).Error(err)
-			panic(err)
+		// 只有 map 中仍是本次初始化对象时才允许交接。删除流程会先移除旧对象，
+		// 因此迟到回调无法再把房间复活；同时避免覆盖已占用的新 LiveID。
+		newLiveID := wrappedLive.GetLiveId()
+		if !inst.Lives.ReplaceKeyIfCurrent(oldLiveID, newLiveID, initializingLive, wrappedLive) {
+			logger.Debug("直播间初始化结果已过期，放弃状态交接")
+			wrappedLive.Close()
+			return
 		}
-		configs.SetLiveRoomId(wrappedLive.GetRawUrl(), wrappedLive.GetLiveId())
+
+		// 配置可能在第一次检查与 map 交接之间被删除，再检查一次并回滚新对象。
+		cfg = configs.GetCurrentConfig()
+		room, err := getConfiguredRoom(cfg, rawURL)
+		if err != nil {
+			logger.Debug("直播间在初始化交接期间被删除，回滚迟到结果")
+			inst.Lives.DeleteIfCurrent(newLiveID, wrappedLive)
+			wrappedLive.Close()
+			initializingLive.Close()
+			return
+		}
+		configs.SetLiveRoomId(rawURL, newLiveID)
 		if room.IsListening {
 			if err := m.replaceListener(ctx, initializingLive, wrappedLive, info); err != nil {
-				logger.WithFields(map[string]any{
-					"url": wrappedLive.GetRawUrl(),
-				}).Error(err)
+				logger.WithError(err).Error("直播间初始化完成，但 listener 交接失败")
+				inst.Lives.DeleteIfCurrent(newLiveID, wrappedLive)
+				wrappedLive.Close()
+				m.discardInitializingLive(ctx, inst, oldLiveID, initializingLive)
+				return
 			}
 		}
+		initializingLive.Close()
 	}))
+}
+
+func getConfiguredRoom(cfg *configs.Config, rawURL string) (*configs.LiveRoom, error) {
+	if cfg == nil {
+		return nil, errors.New("配置尚未初始化")
+	}
+	return cfg.GetLiveRoomByUrl(rawURL)
+}
+
+func (m *manager) discardInitializingLive(ctx context.Context, inst *instance.Instance, id types.LiveID, initializingLive live.Live) {
+	if m.HasListener(ctx, id) {
+		_ = m.RemoveListener(ctx, id)
+	}
+	inst.Lives.DeleteIfCurrent(id, initializingLive)
+	initializingLive.Close()
 }
 
 func (m *manager) Start(ctx context.Context) error {
@@ -129,6 +167,11 @@ func (m *manager) RemoveListener(ctx context.Context, liveId types.LiveID) error
 func (m *manager) replaceListener(ctx context.Context, oldLive live.Live, newLive live.Live, info *live.Info) error {
 	m.lock.Lock()
 	defer m.lock.Unlock()
+	newLiveID := newLive.GetLiveId()
+	current, ok := instance.GetInstance(ctx).Lives.Get(newLiveID)
+	if !ok || current != newLive {
+		return ErrInitializingResultExpired
+	}
 	oldLiveId := oldLive.GetLiveId()
 	oldListener, ok := m.savers[oldLiveId]
 	if !ok {
@@ -137,13 +180,18 @@ func (m *manager) replaceListener(ctx context.Context, oldLive live.Live, newLiv
 	// 必须等旧 ListenStop 的录制器清理完成后，才能让新 listener 发布 LiveStart。
 	oldListener.CloseSync()
 	newListener := newListener(ctx, newLive)
-	if oldLiveId == newLive.GetLiveId() {
+	if oldLiveId == newLiveID {
 		m.savers[oldLiveId] = newListener
 	} else {
 		delete(m.savers, oldLiveId)
-		m.savers[newLive.GetLiveId()] = newListener
+		m.savers[newLiveID] = newListener
 	}
-	return newListener.StartWithInfo(info)
+	if err := newListener.StartWithInfo(info); err != nil {
+		newListener.Close()
+		delete(m.savers, newLiveID)
+		return err
+	}
+	return nil
 }
 
 func (m *manager) GetListener(ctx context.Context, liveId types.LiveID) (Listener, error) {
