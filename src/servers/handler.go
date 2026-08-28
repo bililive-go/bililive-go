@@ -1877,6 +1877,9 @@ func applyConfigUpdates(c *configs.Config, updates map[string]interface{}) error
 
 	// 处理 OpenList 配置
 	if openlistCfg, ok := updates["openlist"].(map[string]interface{}); ok {
+		if endpoint, ok := openlistCfg["url"].(string); ok {
+			c.OpenList.URL = endpoint
+		}
 		if port, ok := openlistCfg["port"].(float64); ok {
 			c.OpenList.Port = int(port)
 		}

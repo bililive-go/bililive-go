@@ -46,6 +46,23 @@ func TestConfig_Verify(t *testing.T) {
 	assert.Error(t, cfg.Verify())
 }
 
+func TestConfigVerifyOpenListURL(t *testing.T) {
+	cfg := NewConfig()
+	cfg.OutPutPath = os.TempDir()
+	cfg.OnRecordFinished.CloudUpload.Enable = true
+	cfg.OnRecordFinished.CloudUpload.StorageName = "storage"
+
+	cfg.OpenList.URL = "https://openlist.example.com/"
+	assert.NoError(t, cfg.Verify())
+	assert.Equal(t, "https://openlist.example.com", cfg.OpenList.URL)
+
+	cfg.OpenList.URL = "ftp://openlist.example.com"
+	assert.Error(t, cfg.Verify())
+
+	cfg.OpenList.URL = "https://openlist.example.com?token=secret"
+	assert.Error(t, cfg.Verify())
+}
+
 func TestResolveConfigForRoom(t *testing.T) {
 	cfg := &Config{
 		Interval:   60,
