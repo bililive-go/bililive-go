@@ -92,31 +92,49 @@ Mock 服务器启动后会显示：
 
 ## update-mock-server
 
-用于测试自动升级功能的 Mock 版本 API 服务器。
+用于测试自动升级功能的 Mock 版本 API 服务器。它已整合原 `scripts/update-server.py` 的跨主机测试能力，完整操作流程、参数说明和故障排查请阅读 [本地自动升级测试 Skill](../.agents/skills/test-local-update/SKILL.md)。
 
 ### 功能
 
 - **版本检测 API** - 模拟 `bililive-go.com/api/versions` 接口
-- **更新包下载** - 自动将本地二进制打包成 zip 并提供下载
-- **SHA256 校验** - 返回正确的校验和供客户端验证
+- **两种包来源** - 自动将本地二进制打包成 zip，或直接提供已有 zip/tar.gz 升级包
+- **跨主机测试** - 分别设置监听地址和被测容器/NAS 可访问的公开地址
+- **完整下载语义** - 支持 GET、HEAD、Range、正确的 Content-Type 和 URL 转义
+- **完整包元信息** - 返回实际文件名、大小和 SHA256 供客户端校验
+- **本地配置** - 支持命令行、系统环境变量及被 Git 忽略的变量文件
 
-### 参数说明
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `-port` | 8888 | 监听端口 |
-| `-version` | 99.0.0 | 模拟的最新版本号 |
-| `-source` | bin/bililive-dev.exe | 用于创建更新包的源文件 |
-| `-changelog` | (环境变量) | 更新日志，也可通过 `MOCK_CHANGELOG` 环境变量设置 |
-
-### 手动运行
+### 快速运行
 
 ```bash
-# 使用默认源文件
-go run ./test/update-mock-server -port 8888 -version 99.0.0
+# 自动打包 bin/bililive-dev（Windows 为 bin/bililive-dev.exe）
+make dev-incremental
+go run ./test/update-mock-server
 
-# 指定其他源文件
-go run ./test/update-mock-server -source ./bin/bililive-windows-amd64.exe
+# 使用已有发布包，供局域网中的容器或 NAS 访问
+go run ./test/update-mock-server \
+  -host 0.0.0.0 \
+  -port 8099 \
+  -public-host 192.0.2.10 \
+  -package bin/bililive-linux-amd64.tar.gz \
+  -version 99.0.0-local.1 \
+  -prerelease \
+  -always-update
+```
+
+实际使用时，将示例地址替换为被测设备能访问的开发机地址，但不要将真实地址提交到 Git。服务器启动日志会打印应设置的完整 `VERSION_API_URL`。
+
+### 变量文件
+
+```bash
+cp test/update-mock-server.env.example test/update-mock-server.env
+# 编辑实际值后运行；该实际文件已被 .gitignore 忽略
+go run ./test/update-mock-server
+```
+
+配置优先级为“命令行参数 > 当前进程环境变量 > 变量文件 > 默认值”。查看全部最新参数：
+
+```bash
+go run ./test/update-mock-server -help
 ```
 
 ---
