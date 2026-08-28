@@ -1391,6 +1391,14 @@ func (r *recorder) IsRecording() bool {
 	if fileInfo, err := os.Stat(filePath); err == nil {
 		return fileInfo.Size() > 0
 	}
+	// 录播姬下载器实际写入的是 {原文件名}_PARTxxx{扩展名} 分段文件，
+	// 期望的原始文件路径在录制期间不会被创建，需要额外检查分段文件，
+	// 否则录制状态会一直停留在"录制准备中"（见 findBililiveRecorderOutputFiles）
+	for _, part := range findBililiveRecorderOutputFiles(filePath) {
+		if fileInfo, err := os.Stat(part); err == nil && fileInfo.Size() > 0 {
+			return true
+		}
+	}
 	return false
 }
 

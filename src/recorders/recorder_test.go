@@ -3,6 +3,8 @@ package recorders
 import (
 	"context"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -77,6 +79,37 @@ func newTestRecorder(t *testing.T, liveId types.LiveID) *recorder {
 		t.Fatalf("创建 recorder 失败: %v", err)
 	}
 	return r.(*recorder)
+}
+
+// TestIsRecording_DetectsBililiveRecorderPartFile 验证下载器为录播姬时，
+// IsRecording 能识别其 _PARTxxx 分段文件，而不仅仅是期望的原始文件名。
+// 见 issue: 下载器选择为录播姬时，监控列表运行状态一直显示"录制准备中"。
+func TestIsRecording_DetectsBililiveRecorderPartFile(t *testing.T) {
+	r := newTestRecorder(t, "test-live-id")
+
+	dir := t.TempDir()
+	expected := filepath.Join(dir, "room.flv")
+	partFile := filepath.Join(dir, "room_PART000.flv")
+	if err := os.WriteFile(partFile, []byte("data"), 0644); err != nil {
+		t.Fatalf("写入分段文件失败: %v", err)
+	}
+
+	r.setCurrentFilePath(expected)
+
+	if !r.IsRecording() {
+		t.Fatal("期望 IsRecording 在存在非空 _PART000 分段文件时返回 true")
+	}
+}
+
+func TestIsRecording_NoFileReturnsFalse(t *testing.T) {
+	r := newTestRecorder(t, "test-live-id")
+
+	dir := t.TempDir()
+	r.setCurrentFilePath(filepath.Join(dir, "room.flv"))
+
+	if r.IsRecording() {
+		t.Fatal("期望 IsRecording 在原始文件和分段文件均不存在时返回 false")
+	}
 }
 
 func TestResolveState_NoRedirect(t *testing.T) {
