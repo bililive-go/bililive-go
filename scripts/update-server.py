@@ -37,9 +37,42 @@ import sys
 from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import quote, unquote, urlsplit
 
 API_PATH = "/api/versions"
 DEFAULT_ENV_FILE = Path(__file__).with_name("update-server.env")
+
+
+def port_number(value):
+    """将端口配置转换为有效整数，供环境配置和命令行参数共用。"""
+    try:
+        port = int(value)
+    except (TypeError, ValueError) as e:
+        raise argparse.ArgumentTypeError(f"端口必须为整数，收到 {value!r}") from e
+    if not 1 <= port <= 65535:
+        raise argparse.ArgumentTypeError(f"端口必须在 1 到 65535 之间，收到 {port}")
+    return port
+
+
+def format_url_host(host):
+    """将 IPv6 字面量格式化为 URL 所需的方括号形式。"""
+    host = host.strip()
+    if host.startswith("[") and host.endswith("]"):
+        return host
+    if ":" in host:
+        return f"[{host}]"
+    return host
+
+
+def build_package_url(host, port, package_name):
+    """生成带正确主机格式和路径转义的升级包 URL。"""
+    encoded_name = quote(package_name, safe="")
+    return f"http://{format_url_host(host)}:{port}/{encoded_name}"
+
+
+def decode_request_path(raw_path):
+    """移除查询参数并解码请求路径，供本地文件名匹配使用。"""
+    return unquote(urlsplit(raw_path).path)
 
 
 def load_env_file(path):
@@ -85,6 +118,12 @@ def parse_args():
         return os.environ.get(name, file_values.get(name, fallback))
 
     parser = argparse.ArgumentParser(description="bgo 本地升级测试服务器")
+
+    try:
+        default_port = port_number(configured("BGO_UPDATE_PORT", "8099"))
+    except argparse.ArgumentTypeError as e:
+        parser.error(f"BGO_UPDATE_PORT 配置错误：{e}")
+
     parser.add_argument(
         "--env-file",
         default=initial_args.env_file,
@@ -97,8 +136,8 @@ def parse_args():
     )
     parser.add_argument(
         "--port",
-        type=int,
-        default=configured("BGO_UPDATE_PORT", "8099"),
+        type=port_number,
+        default=default_port,
         help="监听端口（变量 BGO_UPDATE_PORT；默认 8099）",
     )
     parser.add_argument(
@@ -138,7 +177,7 @@ class Handler(BaseHTTPRequestHandler):
     def _version_response(self):
         port = self.server.server_address[1]
         pkg_name = os.path.basename(self.server.pkg_path)
-        url = f"http://{self.server.public_host}:{port}/{pkg_name}"
+        url = build_package_url(self.server.public_host, port, pkg_name)
         return {
             "latest_version": self.server.version,
             "release_date": date.today().isoformat(),
@@ -156,7 +195,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---------------------------------------------------------------- routing
     def do_GET(self):
-        path = self.path.split("?", 1)[0]
+        path = decode_request_path(self.path)
         if path == API_PATH:
             self._send_json(self._version_response())
             return
@@ -166,7 +205,7 @@ class Handler(BaseHTTPRequestHandler):
         self._serve_pkg(path)
 
     def do_HEAD(self):
-        path = self.path.split("?", 1)[0]
+        path = decode_request_path(self.path)
         if path == API_PATH:
             self._send_json(self._version_response())
             return
@@ -218,6 +257,8 @@ class Handler(BaseHTTPRequestHandler):
     def _parse_range(self, header, size):
         """解析 bytes=start-end / bytes=start- / bytes=-suffix，失败返回 (None, None)。"""
         try:
+            if size <= 0:
+                return None, None
             unit, spec = header.split("=", 1)
             if unit.strip() != "bytes":
                 return None, None
@@ -230,8 +271,8 @@ class Handler(BaseHTTPRequestHandler):
                 return start, size - 1
             start_s, _, end_s = spec.partition("-")
             start = int(start_s)
-            end = int(end_s) if end_s else size - 1
-            if start < 0 or start >= size or end >= size or start > end:
+            end = min(int(end_s), size - 1) if end_s else size - 1
+            if start < 0 or start >= size or start > end:
                 return None, None
             return start, end
         except (ValueError, AttributeError):
@@ -265,11 +306,14 @@ def main():
 
     pkg_name = os.path.basename(httpd.pkg_path)
     size = os.path.getsize(httpd.pkg_path)
-    api_url = f"http://{args.public_host}:{args.port}{API_PATH}"
+    bound_port = httpd.server_address[1]
+    public_base_url = f"http://{format_url_host(args.public_host)}:{bound_port}"
+    api_url = f"{public_base_url}{API_PATH}"
+    package_url = build_package_url(args.public_host, bound_port, pkg_name)
     print("bgo 本地升级测试服务器已启动")
-    print(f"  监听:          http://{args.host}:{args.port}")
+    print(f"  监听:          http://{format_url_host(args.host)}:{bound_port}")
     print(f"  版本检测 API:  {api_url}")
-    print(f"  升级包:        http://{args.public_host}:{args.port}/{pkg_name} ({size} bytes)")
+    print(f"  升级包:        {package_url} ({size} bytes)")
     print(f"  目标版本:      {args.version}")
     print()
     print("在 NAS 容器重建时添加环境变量：")
