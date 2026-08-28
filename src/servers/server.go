@@ -92,8 +92,8 @@ func initMux(ctx context.Context) *mux.Router {
 	apiRoute.HandleFunc("/lives/{id}/name-history", getLiveNameHistory).Methods("GET")   // 获取名称变更历史
 	apiRoute.HandleFunc("/lives/{id}/history", getLiveHistory).Methods("GET")            // 获取统一历史事件（支持分页筛选）
 	apiRoute.HandleFunc("/lives/{id}/switchStream", switchStreamHandler).Methods("POST") // 切换流设置（需要请求体，必须在通配符之前）
-	apiRoute.HandleFunc("/lives/{id}/startRecord", startRecordDirect).Methods("POST")   // 直接启动录制（适用于 NotifyOnly 房间）
-	apiRoute.HandleFunc("/lives/{id}/stopRecord", stopRecordDirect).Methods("POST")     // 直接停止录制
+	apiRoute.HandleFunc("/lives/{id}/startRecord", startRecordDirect).Methods("POST")    // 直接启动录制（适用于 NotifyOnly 房间）
+	apiRoute.HandleFunc("/lives/{id}/stopRecord", stopRecordDirect).Methods("POST")      // 直接停止录制
 	apiRoute.HandleFunc("/lives/{id}/{action}", parseLiveAction).Methods("GET")          // 通配符路由必须放在最后
 	apiRoute.HandleFunc("/file/{path:.*}", getFileInfo).Methods("GET")
 	apiRoute.HandleFunc("/file/{path:.*}", renameFile).Methods("PUT")
@@ -370,15 +370,15 @@ func setupRecorderStatusBroadcast() {
 	// 设置弹幕广播回调，让 recorders 包能够将弹幕消息推送到 SSE
 	recorders.SetBroadcastDanmakuFunc(func(liveId types.LiveID, msgType, username, content string, extra map[string]interface{}) {
 		GetSSEHub().BroadcastDanmaku(liveId, map[string]interface{}{
-			"type":       msgType,
-			"username":   username,
-			"content":    content,
-			"color":      extra["color"],
-			"timestamp":  extra["timestamp"],
-			"gift_name":  extra["gift_name"],
-			"num":        extra["num"],
-			"price":      extra["price"],
-			"coin_type":  extra["coin_type"],
+			"type":      msgType,
+			"username":  username,
+			"content":   content,
+			"color":     extra["color"],
+			"timestamp": extra["timestamp"],
+			"gift_name": extra["gift_name"],
+			"num":       extra["num"],
+			"price":     extra["price"],
+			"coin_type": extra["coin_type"],
 		})
 	})
 

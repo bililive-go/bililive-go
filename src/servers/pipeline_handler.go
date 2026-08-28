@@ -279,10 +279,10 @@ func makeBatchBurnHandler(pm *pipeline.Manager) http.HandlerFunc {
 				{
 					Name: pipeline.StageNameBurnSubtitles,
 					Options: map[string]any{
-						pipeline.OptionCodec:           codec,
-						pipeline.OptionCrf:             crf,
-						pipeline.OptionPreset:          preset,
-						pipeline.OptionBurnDeleteAss:   legacy.BurnDeleteAss,
+						pipeline.OptionCodec:            codec,
+						pipeline.OptionCrf:              crf,
+						pipeline.OptionPreset:           preset,
+						pipeline.OptionBurnDeleteAss:    legacy.BurnDeleteAss,
 						pipeline.OptionBurnDeleteSource: legacy.BurnDeleteSource,
 					},
 				},

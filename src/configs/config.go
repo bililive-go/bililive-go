@@ -77,49 +77,49 @@ func (f *Feature) GetEffectiveDownloaderType() DownloaderType {
 
 // DanmakuConfig 弹幕录制配置
 type DanmakuConfig struct {
-	FontSize         int    `yaml:"font_size" json:"font_size"`               // 字体大小 (12~120)
-	FontName         string `yaml:"font_name" json:"font_name"`               // 字体名称
-	ScrollArea       string `yaml:"scroll_area" json:"scroll_area"`           // 滚动区域: full(全屏), top(顶部半屏), bottom(底部半屏), quarter(1/4屏), three-quarter(3/4屏)
-	ScrollTime       int    `yaml:"scroll_time" json:"scroll_time"`           // 弹幕滚过屏幕的秒数 (5~20)
-	Resolution       string `yaml:"resolution" json:"resolution"`             // 播放分辨率
-	Outline          *int   `yaml:"outline,omitempty" json:"outline,omitempty"`   // 描边粗细 (0~4)，nil 表示使用默认值
-	Opacity          *int   `yaml:"opacity,omitempty" json:"opacity,omitempty"`   // 背景透明度 (0~255)，nil 表示使用默认值
-	RecordGift      *bool  `yaml:"record_gift,omitempty" json:"record_gift,omitempty"`         // 是否录制礼物（哔哩哔哩）
-	RecordDouyuGift *bool  `yaml:"record_douyu_gift,omitempty" json:"record_douyu_gift,omitempty"` // 是否录制礼物（斗鱼）
-	RecordDouyinGift *bool `yaml:"record_douyin_gift,omitempty" json:"record_douyin_gift,omitempty"` // 是否录制礼物（抖音）
-	RecordGuard     *bool  `yaml:"record_guard,omitempty" json:"record_guard,omitempty"`       // 是否录制上舰
-	RecordSuperChat *bool  `yaml:"record_super_chat,omitempty" json:"record_super_chat,omitempty"` // 是否录制SC
-	GuardPosition   string `yaml:"guard_position,omitempty" json:"guard_position"`     // 上舰位置: bottom-left, bottom-right, top-left, top-right
-	ScPosition      string `yaml:"sc_position,omitempty" json:"sc_position"`           // SC位置: bottom-left, bottom-right, top-left, top-right
+	FontSize         int    `yaml:"font_size" json:"font_size"`                                       // 字体大小 (12~120)
+	FontName         string `yaml:"font_name" json:"font_name"`                                       // 字体名称
+	ScrollArea       string `yaml:"scroll_area" json:"scroll_area"`                                   // 滚动区域: full(全屏), top(顶部半屏), bottom(底部半屏), quarter(1/4屏), three-quarter(3/4屏)
+	ScrollTime       int    `yaml:"scroll_time" json:"scroll_time"`                                   // 弹幕滚过屏幕的秒数 (5~20)
+	Resolution       string `yaml:"resolution" json:"resolution"`                                     // 播放分辨率
+	Outline          *int   `yaml:"outline,omitempty" json:"outline,omitempty"`                       // 描边粗细 (0~4)，nil 表示使用默认值
+	Opacity          *int   `yaml:"opacity,omitempty" json:"opacity,omitempty"`                       // 背景透明度 (0~255)，nil 表示使用默认值
+	RecordGift       *bool  `yaml:"record_gift,omitempty" json:"record_gift,omitempty"`               // 是否录制礼物（哔哩哔哩）
+	RecordDouyuGift  *bool  `yaml:"record_douyu_gift,omitempty" json:"record_douyu_gift,omitempty"`   // 是否录制礼物（斗鱼）
+	RecordDouyinGift *bool  `yaml:"record_douyin_gift,omitempty" json:"record_douyin_gift,omitempty"` // 是否录制礼物（抖音）
+	RecordGuard      *bool  `yaml:"record_guard,omitempty" json:"record_guard,omitempty"`             // 是否录制上舰
+	RecordSuperChat  *bool  `yaml:"record_super_chat,omitempty" json:"record_super_chat,omitempty"`   // 是否录制SC
+	GuardPosition    string `yaml:"guard_position,omitempty" json:"guard_position"`                   // 上舰位置: bottom-left, bottom-right, top-left, top-right
+	ScPosition       string `yaml:"sc_position,omitempty" json:"sc_position"`                         // SC位置: bottom-left, bottom-right, top-left, top-right
 }
 
 func BoolPtr(b bool) *bool { return &b }
-func IntPtr(i int) *int   { return &i }
+func IntPtr(i int) *int    { return &i }
 
 var defaultDanmakuConfig = DanmakuConfig{
-	FontSize:        36,
-	FontName:        "Microsoft YaHei",
-	ScrollArea:      "full",
-	ScrollTime:      10,
-	Resolution:      "1920x1080",
-	Outline:         IntPtr(1),
-	Opacity:         IntPtr(128),
+	FontSize:         36,
+	FontName:         "Microsoft YaHei",
+	ScrollArea:       "full",
+	ScrollTime:       10,
+	Resolution:       "1920x1080",
+	Outline:          IntPtr(1),
+	Opacity:          IntPtr(128),
 	RecordGift:       BoolPtr(true),
 	RecordDouyuGift:  BoolPtr(true),
 	RecordDouyinGift: BoolPtr(true),
-	RecordGuard:     BoolPtr(true),
-	RecordSuperChat: BoolPtr(true),
-	GuardPosition:   "bottom-left",
-	ScPosition:      "bottom-left",
+	RecordGuard:      BoolPtr(true),
+	RecordSuperChat:  BoolPtr(true),
+	GuardPosition:    "bottom-left",
+	ScPosition:       "bottom-left",
 }
 
 // validScrollAreas 支持的滚动区域
 var validScrollAreas = map[string]bool{
-	"full":            true, // 全屏滚动
-	"top":             true, // 仅在屏幕上半部分滚动
-	"bottom":          true, // 仅在屏幕下半部分滚动
-	"quarter":         true, // 仅在屏幕上1/4部分滚动
-	"three-quarter":   true, // 仅在屏幕上3/4部分滚动
+	"full":          true, // 全屏滚动
+	"top":           true, // 仅在屏幕上半部分滚动
+	"bottom":        true, // 仅在屏幕下半部分滚动
+	"quarter":       true, // 仅在屏幕上1/4部分滚动
+	"three-quarter": true, // 仅在屏幕上3/4部分滚动
 }
 
 // validResolutions 支持的分辨率列表
@@ -349,13 +349,13 @@ const (
 
 // CloudUpload 云上传配置
 type CloudUpload struct {
-	Enable              bool     `yaml:"enable" json:"enable"`                                               // 是否启用云上传
-	StorageName         string   `yaml:"storage_name" json:"storage_name"`                                   // 使用的 OpenList 存储名称
-	UploadPathTmpl      string   `yaml:"upload_path_tmpl" json:"upload_path_tmpl"`                           // 上传路径模板
-	DeleteAfterUpload   bool     `yaml:"delete_after_upload" json:"delete_after_upload"`                     // 上传成功后仅删除已上传的文件
-	DeleteAllAfterUpload bool    `yaml:"delete_all_after_upload" json:"delete_all_after_upload"`             // 上传成功后删除全部文件（含中间产物）
-	UploadSubtitles     bool     `yaml:"upload_subtitles" json:"upload_subtitles"`                           // 是否上传关联的 .ass 弹幕字幕文件
-	AdditionalStorages  []string `yaml:"additional_storages,omitempty" json:"additional_storages,omitempty"` // 额外存储（支持多目标上传）
+	Enable               bool     `yaml:"enable" json:"enable"`                                               // 是否启用云上传
+	StorageName          string   `yaml:"storage_name" json:"storage_name"`                                   // 使用的 OpenList 存储名称
+	UploadPathTmpl       string   `yaml:"upload_path_tmpl" json:"upload_path_tmpl"`                           // 上传路径模板
+	DeleteAfterUpload    bool     `yaml:"delete_after_upload" json:"delete_after_upload"`                     // 上传成功后仅删除已上传的文件
+	DeleteAllAfterUpload bool     `yaml:"delete_all_after_upload" json:"delete_all_after_upload"`             // 上传成功后删除全部文件（含中间产物）
+	UploadSubtitles      bool     `yaml:"upload_subtitles" json:"upload_subtitles"`                           // 是否上传关联的 .ass 弹幕字幕文件
+	AdditionalStorages   []string `yaml:"additional_storages,omitempty" json:"additional_storages,omitempty"` // 额外存储（支持多目标上传）
 }
 
 // On record finished actions.
@@ -364,15 +364,15 @@ type OnRecordFinished struct {
 	DeleteFlvAfterConvert bool         `yaml:"delete_flv_after_convert" json:"delete_flv_after_convert"`
 	CustomCommandline     string       `yaml:"custom_commandline" json:"custom_commandline"`
 	FixFlvAtFirst         bool         `yaml:"fix_flv_at_first" json:"fix_flv_at_first"`
-	SaveCover             bool         `yaml:"save_cover" json:"save_cover"`       // 保存视频第一帧作为封面图（.jpg）
-	CloudUpload           CloudUpload  `yaml:"cloud_upload" json:"cloud_upload"`   // 云上传配置
-	UploadTiming          UploadTiming `yaml:"upload_timing" json:"upload_timing"` // 上传时机
-	BurnSubtitles         bool         `yaml:"burn_subtitles" json:"burn_subtitles"`                         // 烧录弹幕字幕到视频（硬编码）
-	BurnSubtitlesCodec    string       `yaml:"burn_subtitles_codec" json:"burn_subtitles_codec"`             // 烧录用视频编码器，默认 libx264
-	BurnSubtitlesCrf      string       `yaml:"burn_subtitles_crf" json:"burn_subtitles_crf"`                 // 烧录用 CRF 质量值，默认 18
-	BurnSubtitlesPreset   string       `yaml:"burn_subtitles_preset" json:"burn_subtitles_preset"`           // 烧录用编码预设，默认 medium
-	BurnDeleteAss         bool         `yaml:"burn_delete_ass" json:"burn_delete_ass"`                       // 烧录后删除 ASS 文件
-	BurnDeleteSource      bool         `yaml:"burn_delete_source" json:"burn_delete_source"`                 // 烧录后删除源视频文件
+	SaveCover             bool         `yaml:"save_cover" json:"save_cover"`                       // 保存视频第一帧作为封面图（.jpg）
+	CloudUpload           CloudUpload  `yaml:"cloud_upload" json:"cloud_upload"`                   // 云上传配置
+	UploadTiming          UploadTiming `yaml:"upload_timing" json:"upload_timing"`                 // 上传时机
+	BurnSubtitles         bool         `yaml:"burn_subtitles" json:"burn_subtitles"`               // 烧录弹幕字幕到视频（硬编码）
+	BurnSubtitlesCodec    string       `yaml:"burn_subtitles_codec" json:"burn_subtitles_codec"`   // 烧录用视频编码器，默认 libx264
+	BurnSubtitlesCrf      string       `yaml:"burn_subtitles_crf" json:"burn_subtitles_crf"`       // 烧录用 CRF 质量值，默认 18
+	BurnSubtitlesPreset   string       `yaml:"burn_subtitles_preset" json:"burn_subtitles_preset"` // 烧录用编码预设，默认 medium
+	BurnDeleteAss         bool         `yaml:"burn_delete_ass" json:"burn_delete_ass"`             // 烧录后删除 ASS 文件
+	BurnDeleteSource      bool         `yaml:"burn_delete_source" json:"burn_delete_source"`       // 烧录后删除源视频文件
 }
 
 type Log struct {
@@ -450,11 +450,11 @@ var defaultProxy = Proxy{
 
 // OpenListConfig OpenList 服务配置
 type OpenListConfig struct {
-	Port     int    `yaml:"port" json:"port"`               // OpenList 监听端口（默认 5244）
-	DataPath string `yaml:"data_path" json:"data_path"`     // OpenList 数据目录（留空使用默认路径）
-	Username string `yaml:"username" json:"username"`        // OpenList 管理员用户名
-	Password string `yaml:"password" json:"password"`        // OpenList 管理员密码
-	Token    string `yaml:"token,omitempty" json:"token"`    // OpenList API Token（优先于用户名密码）
+	Port     int    `yaml:"port" json:"port"`             // OpenList 监听端口（默认 5244）
+	DataPath string `yaml:"data_path" json:"data_path"`   // OpenList 数据目录（留空使用默认路径）
+	Username string `yaml:"username" json:"username"`     // OpenList 管理员用户名
+	Password string `yaml:"password" json:"password"`     // OpenList 管理员密码
+	Token    string `yaml:"token,omitempty" json:"token"` // OpenList API Token（优先于用户名密码）
 }
 
 var defaultOpenListConfig = OpenListConfig{

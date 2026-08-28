@@ -9,7 +9,7 @@ import (
 )
 
 type Instance struct {
-	Ctx              context.Context   // 应用级 context，不随 HTTP 请求结束而取消
+	Ctx              context.Context // 应用级 context，不随 HTTP 请求结束而取消
 	WaitGroup        sync.WaitGroup
 	Lives            LiveMap
 	Cache            gcache.Cache

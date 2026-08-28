@@ -81,7 +81,7 @@ func newTestRecorder(t *testing.T, liveId types.LiveID) *recorder {
 
 func TestResolveState_NoRedirect(t *testing.T) {
 	state := &pipelineSharedState{
-		sourceNames: make(map[string]bool),
+		sourceNames:  make(map[string]bool),
 		pendingCount: 5,
 	}
 
