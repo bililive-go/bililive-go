@@ -3,6 +3,7 @@ package tools
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -30,10 +31,30 @@ func TestBToolsCommandEnvInheritsParentEnvironment(t *testing.T) {
 	}
 }
 
+func TestEnvironmentHelpersUsePlatformKeyCaseSensitivity(t *testing.T) {
+	env := []string{
+		"https_proxy=http://lowercase-proxy.invalid",
+		"HTTPS_PROXY=http://uppercase-proxy.invalid",
+	}
+	wantValue := "http://uppercase-proxy.invalid"
+	wantCount := 1
+	if runtime.GOOS == "windows" {
+		wantValue = "http://lowercase-proxy.invalid"
+		wantCount = 2
+	}
+
+	if got := firstEnvironmentValue(env, "HTTPS_PROXY"); got != wantValue {
+		t.Fatalf("HTTPS_PROXY = %q，期望 %q", got, wantValue)
+	}
+	if got := environmentKeyCount(env, "HTTPS_PROXY"); got != wantCount {
+		t.Fatalf("HTTPS_PROXY 计数为 %d，期望 %d", got, wantCount)
+	}
+}
+
 func firstEnvironmentValue(env []string, key string) string {
 	for _, entry := range env {
-		name, current, ok := strings.Cut(entry, "=")
-		if ok && strings.EqualFold(name, key) {
+		_, current, ok := strings.Cut(entry, "=")
+		if ok && environmentEntryHasKey(entry, key) {
 			return current
 		}
 	}
@@ -43,8 +64,7 @@ func firstEnvironmentValue(env []string, key string) string {
 func environmentKeyCount(env []string, key string) int {
 	count := 0
 	for _, entry := range env {
-		name, _, ok := strings.Cut(entry, "=")
-		if ok && strings.EqualFold(name, key) {
+		if environmentEntryHasKey(entry, key) {
 			count++
 		}
 	}
