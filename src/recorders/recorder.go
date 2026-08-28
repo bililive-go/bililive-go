@@ -437,7 +437,9 @@ func (r *recorder) tryRecord(ctx context.Context) {
 
 	buf := new(bytes.Buffer)
 	if err = tmpl.Execute(buf, info); err != nil {
-		r.getLogger().WithError(err).Error("failed to render filename, recording aborted")
+		r.getLogger().WithError(err).Error("failed to render filename, stopping recorder (check out_put_tmpl)")
+		// 模板错误不会随重试恢复，结束本轮监听，避免每 5 秒重复上报同一错误。
+		r.ed.DispatchEvent(events.NewEvent(listeners.LiveEnd, r.Live))
 		return
 	}
 	// 使用层级配置的 OutPutPath

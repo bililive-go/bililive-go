@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 
@@ -49,7 +50,16 @@ func (b *builder) Build(url *url.URL) (live.Live, error) {
 }
 
 var (
-	cryptoJS        []byte
+	cryptoJS   []byte
+	cryptoJSMu sync.Mutex
+	// cryptoJSCDNURLs 为可替换变量，便于测试全部 CDN 不可用与后续重试。
+	cryptoJSCDNURLs = []string{
+		"https://cdnjs.cloudflare.com/ajax/libs/crypto-js/3.1.9-1/crypto-js.min.js",
+		"https://cdn.jsdelivr.net/npm/crypto-js@3.1.9-1/crypto-js.min.js",
+		"https://cdn.staticfile.org/crypto-js/3.1.9-1/crypto-js.min.js",
+		"https://cdn.bootcdn.net/ajax/libs/crypto-js/3.1.9-1/crypto-js.min.js",
+	}
+
 	douyuRoomIDRegs = []string{
 		`\$ROOM\.room_id\s*=\s*(\d+)`,
 		`room_id\s*=\s*(\d+)`,
@@ -103,42 +113,50 @@ func render(tmpl *template.Template, data any) (string, error) {
 	return buf.String(), nil
 }
 
-func (l *Live) loadCryptoJS() {
-	var (
-		resp *requests.Response
-		body []byte
-		err  error
-	)
-	cdnUrls := [...]string{"https://cdnjs.cloudflare.com/ajax/libs/crypto-js/3.1.9-1/crypto-js.min.js",
-		"https://cdn.jsdelivr.net/npm/crypto-js@3.1.9-1/crypto-js.min.js",
-		"https://cdn.staticfile.org/crypto-js/3.1.9-1/crypto-js.min.js",
-		"https://cdn.bootcdn.net/ajax/libs/crypto-js/3.1.9-1/crypto-js.min.js"}
+func (l *Live) loadCryptoJS() ([]byte, error) {
+	cryptoJSMu.Lock()
+	defer cryptoJSMu.Unlock()
+	if len(cryptoJS) > 0 {
+		return cryptoJS, nil
+	}
 
-	for _, url := range cdnUrls {
-		resp, err = l.RequestSession.Get(url)
+	var lastErr error
+	for _, cdnURL := range cryptoJSCDNURLs {
+		resp, err := l.RequestSession.Get(cdnURL)
 		if err != nil {
+			lastErr = err
 			continue
 		}
 		if resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
+			_ = resp.Body.Close()
+			lastErr = fmt.Errorf("unexpected HTTP status %d", resp.StatusCode)
 			continue
 		}
-		body, err = resp.Bytes()
+		body, err := resp.Bytes()
 		if err != nil {
+			lastErr = err
+			continue
+		}
+		if len(body) == 0 {
+			lastErr = errors.New("empty response body")
 			continue
 		}
 		cryptoJS = body
-		return
+		return cryptoJS, nil
 	}
-	panic(fmt.Errorf("failed to load CryptoJS, please check network"))
+	if lastErr != nil {
+		return nil, fmt.Errorf("failed to load CryptoJS from all configured CDNs: %w", lastErr)
+	}
+	return nil, errors.New("failed to load CryptoJS: no CDN configured")
 }
 
 func (l *Live) getEngineWithCryptoJS() (*otto.Otto, error) {
-	if cryptoJS == nil {
-		l.loadCryptoJS()
+	script, err := l.loadCryptoJS()
+	if err != nil {
+		return nil, err
 	}
 	engine := otto.New()
-	if _, err := engine.Eval(cryptoJS); err != nil {
+	if _, err := engine.Eval(script); err != nil {
 		return nil, err
 	}
 	return engine, nil

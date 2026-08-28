@@ -105,12 +105,49 @@ func (lm *LiveMap) SetIfAbsent(id types.LiveID, l live.Live) bool {
 	return true
 }
 
-// ReplaceKey 原子地删除旧 key 并设置新 key。
-// 用于 InitializingLive 完成初始化后替换 LiveID 的场景。
-func (lm *LiveMap) ReplaceKey(oldID types.LiveID, newID types.LiveID, l live.Live) {
+// ReplaceKeyIfCurrent 仅当 oldID 仍指向 expected 时，才原子地删除旧 key 并设置新 key。
+// 用于 InitializingLive 完成初始化后替换 LiveID 的场景，避免已删除房间的迟到回调
+// 把房间重新插回 map。若 newID 已被其他 Live 占用，也会拒绝覆盖。
+func (lm *LiveMap) ReplaceKeyIfCurrent(oldID, newID types.LiveID, expected, replacement live.Live) bool {
 	lm.mu.Lock()
 	defer lm.mu.Unlock()
-	lm.initLocked()
+	current, ok := lm.m[oldID]
+	if !ok || current != expected {
+		return false
+	}
+	if newID != oldID {
+		if _, exists := lm.m[newID]; exists {
+			return false
+		}
+	}
 	delete(lm.m, oldID)
-	lm.m[newID] = l
+	lm.m[newID] = replacement
+	return true
+}
+
+// DeleteIfCurrent 仅当 id 仍指向 expected 时才删除，避免删除并发替换后的新对象。
+func (lm *LiveMap) DeleteIfCurrent(id types.LiveID, expected live.Live) bool {
+	lm.mu.Lock()
+	defer lm.mu.Unlock()
+	current, ok := lm.m[id]
+	if !ok || current != expected {
+		return false
+	}
+	delete(lm.m, id)
+	return true
+}
+
+// DeleteByRawURL 原子删除所有匹配原始 URL 的 Live，并返回被删除对象供调用方在锁外关闭。
+// 删除房间时 LiveID 可能正从初始化 ID 切换为平台 ID，因此不能只删除调用方最初看到的 key。
+func (lm *LiveMap) DeleteByRawURL(rawURL string) []live.Live {
+	lm.mu.Lock()
+	defer lm.mu.Unlock()
+	removed := make([]live.Live, 0, 1)
+	for id, current := range lm.m {
+		if current != nil && current.GetRawUrl() == rawURL {
+			delete(lm.m, id)
+			removed = append(removed, current)
+		}
+	}
+	return removed
 }
