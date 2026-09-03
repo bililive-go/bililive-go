@@ -145,6 +145,8 @@ proxy:
   # 此地址同时用于信息获取和下载，除非下方单独配置了专用代理
   url: ""
 openlist:
+  # 已有 OpenList 服务地址；留空时由程序自动启动内置实例
+  url: ""
   port: 5244
   data_path: ""
   username: ""
