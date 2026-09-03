@@ -63,6 +63,8 @@ type Info struct {
 	NotifyOnly           bool // 仅开播提醒模式
 	// 最近一次 API 请求的错误信息（用于前端显示错误提示）
 	LastError string
+	// 当前阻止录制启动的永久性错误（例如 Windows 输出路径过长）
+	RecordingError string
 	// 可用流列表（最近一次获取的）
 	AvailableStreams []*AvailableStreamInfo
 	// 可用流更新时间
@@ -93,6 +95,7 @@ func (i *Info) MarshalJSON() ([]byte, error) {
 		NotifyOnly                bool                   `json:"notify_only"`
 		NickName                  string                 `json:"nick_name"`
 		LastError                 string                 `json:"last_error,omitempty"`
+		RecordingError            string                 `json:"recording_error,omitempty"`
 		AvailableStreams          []*AvailableStreamInfo `json:"available_streams,omitempty"`
 		AvailableStreamsUpdatedAt int64                  `json:"available_streams_updated_at,omitempty"`
 	}{
@@ -110,6 +113,7 @@ func (i *Info) MarshalJSON() ([]byte, error) {
 		NotifyOnly:                i.NotifyOnly,
 		NickName:                  i.Live.GetOptions().NickName,
 		LastError:                 i.LastError,
+		RecordingError:            i.RecordingError,
 		AvailableStreams:          i.AvailableStreams,
 		AvailableStreamsUpdatedAt: i.AvailableStreamsUpdatedAt,
 	}
