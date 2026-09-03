@@ -27,16 +27,16 @@ const (
 )
 
 type DouyuClient struct {
-	roomID    string
-	cookies   string
-	conn      net.Conn
-	onDanmaku func(username, content string, color int)
-	onGift    func(username, giftName string, num int)
-	done      chan struct{}
-	closeOnce sync.Once
-	logger    *logrus.Entry
-	mu        sync.Mutex
-	running   bool
+	roomID     string
+	cookies    string
+	conn       net.Conn
+	onDanmaku  func(username, content string, color int)
+	onGift     func(username, giftName string, num int)
+	done       chan struct{}
+	closeOnce  sync.Once
+	logger     *logrus.Entry
+	mu         sync.Mutex
+	running    bool
 	cachedAddr string
 }
 

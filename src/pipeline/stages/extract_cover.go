@@ -100,11 +100,11 @@ type CloudUploadStage struct {
 	config          pipeline.StageConfig
 	storageName     string
 	pathTemplate    string
-	deleteAfter     bool   // 仅删除已上传的文件
-	deleteAllAfter  bool   // 删除全部文件（含中间产物）
-	uploadTiming    string // immediate 或 after_process
+	deleteAfter     bool     // 仅删除已上传的文件
+	deleteAllAfter  bool     // 删除全部文件（含中间产物）
+	uploadTiming    string   // immediate 或 after_process
 	fileTypes       []string // 过滤的文件类型，空表示所有
-	uploadSubtitles bool   // 是否上传关联的 .ass 弹幕字幕文件
+	uploadSubtitles bool     // 是否上传关联的 .ass 弹幕字幕文件
 	commands        []string
 	logs            string
 }

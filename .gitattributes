@@ -1,1 +1,13 @@
-*.sh text eol=lf
+* text=auto eol=lf
+
+*.gif binary
+*.ico binary
+*.jpeg binary
+*.jpg binary
+*.png binary
+*.webp binary
+*.mp4 binary
+*.webm binary
+*.7z binary
+*.gz binary
+*.zip binary

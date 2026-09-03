@@ -269,15 +269,15 @@ var (
 // 分段重启时新旧 recorder 通过 redirect 链共享同一份状态，
 // 确保旧任务的回调能正确递减新 recorder 的计数器
 type pipelineSharedState struct {
-	mu             sync.Mutex
-	pendingCount   int                          // 尚未完成的 Pipeline 任务数
-	enqueued       bool                         // 是否有 Pipeline 任务已入队
-	summarySent    bool                         // 摘要是否已发送（幂等保护）
-	runExited      bool                         // run() 是否已退出（defer 中置位，回调中检查）
-	details        []notify.RecordingFileDetail // 收集的文件详情
-	sourceNames    map[string]bool              // 被 Pipeline 消费的原始文件名（用于合并时排除已删除的源文件）
-	onAllTasksDone func()                       // 所有任务完成时的回调（分段重启时设置）
-	suppressSummary bool                        // 为 true 时，run() 退出不推送摘要（分段重启场景），用 mu 保护
+	mu              sync.Mutex
+	pendingCount    int                                 // 尚未完成的 Pipeline 任务数
+	enqueued        bool                                // 是否有 Pipeline 任务已入队
+	summarySent     bool                                // 摘要是否已发送（幂等保护）
+	runExited       bool                                // run() 是否已退出（defer 中置位，回调中检查）
+	details         []notify.RecordingFileDetail        // 收集的文件详情
+	sourceNames     map[string]bool                     // 被 Pipeline 消费的原始文件名（用于合并时排除已删除的源文件）
+	onAllTasksDone  func()                              // 所有任务完成时的回调（分段重启时设置）
+	suppressSummary bool                                // 为 true 时，run() 退出不推送摘要（分段重启场景），用 mu 保护
 	redirectedTo    atomic.Pointer[pipelineSharedState] // 分段重启时重定向到新 recorder 的共享状态
 }
 
@@ -366,14 +366,14 @@ func NewRecorder(ctx context.Context, live live.Live) (Recorder, error) {
 	inst := instance.GetInstance(ctx)
 
 	return &recorder{
-		Live:            live,
-		cache:           inst.Cache,
-		startTime:       time.Now(),
-		ed:              inst.EventDispatcher.(events.Dispatcher),
-		state:           begin,
-		stop:            make(chan struct{}),
-		done:            make(chan struct{}),
-		parserLock:      new(sync.RWMutex),
+		Live:       live,
+		cache:      inst.Cache,
+		startTime:  time.Now(),
+		ed:         inst.EventDispatcher.(events.Dispatcher),
+		state:      begin,
+		stop:       make(chan struct{}),
+		done:       make(chan struct{}),
+		parserLock: new(sync.RWMutex),
 		pipelineState: &pipelineSharedState{
 			sourceNames: make(map[string]bool),
 		},
@@ -1118,8 +1118,8 @@ func (r *recorder) sendAccumulatedSummary() {
 			r.getLogger(),
 			hostName,
 			platform,
-			r.recordedFiles,     // originalFiles（allUploaded 时显示用）
-			merged,              // finalFiles（含未入队分段的文件）
+			r.recordedFiles, // originalFiles（allUploaded 时显示用）
+			merged,          // finalFiles（含未入队分段的文件）
 			outputPath,
 		)
 	} else {

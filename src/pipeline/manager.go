@@ -666,12 +666,12 @@ func (m *Manager) EnqueueUploadTask(absPaths []string) (enqueued int, skipped []
 			{
 				Name: StageNameCloudUpload,
 				Options: map[string]any{
-					OptionStorage:        cu.StorageName,
-					OptionPathTemplate:   cu.UploadPathTmpl,
-					OptionDeleteAfter:    cu.DeleteAfterUpload,
-					OptionDeleteAllAfter: cu.DeleteAllAfterUpload,
-					OptionUploadTiming:   "after_process", // 手动上传无后续处理阶段，始终允许删除标记（不继承全局 upload_timing）
-					OptionFileTypes:      []string{string(FileTypeVideo), string(FileTypeCover)},
+					OptionStorage:         cu.StorageName,
+					OptionPathTemplate:    cu.UploadPathTmpl,
+					OptionDeleteAfter:     cu.DeleteAfterUpload,
+					OptionDeleteAllAfter:  cu.DeleteAllAfterUpload,
+					OptionUploadTiming:    "after_process", // 手动上传无后续处理阶段，始终允许删除标记（不继承全局 upload_timing）
+					OptionFileTypes:       []string{string(FileTypeVideo), string(FileTypeCover)},
 					OptionUploadSubtitles: cu.UploadSubtitles,
 				},
 			},
@@ -699,9 +699,9 @@ func (m *Manager) EnqueueUploadTask(absPaths []string) (enqueued int, skipped []
 
 		recordInfo := RecordInfo{
 			LiveID:      types.LiveID(ManualUploadLiveID),
-			Platform:    platform,              // 用于上传路径模板：{{ .Platform }}
-			HostName:    hostName,              // 用于上传路径模板：{{ .HostName }}
-			RoomName:    "",                    // 手动上传无房间名，不影响路径模板
+			Platform:    platform,               // 用于上传路径模板：{{ .Platform }}
+			HostName:    hostName,               // 用于上传路径模板：{{ .HostName }}
+			RoomName:    "",                     // 手动上传无房间名，不影响路径模板
 			DisplayName: filepath.Base(absPath), // 任务列表展示文件名
 			StartTime:   info.ModTime(),
 		}
