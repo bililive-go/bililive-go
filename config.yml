@@ -40,6 +40,7 @@ on_record_finished:
     upload_path_tmpl: /录播归档/{{ .Platform }}/{{ .HostName }}/{{ .FileName }}
     delete_after_upload: false
     delete_all_after_upload: false
+    upload_subtitles: false
   upload_timing: after_process
   burn_subtitles: false
   burn_subtitles_codec: libx264

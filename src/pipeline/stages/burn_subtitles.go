@@ -30,11 +30,71 @@ type BurnSubtitlesStage struct {
 	logs         string
 }
 
+// isNvencCodec 判断编码器是否为 NVIDIA NVENC 硬件编码器（h264_nvenc / hevc_nvenc / av1_nvenc 等）。
+// NVENC 编码器不支持 -crf，恒定质量参数使用 -cq，因此 FFmpeg 参数构造逻辑不同。
+func isNvencCodec(codec string) bool {
+	return strings.Contains(strings.ToLower(codec), "nvenc")
+}
+
+// buildVideoEncodeArgs 根据编码器生成 FFmpeg 视频编码参数。
+// 软编码（libx264/libx265 等）使用 -crf + -preset；
+// NVENC 硬件编码不支持 CRF，改为 -rc:v vbr -cq <值> -b:v 0 -preset <p1-p7> 实现恒定质量输出。
+// 注：配置项 burn_subtitles_crf 对 NVENC 的语义为 CQ 质量值（1-51，越小画质越好），
+// 0 表示"自动质量"（FFmpeg 的 -cq 选项定义：0 means automatic），此时省略 -cq 交由
+// 编码器自动决定质量，字段名保持不变以兼容已有配置。
+func buildVideoEncodeArgs(codec, crf, preset string) []string {
+	if isNvencCodec(codec) {
+		args := []string{
+			"-c:v", codec,
+			"-rc:v", "vbr",
+		}
+		// -cq 为 0 时是"自动质量"而非最高画质（显式传 -cq 0 与 FFmpeg 默认行为一致），
+		// 这里直接省略该参数，避免用户把 0 误解为最佳画质
+		if !isZeroQuality(crf) {
+			args = append(args, "-cq", crf)
+		}
+		return append(args,
+			"-b:v", "0",
+			"-preset", preset,
+		)
+	}
+	return []string{
+		"-c:v", codec,
+		"-crf", crf,
+		"-preset", preset,
+	}
+}
+
+// isZeroQuality 判断质量值在数值上是否为 0（如 "0"、"00"、"0.0"），即 NVENC 的自动质量。
+// 非数字值不视为 0，原样传给 FFmpeg 以保留其明确的报错信息。
+func isZeroQuality(quality string) bool {
+	value, err := strconv.ParseFloat(strings.TrimSpace(quality), 64)
+	return err == nil && value == 0
+}
+
+// 烧录阶段各配置项的默认值
+const (
+	defaultBurnCodec   = "libx264"
+	defaultBurnQuality = "18"
+	defaultBurnPreset  = "medium"
+)
+
+// normalizeNonBlank 归一化配置字符串：去除首尾空白，空白值回退为默认值。
+// 空白的质量值/预设（前端表单清空，或 YAML/API 直接写入 ""）会生成
+// "-crf """/"-preset """ 这类无效 FFmpeg 参数导致烧录失败，在这里统一兜底。
+func normalizeNonBlank(value, fallback string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return fallback
+	}
+	return trimmed
+}
+
 // NewBurnSubtitlesStage 创建弹幕字幕烧录阶段工厂
 func NewBurnSubtitlesStage(config pipeline.StageConfig) (pipeline.Stage, error) {
-	codec := config.GetStringOption(pipeline.OptionCodec, "libx264")
-	crf := config.GetStringOption(pipeline.OptionCrf, "18")
-	preset := config.GetStringOption(pipeline.OptionPreset, "medium")
+	codec := normalizeNonBlank(config.GetStringOption(pipeline.OptionCodec, defaultBurnCodec), defaultBurnCodec)
+	crf := normalizeNonBlank(config.GetStringOption(pipeline.OptionCrf, defaultBurnQuality), defaultBurnQuality)
+	preset := normalizeNonBlank(config.GetStringOption(pipeline.OptionPreset, defaultBurnPreset), defaultBurnPreset)
 	deleteAss := config.GetBoolOption(pipeline.OptionBurnDeleteAss, false)
 	deleteSource := config.GetBoolOption(pipeline.OptionBurnDeleteSource, false)
 	return &BurnSubtitlesStage{
@@ -132,14 +192,15 @@ func (s *BurnSubtitlesStage) Execute(ctx *pipeline.PipelineContext, input []pipe
 		args := []string{
 			"-i", file.Path,
 			"-vf", vfArg,
-			"-c:v", s.codec,
-			"-crf", s.crf,
-			"-preset", s.preset,
+		}
+		// 按编码器生成质量/预设参数（NVENC 与软编码参数不同）
+		args = append(args, buildVideoEncodeArgs(s.codec, s.crf, s.preset)...)
+		args = append(args,
 			"-c:a", "copy",
 			"-y",
 			"-progress", "pipe:1",
 			tempFile,
-		}
+		)
 
 		ctx.Logger.Infof("烧录字幕 FFmpeg 命令: %s %s", ffmpegPath, strings.Join(args, " "))
 		ctx.Logger.Infof("烧录字幕 ASS 路径: %s (原始: %s)", escapedAssPath, assPath)

@@ -368,9 +368,9 @@ type OnRecordFinished struct {
 	CloudUpload           CloudUpload  `yaml:"cloud_upload" json:"cloud_upload"`   // 云上传配置
 	UploadTiming          UploadTiming `yaml:"upload_timing" json:"upload_timing"` // 上传时机
 	BurnSubtitles         bool         `yaml:"burn_subtitles" json:"burn_subtitles"`                         // 烧录弹幕字幕到视频（硬编码）
-	BurnSubtitlesCodec    string       `yaml:"burn_subtitles_codec" json:"burn_subtitles_codec"`             // 烧录用视频编码器，默认 libx264
-	BurnSubtitlesCrf      string       `yaml:"burn_subtitles_crf" json:"burn_subtitles_crf"`                 // 烧录用 CRF 质量值，默认 18
-	BurnSubtitlesPreset   string       `yaml:"burn_subtitles_preset" json:"burn_subtitles_preset"`           // 烧录用编码预设，默认 medium
+	BurnSubtitlesCodec    string       `yaml:"burn_subtitles_codec" json:"burn_subtitles_codec"`             // 烧录用视频编码器，默认 libx264，可选 libx265 / NVIDIA h264_nvenc / hevc_nvenc / av1_nvenc
+	BurnSubtitlesCrf      string       `yaml:"burn_subtitles_crf" json:"burn_subtitles_crf"`                 // 烧录用质量值：软编码为 CRF（0-51）、NVENC 为 CQ（1-51 手动，0 表示自动质量），越小画质越好，默认 18
+	BurnSubtitlesPreset   string       `yaml:"burn_subtitles_preset" json:"burn_subtitles_preset"`           // 烧录用编码预设：x264/x265 为 ultrafast~veryslow、NVENC 为 p1-p7，默认 medium
 	BurnDeleteAss         bool         `yaml:"burn_delete_ass" json:"burn_delete_ass"`                       // 烧录后删除 ASS 文件
 	BurnDeleteSource      bool         `yaml:"burn_delete_source" json:"burn_delete_source"`                 // 烧录后删除源视频文件
 }

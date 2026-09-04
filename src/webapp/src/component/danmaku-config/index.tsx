@@ -7,6 +7,53 @@ import API from '../../utils/api';
 
 const api = new API();
 
+// 字幕烧录：视频编码器选项
+const BURN_CODEC_OPTIONS = [
+  { label: 'libx264 (H.264，兼容性好)', value: 'libx264' },
+  { label: 'libx265 (H.265，压缩率高)', value: 'libx265' },
+  { label: 'h264_nvenc (NVIDIA H.264 硬件编码，速度快)', value: 'h264_nvenc' },
+  { label: 'hevc_nvenc (NVIDIA H.265 硬件编码，压缩率更高)', value: 'hevc_nvenc' },
+  { label: 'av1_nvenc (NVIDIA AV1 硬件编码，需 RTX 40 系及以上)', value: 'av1_nvenc' },
+];
+
+// 与后端 isNvencCodec 保持一致的判断逻辑：编码器名包含 nvenc 即视为 NVIDIA 硬件编码器
+// （h264_nvenc / hevc_nvenc / av1_nvenc 等），保证通过 YAML/API 写入的编码器
+// 在界面上同样按 NVENC 处理（CQ 标签、p1-p7 预设），避免预设被静默改写
+const isNvencCodec = (codec?: string) =>
+  typeof codec === 'string' && codec.toLowerCase().includes('nvenc');
+
+// 字幕烧录：libx264/libx265 编码预设
+const X264_PRESET_OPTIONS = [
+  { label: 'ultrafast (最快，画质最差)', value: 'ultrafast' },
+  { label: 'superfast', value: 'superfast' },
+  { label: 'veryfast', value: 'veryfast' },
+  { label: 'faster', value: 'faster' },
+  { label: 'fast', value: 'fast' },
+  { label: 'medium (默认)', value: 'medium' },
+  { label: 'slow', value: 'slow' },
+  { label: 'slower', value: 'slower' },
+  { label: 'veryslow (最慢，画质最好)', value: 'veryslow' },
+];
+
+// 字幕烧录：NVIDIA NVENC 编码预设（p1-p7，适用于 h264_nvenc/hevc_nvenc/av1_nvenc 等）
+const NVENC_PRESET_OPTIONS = [
+  { label: 'p1 (NVENC 最快，画质最差)', value: 'p1' },
+  { label: 'p2 (NVENC)', value: 'p2' },
+  { label: 'p3 (NVENC)', value: 'p3' },
+  { label: 'p4 (NVENC)', value: 'p4' },
+  { label: 'p5 (NVENC 常用)', value: 'p5' },
+  { label: 'p6 (NVENC)', value: 'p6' },
+  { label: 'p7 (NVENC 最慢，画质最好)', value: 'p7' },
+];
+
+// 切换编码器后，预设不属于该编码器时使用的默认档位
+const DEFAULT_PRESET_BY_CODEC: Record<string, string> = {
+  libx264: 'medium',
+  libx265: 'medium',
+};
+// NVENC 系列编码器（含未在选项列表中的自定义名称）的默认预设
+const NVENC_DEFAULT_PRESET = 'p5';
+
 const DEFAULT_DANMAKU: DanmakuConfig = {
   font_size: 36,
   font_name: 'Microsoft YaHei',
@@ -339,6 +386,8 @@ const DanmakuSettings: React.FC = () => {
   const [config, setConfig] = useState<EffectiveConfig | null>(null);
   const [platformRooms, setPlatformRooms] = useState<Record<string, RoomInfo[]>>({});
   const [burnForm] = Form.useForm();
+  const burnCodec = Form.useWatch('burn_subtitles_codec', burnForm);
+  const isNvenc = isNvencCodec(burnCodec);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -386,6 +435,27 @@ const DanmakuSettings: React.FC = () => {
     }
   }, [config, burnForm]);
 
+  // 编码预设与编码器联动：预设只能选择当前编码器支持的档位，
+  // 切换编码器时若当前预设不适用，自动重置为该编码器的默认档位。
+  // 注意：codec/preset 必须用 getFieldsValue 一次性原子读取，不能使用渲染闭包中的
+  // burnCodec/isNvenc —— 配置异步加载时 setFieldsValue 先写入"编码器+预设"组合，
+  // 而 useWatch 的值要等下一轮渲染才更新，用旧编码器校验刚写入的预设会把
+  // 有效的 p1-p7 误判为无效并重置，导致用户已保存的配置在界面加载后丢失。
+  useEffect(() => {
+    if (!burnCodec) return;
+    const { burn_subtitles_codec: codec, burn_subtitles_preset: preset } =
+      burnForm.getFieldsValue(['burn_subtitles_codec', 'burn_subtitles_preset']);
+    const nvenc = isNvencCodec(codec);
+    const validPresets = nvenc ? NVENC_PRESET_OPTIONS : X264_PRESET_OPTIONS;
+    if (!validPresets.some(option => option.value === preset)) {
+      burnForm.setFieldsValue({
+        burn_subtitles_preset: nvenc
+          ? NVENC_DEFAULT_PRESET
+          : (DEFAULT_PRESET_BY_CODEC[codec] ?? 'medium'),
+      });
+    }
+  }, [burnCodec, burnForm]);
+
   const handleSaveGlobal = async (values: any) => {
     setSaving(true);
     try {
@@ -411,6 +481,11 @@ const DanmakuSettings: React.FC = () => {
   const handleSaveBurnSettings = async () => {
     try {
       const values = await burnForm.validateFields();
+      // 空白质量值保存时归一化为默认值，避免后端生成 "-crf """ / "-cq """ 导致 FFmpeg 烧录失败
+      if (String(values.burn_subtitles_crf ?? '').trim() === '') {
+        values.burn_subtitles_crf = DEFAULT_BURN.burn_subtitles_crf;
+        burnForm.setFieldsValue({ burn_subtitles_crf: values.burn_subtitles_crf });
+      }
       setSaving(true);
       await api.updateConfig({
         on_record_finished: {
@@ -534,36 +609,52 @@ const DanmakuSettings: React.FC = () => {
             <Form.Item
               label="视频编码器"
               name="burn_subtitles_codec"
-              extra="默认 libx264，可选 libx265"
+              extra="默认 libx264，可选 libx265 或 NVIDIA 硬件编码 h264_nvenc / hevc_nvenc / av1_nvenc（需要显卡驱动和受支持的 GPU）"
             >
-              <Select options={[
-                { label: 'libx264 (H.264，兼容性好)', value: 'libx264' },
-                { label: 'libx265 (H.265，压缩率高)', value: 'libx265' },
-              ]} />
+              <Select options={BURN_CODEC_OPTIONS} />
             </Form.Item>
             <Form.Item
-              label="CRF 质量值"
+              label={isNvenc ? 'CQ 质量值' : 'CRF 质量值'}
               name="burn_subtitles_crf"
-              extra="0-51，越小画质越好，默认 18"
+              extra={isNvenc
+                ? '1-51，越小画质越好（NVENC 恒定质量参数，对应 FFmpeg -cq）；0 表示自动质量而非最高画质，默认 18'
+                : '0-51，越小画质越好（对应 FFmpeg -crf），默认 18'}
+              rules={[
+                {
+                  validator: (_, value) => {
+                    // 空白输入表示使用默认值（保存时归一化为 18），这里放行
+                    const str = String(value ?? '').trim();
+                    if (str === '') return Promise.resolve();
+                    const quality = Number(str);
+                    if (!Number.isInteger(quality) || quality < 0 || quality > 51) {
+                      return Promise.reject(new Error('质量值必须是 0-51 的整数，留空使用默认值 18'));
+                    }
+                    return Promise.resolve();
+                  },
+                },
+              ]}
             >
               <Input placeholder="18" />
             </Form.Item>
             <Form.Item
               label="编码预设"
               name="burn_subtitles_preset"
-              extra="从左到右：速度越慢，画质越好，文件越小"
+              extra={isNvenc
+                ? 'NVENC 预设：p1 最快、p7 画质最好，常用 p5'
+                : 'x264/x265 预设：速度越慢，画质越好，文件越小'}
+              rules={[
+                {
+                  validator: (_, value) => {
+                    if (!value) return Promise.resolve();
+                    const validPresets = isNvenc ? NVENC_PRESET_OPTIONS : X264_PRESET_OPTIONS;
+                    return validPresets.some(option => option.value === value)
+                      ? Promise.resolve()
+                      : Promise.reject(new Error(`预设 ${value} 不是当前编码器支持的预设，请重新选择`));
+                  },
+                },
+              ]}
             >
-              <Select options={[
-                { label: 'ultrafast (最快，画质最差)', value: 'ultrafast' },
-                { label: 'superfast', value: 'superfast' },
-                { label: 'veryfast', value: 'veryfast' },
-                { label: 'faster', value: 'faster' },
-                { label: 'fast', value: 'fast' },
-                { label: 'medium (默认)', value: 'medium' },
-                { label: 'slow', value: 'slow' },
-                { label: 'slower', value: 'slower' },
-                { label: 'veryslow (最慢，画质最好)', value: 'veryslow' },
-              ]} />
+              <Select options={isNvenc ? NVENC_PRESET_OPTIONS : X264_PRESET_OPTIONS} />
             </Form.Item>
             <Form.Item
               label="烧录后删除 ASS 文件"
