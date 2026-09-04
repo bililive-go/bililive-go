@@ -25,12 +25,15 @@
 
 更多详细信息请查阅 `.agent/skills/` 目录下的相关指南：
 
+跨 AI 助手共享的仓库级 Skill 位于 `.agents/skills/`；如需兼容 Claude Code，在 `.claude/skills/` 保留指向同一详细文档的轻量入口，避免重复维护操作说明。
+
 | Skill | 说明 |
 |-------|------|
 | `build` | 编译命令、build tags、代码检查 |
 | `config-modification` | 配置修改同步、层级配置系统 |
 | `test-e2e` | Playwright E2E 测试 |
 | `version-switching` | 不停机版本切换设计规范（Docker/独立运行） |
+| [`test-local-update`](.agents/skills/test-local-update/SKILL.md) | 启动本地版本 API 并测试主程序、Launcher、容器或 NAS 自动升级 |
 
 ## 快速参考
 
@@ -53,4 +56,3 @@ npx playwright test
 # 同步 AI 指示文件
 make sync-agents
 ```
-

@@ -294,6 +294,12 @@ cp .vscode/tasks.example.json .vscode/tasks.json
 
 详细的调试配置说明见 [test/README.md](test/README.md)。
 
+### 仓库级 AI Skills
+
+Claude Code 与 Codex 可使用仓库内的 Skills 辅助执行特定开发流程：
+
+- [本地自动升级测试 Skill](.agents/skills/test-local-update/SKILL.md) — 启动 Mock 版本 API，提供本机二进制或已有升级包，并验证主程序、Launcher、容器或 NAS 的自动升级流程。
+
 ### 构建命令
 
 项目支持两种构建方式：`go run ./build.go` 和 `make`。
