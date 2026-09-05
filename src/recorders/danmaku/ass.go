@@ -29,6 +29,8 @@ type AssWriter struct {
 	laneNum      int // total lanes in the usable range
 	nextLane     int
 	laneLast     []int64 // last tail-clear time (centiseconds) per lane
+
+	maxLaneDelayCS int64 // 弹幕排队等待 lane 的最大延迟（厘秒）
 }
 
 func parseResolution(res string) (int, int) {
@@ -96,6 +98,9 @@ func NewAssWriter(filePath string, startAt time.Time, cfg configs.DanmakuConfig,
 		laneNum:      laneNum,
 		nextLane:     0,
 		laneLast:     make([]int64, laneNum),
+		// 排队延迟最多不超过一个完整滚动周期，避免弹幕高峰期间延迟无限累积，
+		// 导致 ass 文件末尾的时间戳远超实际录制时长 (#1178)。
+		maxLaneDelayCS: int64(scrollTimeMs) / 10,
 	}
 
 	if err := w.writeHeader(); err != nil {
@@ -412,6 +417,11 @@ func (w *AssWriter) assignLane(startCS int64, textWidth int) (int, int64) {
 		}
 	}
 	newStartCS := w.laneLast[earliest]
+	// 弹幕高峰持续超过屏幕容量时，排队延迟会不断累积。一旦超过上限就放弃排队，
+	// 直接按实际到达时间显示（允许短暂重叠），防止延迟随录制时长无限增长。
+	if newStartCS-startCS > w.maxLaneDelayCS {
+		newStartCS = startCS
+	}
 	// 存储新弹幕尾部离开右侧的时间点
 	tailClearCS := newStartCS + int64(w.scrollTimeMs)*int64(safeTextWidth)/int64(w.resX)/10
 	w.laneLast[earliest] = tailClearCS
