@@ -698,11 +698,21 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		if elapsed := time.Since(r.startTime); elapsed < 5*time.Second {
 			cleanupOrphanedDanmakuFiles(dmFile)
 		}
-		return
-	}
-
-	// 录制成功，累积弹幕文件
-	if dmFile != "" {
+		// LiveEnd/Close 会先关闭 r.stop 再调用 parser.Stop()：FFmpeg 若未能在 3 秒内
+		// 响应 stdin 的 "q" 退出请求（例如直播存在延迟缓冲、仍在阻塞读取网络数据），
+		// 会被强制 SIGKILL，此处的 err 即为该次强制终止（如 "signal: killed"）。
+		// 这种情况下已经写入的部分数据仍然有效，若直接 return 会把它们遗弃为
+		// 一个未经过 fix_flv/convert_mp4 修复、往往无法直接播放的 FLV。
+		// 因此只要是主动停止且输出文件非空，就继续走下面的后处理流程，尽量保留已录制内容。
+		if !r.isUserStopped() {
+			return
+		}
+		if fi, statErr := os.Stat(fileName); statErr != nil || fi.Size() == 0 {
+			return
+		}
+		r.getLogger().Warn("录制被主动停止中断（可能是直播延迟导致 FFmpeg 被强制终止），尝试对已写入的部分文件进行后处理")
+	} else if dmFile != "" {
+		// 录制成功，累积弹幕文件
 		if fi, dmErr := os.Stat(dmFile); dmErr == nil && fi.Size() > 0 {
 			r.accumulateRecordedFiles(dmFile)
 		}
@@ -1397,6 +1407,18 @@ func (r *recorder) IsRecording() bool {
 		return fileInfo.Size() > 0
 	}
 	return false
+}
+
+// isUserStopped 返回 recorder 是否已被主动停止（LiveEnd/Close/CloseForRestart）。
+// r.stop 在 Close() 中先于 parser.Stop() 被关闭，因此 tryRecord 里 ParseLiveStream
+// 返回后据此可判断这次错误是否源自主动停止触发的强制终止，而非真正的录制异常。
+func (r *recorder) isUserStopped() bool {
+	select {
+	case <-r.stop:
+		return true
+	default:
+		return false
+	}
 }
 
 func (r *recorder) Close() {
