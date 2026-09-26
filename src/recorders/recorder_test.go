@@ -2,8 +2,10 @@ package recorders
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/bluele/gcache"
@@ -58,6 +60,120 @@ func TestTryRecordStopsWithoutPanicWhenFilenameRenderFails(t *testing.T) {
 	}
 	if !strings.Contains(logs, "render failed") {
 		t.Fatalf("日志未保留原始模板错误: %s", logs)
+	}
+}
+
+func TestTryRecordStopsBeforeCreatingInvalidOutputPath(t *testing.T) {
+	previousConfig := configs.GetCurrentConfig()
+	previousValidator := validateOutputFilePath
+	previousMkdir := mkdir
+	cfg := configs.NewConfig()
+	cfg.OutputTmpl = `recording.flv`
+	cfg.Feature.DownloaderType = configs.DownloaderBililiveRecorder
+	configs.SetCurrentConfig(cfg)
+
+	mkdirCalled := false
+	validatedPath := ""
+	validateOutputFilePath = func(path string) error {
+		validatedPath = path
+		return errors.New("输出文件完整路径过长")
+	}
+	mkdir = func(string) error {
+		mkdirCalled = true
+		return nil
+	}
+	t.Cleanup(func() {
+		configs.SetCurrentConfig(previousConfig)
+		validateOutputFilePath = previousValidator
+		mkdir = previousMkdir
+	})
+
+	ctrl := gomock.NewController(t)
+	l := livemock.NewMockLive(ctrl)
+	logger := livelogger.New(0, logrus.Fields{"test": t.Name()})
+	streamURL := &url.URL{Scheme: "https", Host: "example.com", Path: "/stream.flv"}
+
+	l.EXPECT().GetRawUrl().Return("https://example.com/room").AnyTimes()
+	l.EXPECT().GetStreamInfos().Return([]*live.StreamUrlInfo{{Url: streamURL}}, nil).Times(2)
+	l.EXPECT().GetLogger().Return(logger).AnyTimes()
+
+	cache := gcache.New(1).LRU().Build()
+	if err := cache.Set(l, &live.Info{Live: l, AudioOnly: true}); err != nil {
+		t.Fatalf("写入直播信息缓存失败: %v", err)
+	}
+	r := &recorder{Live: l, cache: cache, parserLock: new(sync.RWMutex)}
+
+	r.tryRecord(context.Background())
+	r.tryRecord(context.Background())
+
+	if mkdirCalled {
+		t.Fatal("路径校验失败后不应创建输出目录")
+	}
+	if !strings.HasSuffix(validatedPath, "recording_PART000.aac") {
+		t.Fatalf("应校验最终扩展名和 BililiveRecorder 分段后缀，实际路径为 %s", validatedPath)
+	}
+	logs := logger.GetLogs()
+	if !strings.Contains(logs, "输出文件路径不兼容 Windows，已取消本次录制") {
+		t.Fatalf("未记录路径校验失败日志: %s", logs)
+	}
+	if !strings.Contains(logs, "输出文件完整路径过长") {
+		t.Fatalf("日志未保留路径校验错误: %s", logs)
+	}
+	if count := strings.Count(logs, "输出文件路径不兼容 Windows，已取消本次录制"); count != 1 {
+		t.Fatalf("相同永久错误应只记录一次 Error，实际记录 %d 次: %s", count, logs)
+	}
+	status, err := r.GetStatus()
+	if err != nil {
+		t.Fatalf("获取录制状态失败: %v", err)
+	}
+	if status["recording_error"] != "输出文件完整路径过长" {
+		t.Fatalf("前端状态未包含路径错误: %#v", status)
+	}
+}
+
+func TestReplaceOutputFileExtensionUsesFinalExtension(t *testing.T) {
+	tests := []struct {
+		name      string
+		fileName  string
+		extension string
+		want      string
+	}{
+		{name: "FLV 转 TS", fileName: "recording.flv", extension: ".ts", want: "recording.ts"},
+		{name: "短扩展名转 AAC", fileName: "recording.x", extension: ".aac", want: "recording.aac"},
+		{name: "无扩展名追加 AAC", fileName: "recording", extension: ".aac", want: "recording.aac"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := replaceOutputFileExtension(tt.fileName, tt.extension); got != tt.want {
+				t.Fatalf("替换扩展名结果期望 %q，实际为 %q", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestBililiveRecorderPart0FileName(t *testing.T) {
+	got := bililiveRecorderPart0FileName("recording.flv")
+	if got != "recording_PART000.flv" {
+		t.Fatalf("首个分段文件名期望 recording_PART000.flv，实际为 %s", got)
+	}
+}
+
+func TestRecordingErrorState(t *testing.T) {
+	r := &recorder{}
+	err := errors.New("路径过长")
+	if !r.setRecordingError(err) {
+		t.Fatal("首次设置录制错误应报告状态变化")
+	}
+	if r.setRecordingError(err) {
+		t.Fatal("重复设置相同录制错误不应报告状态变化")
+	}
+	if got := r.RecordingError(); got != err.Error() {
+		t.Fatalf("录制错误期望 %q，实际为 %q", err, got)
+	}
+	r.clearRecordingError()
+	if got := r.RecordingError(); got != "" {
+		t.Fatalf("清除后录制错误应为空，实际为 %q", got)
 	}
 }
 
