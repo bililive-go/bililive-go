@@ -145,4 +145,3 @@ func (t *Telemetry) SendStartup(ctx context.Context) {
 func (t *Telemetry) SendUpdate(ctx context.Context) {
 	t.SendEvent(ctx, EventUpdate)
 }
-

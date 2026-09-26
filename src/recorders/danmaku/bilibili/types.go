@@ -72,7 +72,7 @@ type RoomInitResponse struct {
 type NavResponse struct {
 	Code int `json:"code"`
 	Data struct {
-		Mid int `json:"mid"`
+		Mid    int `json:"mid"`
 		WbiImg struct {
 			ImgURL string `json:"img_url"`
 			SubURL string `json:"sub_url"`

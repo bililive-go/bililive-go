@@ -15,14 +15,14 @@ type DanmakuBroadcastCallback func(msgType, username, content string, extra map[
 
 // baseRecorder 提供三个平台弹幕录制器的公共字段和方法。
 type baseRecorder struct {
-	mu         sync.Mutex
-	running    bool
-	count      int
-	assWriter  *AssWriter
-	outputFile string
-	cfg        configs.DanmakuConfig
-	logger     *logrus.Entry
-	startAt    time.Time
+	mu          sync.Mutex
+	running     bool
+	count       int
+	assWriter   *AssWriter
+	outputFile  string
+	cfg         configs.DanmakuConfig
+	logger      *logrus.Entry
+	startAt     time.Time
 	broadcastCb DanmakuBroadcastCallback
 }
 
@@ -58,7 +58,7 @@ func (b *baseRecorder) GetStatus() map[string]interface{} {
 }
 
 // stopBase 通用停止逻辑：标记停止、清空 writer、返回旧引用供调用方关闭。
-func (b *baseRecorder) stopBase() (*AssWriter) {
+func (b *baseRecorder) stopBase() *AssWriter {
 	b.mu.Lock()
 	if !b.running {
 		b.mu.Unlock()

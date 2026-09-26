@@ -261,7 +261,7 @@ type PipelineTask struct {
 	CompletedAt    *time.Time      `json:"completed_at,omitempty"`
 	ErrorMessage   string          `json:"error_message,omitempty"`
 	CanRetry       bool            `json:"can_retry"` // 是否可以重试
-	LastStageFiles []FileInfo      `json:"-"` // 最后阶段输出文件（清理前快照，不持久化）
+	LastStageFiles []FileInfo      `json:"-"`         // 最后阶段输出文件（清理前快照，不持久化）
 }
 
 // NewPipelineTask 创建新的管道任务

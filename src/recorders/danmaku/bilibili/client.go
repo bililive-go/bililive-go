@@ -16,6 +16,7 @@ import (
 )
 
 var reUUID = regexp.MustCompile(`_uuid=(.+?);`)
+
 // reCMD 从 JSON 中快速提取 cmd 字段，支持带冒号后缀的变体（如 "DANMU_MSG:some_param"）
 var reCMD = regexp.MustCompile(`"cmd"\s*:\s*"([^"]+)"`)
 

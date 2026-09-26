@@ -14,6 +14,8 @@ help:
 	@echo "  make serve-report     - Start report server (fetches source from GitHub)"
 	@echo "  make install-e2e      - Install E2E test dependencies"
 	@echo "  make build-web        - Build frontend"
+	@echo "  make format           - Format Go source files"
+	@echo "  make format-check     - Check Go formatting without modifying files"
 	@echo "  make generate         - Run go generate"
 	@echo "  make clean            - Clean build artifacts"
 	@echo "  make lint             - Run linter"
@@ -85,6 +87,20 @@ generate:
 .PHONY: build-web
 build-web:
 	go run build.go build-web
+
+.PHONY: format
+format: format-go
+
+.PHONY: format-go
+format-go:
+	@go run ./tools/format-go --write
+
+.PHONY: format-check
+format-check: format-check-go
+
+.PHONY: format-check-go
+format-check-go:
+	@go run ./tools/format-go
 
 # run 目标已移除（foreman 是平台特定的）
 # 请直接使用 make dev 后运行生成的二进制文件

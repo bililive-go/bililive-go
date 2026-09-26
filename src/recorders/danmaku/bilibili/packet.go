@@ -20,11 +20,11 @@ const (
 
 // 操作码
 const (
-	OpHeartBeat        uint32 = 2 // 客户端发送心跳
-	OpHeartBeatReply   uint32 = 3 // 服务端心跳回复（人气值）
-	OpNotification     uint32 = 5 // 业务消息（弹幕/礼物等）
-	OpAuth             uint32 = 7 // 客户端发送认证
-	OpAuthReply        uint32 = 8 // 服务端认证回复
+	OpHeartBeat      uint32 = 2 // 客户端发送心跳
+	OpHeartBeatReply uint32 = 3 // 服务端心跳回复（人气值）
+	OpNotification   uint32 = 5 // 业务消息（弹幕/礼物等）
+	OpAuth           uint32 = 7 // 客户端发送认证
+	OpAuthReply      uint32 = 8 // 服务端认证回复
 )
 
 const headerLen = 16
