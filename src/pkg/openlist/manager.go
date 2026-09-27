@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/bililive-go/bililive-go/src/configs"
-	bililiveTools "github.com/bililive-go/bililive-go/src/tools"
 	bilisentry "github.com/bililive-go/bililive-go/src/pkg/sentry"
+	bililiveTools "github.com/bililive-go/bililive-go/src/tools"
 	"github.com/kira1928/remotetools/pkg/tools"
 	"github.com/kira1928/remotetools/pkg/webui"
 	"github.com/sirupsen/logrus"
@@ -59,12 +59,21 @@ type Manager struct {
 	dataPath    string
 	port        int
 	apiEndpoint string
+	external    bool
 	process     *exec.Cmd
 	logFile     *os.File // 日志文件句柄，用于关闭时释放
 
 	mu      sync.Mutex
 	running bool
 	stopCh  chan struct{}
+}
+
+// NewRemoteManager 创建连接已有 OpenList 服务的管理器。
+func NewRemoteManager(endpoint string) *Manager {
+	return &Manager{
+		apiEndpoint: strings.TrimRight(endpoint, "/"),
+		external:    true,
+	}
 }
 
 // NewManager 创建 OpenList 管理器
@@ -85,6 +94,20 @@ func (m *Manager) Start(ctx context.Context) error {
 	defer m.mu.Unlock()
 
 	if m.running {
+		return nil
+	}
+	if m.external {
+		if err := m.waitForReady(ctx, 10*time.Second); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			logrus.WithError(err).Warn("外部 OpenList 当前不可用，将在后续请求时重试")
+		}
+		if err := webui.RegisterToolWebUI("openlist", m.apiEndpoint); err != nil {
+			logrus.WithError(err).Warn("注册外部 OpenList Web UI 代理失败")
+		}
+		m.running = true
+		logrus.WithField("url", m.apiEndpoint).Info("已连接外部 OpenList")
 		return nil
 	}
 
@@ -307,7 +330,9 @@ func (m *Manager) stopInternal() error {
 		return nil
 	}
 
-	close(m.stopCh)
+	if m.stopCh != nil {
+		close(m.stopCh)
+	}
 
 	// 取消注册代理
 	webui.UnregisterToolWebUI("openlist")
@@ -323,7 +348,11 @@ func (m *Manager) stopInternal() error {
 	}
 
 	m.running = false
-	logrus.Info("OpenList 已停止")
+	if m.external {
+		logrus.Info("已断开外部 OpenList")
+	} else {
+		logrus.Info("OpenList 已停止")
+	}
 	return nil
 }
 
@@ -352,6 +381,11 @@ func (m *Manager) GetPort() int {
 // GetDataPath 获取数据目录
 func (m *Manager) GetDataPath() string {
 	return m.dataPath
+}
+
+// IsExternal 返回是否连接已有的外部 OpenList。
+func (m *Manager) IsExternal() bool {
+	return m.external
 }
 
 // GetClient 获取已认证的 API 客户端

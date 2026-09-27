@@ -339,6 +339,9 @@ const CloudUploadSettings: React.FC<CloudUploadSettingsProps> = ({ config, form 
   // 订阅表单中影响文件处理预览的字段，使预览实时反映用户编辑
   const watchedOrf = Form.useWatch('on_record_finished', form);
   const watchedCloudUpload = Form.useWatch(['on_record_finished', 'cloud_upload'], form);
+  const watchedOpenListURL = Form.useWatch(['openlist', 'url'], form);
+  const openListURL = watchedOpenListURL ?? config.openlist?.url ?? '';
+  const openListAdminURL = openListURL || `http://${window.location.hostname}:${config.openlist?.port || 5244}`;
 
   // 将表单实时值合并到 config 副本中，供 FileProcessingPreview 使用
   // Form.useWatch 返回 undefined 时表示字段未被编辑，此时保留 config 中的原始值
@@ -385,13 +388,13 @@ const CloudUploadSettings: React.FC<CloudUploadSettingsProps> = ({ config, form 
           <>
             录制结束后自动把视频传到网盘。需要先在{' '}
             <a
-              href={`http://${window.location.hostname}:${config.openlist?.port || 5244}`}
+              href={openListAdminURL}
               target="_blank"
               rel="noopener noreferrer"
             >
               OpenList 管理页面
             </a>{' '}
-            添加网盘。{' '}
+            添加网盘。当前使用{openListURL ? '已有的外部 OpenList' : '程序内置 OpenList'}。{' '}
             {config.openlist?.username && config.openlist?.password && (
               <>
                 <span style={{ color: '#999', fontSize: 12 }}>
@@ -422,6 +425,11 @@ const CloudUploadSettings: React.FC<CloudUploadSettingsProps> = ({ config, form 
       <ConfigField label="启用云上传" description="录制结束后自动把视频上传到网盘">
         <Form.Item name={['on_record_finished', 'cloud_upload', 'enable']} valuePropName="checked" noStyle>
           <Switch />
+        </Form.Item>
+      </ConfigField>
+      <ConfigField label="OpenList 服务地址" description="留空时由程序启动内置 OpenList；填写后连接已有服务，例如 https://openlist.example.com">
+        <Form.Item name={['openlist', 'url']} noStyle>
+          <Input placeholder="留空使用内置 OpenList" style={{ width: 420 }} allowClear />
         </Form.Item>
       </ConfigField>
       <ConfigField label="上传时机" description="选择上传哪种文件：原始录制文件 or 处理后的最终文件">
@@ -477,7 +485,9 @@ const CloudUploadSettings: React.FC<CloudUploadSettingsProps> = ({ config, form 
       <Card type="inner" title="OpenList 认证配置" size="small" style={{ marginTop: 16, marginBottom: 8 }}>
         <Alert
           message="关于账号密码"
-          description={<>首次启动程序时会自动生成密码并填入下方，无需手动操作。如果在 OpenList 网页改了密码，程序会自动重新登录。</>}
+          description={openListURL
+            ? <>请填写已有 OpenList 的管理员凭据或 Token。Token 失效时，程序可使用账号密码自动重新登录。</>
+            : <>首次启动程序时会自动生成密码并填入下方，无需手动操作。如果在 OpenList 网页改了密码，程序会自动重新登录。</>}
           type="info"
           showIcon
           style={{ marginBottom: 16 }}

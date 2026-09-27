@@ -341,19 +341,19 @@ func main() {
 	var openlistManager *openlist.Manager
 	// 串行化 OpenList 生命周期操作，防止快速 enable/disable 导致服务泄漏
 	var openlistLifecycleMu sync.Mutex
+	newOpenListManager := func(cfg *configs.Config) *openlist.Manager {
+		if cfg.OpenList.URL != "" {
+			return openlist.NewRemoteManager(cfg.OpenList.URL)
+		}
+		dataPath := cfg.OpenList.DataPath
+		if dataPath == "" {
+			dataPath = filepath.Join(cfg.AppDataPath, "openlist")
+		}
+		return openlist.NewManager(dataPath, cfg.OpenList.Port)
+	}
 	if config.OnRecordFinished.CloudUpload.Enable {
-		// 获取 OpenList 数据目录
-		openlistDataPath := config.OpenList.DataPath
-		if openlistDataPath == "" {
-			openlistDataPath = filepath.Join(config.AppDataPath, "openlist")
-		}
-		openlistPort := config.OpenList.Port
-		if openlistPort == 0 {
-			openlistPort = 5244
-		}
-
 		// 创建 OpenList 管理器
-		openlistManager = openlist.NewManager(openlistDataPath, openlistPort)
+		openlistManager = newOpenListManager(config)
 
 		// 在后台启动 OpenList
 		bilisentryPkg.Go(func() {
@@ -406,15 +406,16 @@ func main() {
 					if newDataPath == "" {
 						newDataPath = filepath.Join(newCfg.AppDataPath, "openlist")
 					}
-					// 与 Manager 当前值比较
-					if mgr.GetPort() != newPort || mgr.GetDataPath() != newDataPath {
-						logger.Infof("检测到 OpenList 配置变更（端口: %d→%d, 数据目录: %s→%s），正在重建 Manager...",
-							mgr.GetPort(), newPort, mgr.GetDataPath(), newDataPath)
+					newExternal := newCfg.OpenList.URL != ""
+					endpointChanged := newExternal && mgr.GetAPIEndpoint() != newCfg.OpenList.URL
+					localChanged := !newExternal && (mgr.GetPort() != newPort || mgr.GetDataPath() != newDataPath)
+					if mgr.IsExternal() != newExternal || endpointChanged || localChanged {
+						logger.Info("检测到 OpenList 连接配置变更，正在重建 Manager...")
 						openlistLifecycleMu.Lock()
 						mgr.Stop()
 						servers.SetOpenListManager(nil)
 						// 创建新 Manager 并启动
-						newMgr := openlist.NewManager(newDataPath, newPort)
+						newMgr := newOpenListManager(newCfg)
 						servers.SetOpenListManager(newMgr)
 						openlistManager = newMgr
 						openlistLifecycleMu.Unlock()
@@ -443,16 +444,7 @@ func main() {
 
 		logger.Info("检测到云上传已启用，正在初始化 OpenList...")
 
-		openlistDataPath := newCfg.OpenList.DataPath
-		if openlistDataPath == "" {
-			openlistDataPath = filepath.Join(newCfg.AppDataPath, "openlist")
-		}
-		openlistPort := newCfg.OpenList.Port
-		if openlistPort == 0 {
-			openlistPort = 5244
-		}
-
-		mgr := openlist.NewManager(openlistDataPath, openlistPort)
+		mgr := newOpenListManager(newCfg)
 		// 先设置全局 Manager，让 API 端能立即获取到状态
 		servers.SetOpenListManager(mgr)
 		openlistLifecycleMu.Unlock()

@@ -13,6 +13,8 @@ import (
 // OpenListStatusResponse OpenList 状态响应
 type OpenListStatusResponse struct {
 	OpenListRunning    bool                   `json:"openlist_running"`
+	Mode               string                 `json:"mode"`
+	Endpoint           string                 `json:"endpoint,omitempty"`
 	WebUIPath          string                 `json:"web_ui_path"`
 	Storages           []openlist.StorageInfo `json:"storages"`
 	Errors             []string               `json:"errors"`
@@ -54,6 +56,12 @@ func getOpenListStatus(writer http.ResponseWriter, r *http.Request) {
 
 	// 检查 OpenList 是否运行
 	response.OpenListRunning = mgr.IsRunning()
+	response.Endpoint = mgr.GetAPIEndpoint()
+	if mgr.IsExternal() {
+		response.Mode = "external"
+	} else {
+		response.Mode = "local"
+	}
 
 	if !response.OpenListRunning {
 		response.Errors = append(response.Errors, "OpenList 服务未运行")

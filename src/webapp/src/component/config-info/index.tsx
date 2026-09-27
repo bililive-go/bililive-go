@@ -96,6 +96,7 @@ interface EffectiveConfig {
     burn_delete_source: boolean;
   };
   openlist: {
+    url: string;
     port: number;
     data_path: string;
     username: string;
