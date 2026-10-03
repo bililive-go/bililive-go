@@ -1,0 +1,4 @@
+interface:
+  display_name: "测试本地自动升级"
+  short_description: "启动本地版本 API、提供升级包并验证 bililive-go 自动升级流程"
+  default_prompt: "使用 $test-local-update 启动并验证 bililive-go 的本地自动升级测试。"
