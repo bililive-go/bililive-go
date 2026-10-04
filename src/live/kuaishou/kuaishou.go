@@ -78,9 +78,9 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 	}
 	info = &live.Info{
 		Live:     l,
-		HostName: data.Get("liveroom.author.name").String(),
-		RoomName: data.Get("liveroom.liveStream.caption").String(),
-		Status:   data.Get("liveroom.isLiving").Bool(),
+		HostName: data.Get("liveroom.playList.0.author.name").String(),
+		RoomName: data.Get("liveroom.playList.0.liveStream.caption").String(),
+		Status:   data.Get("liveroom.playList.0.isLiving").Bool(),
 	}
 	return
 }
@@ -93,16 +93,18 @@ func (l *Live) GetStreamUrls() (us []*url.URL, err error) {
 	var urls []string
 
 	addr := ""
-	addr = "liveroom.liveStream.playUrls.0.adaptationSet.representation.0.url"
+	// playUrls 是字典结构，包含 h264 和 hevc 两种编码
+	// 优先使用 h264（兼容性更好）
+	addr = "liveroom.playList.0.liveStream.playUrls.h264.adaptationSet.representation.0.url"
 
 	// 由于更高清晰度需要cookie，暂时无法传，先注释
-	//maxQuality := len(data.Get("liveroom.liveStream.playUrls.0.adaptationSet.representation").Array()) - 1
+	//maxQuality := len(data.Get("liveroom.playList.0.liveStream.playUrls.h264.adaptationSet.representation").Array()) - 1
 	//if l.Options.Quality != 0 && maxQuality >= l.Options.Quality {
-	//	addr = "liveroom.liveStream.playUrls.0.adaptationSet.representation." + strconv.Itoa(l.Options.Quality) + ".url"
+	//	addr = "liveroom.playList.0.liveStream.playUrls.h264.adaptationSet.representation." + strconv.Itoa(l.Options.Quality) + ".url"
 	//} else if l.Options.Quality != 0 {
-	//	addr = "liveroom.liveStream.playUrls.0.adaptationSet.representation." + strconv.Itoa(maxQuality) + ".url"
+	//	addr = "liveroom.playList.0.liveStream.playUrls.h264.adaptationSet.representation." + strconv.Itoa(maxQuality) + ".url"
 	//} else {
-	//	addr = "liveroom.liveStream.playUrls.0.adaptationSet.representation.0.url"
+	//	addr = "liveroom.playList.0.liveStream.playUrls.h264.adaptationSet.representation.0.url"
 	//}
 
 	data.Get(addr).ForEach(func(key, value gjson.Result) bool {
