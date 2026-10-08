@@ -272,7 +272,10 @@ func (w *AssWriter) AddDanmaku(recvAt time.Time, username, text string, color in
 		startCS = 0
 	}
 
-	fullText := username + ": " + text
+	fullText := text
+	if username != "" {
+		fullText = username + ": " + text
+	}
 	textWidth := w.estimateTextWidth(fullText)
 	totalDistance := w.resX + textWidth
 	durationCS := w.travelCS(totalDistance)
@@ -313,12 +316,16 @@ func (w *AssWriter) AddGift(recvAt time.Time, username, giftName string, num int
 		startCS = 0
 	}
 
+	giftText := fmt.Sprintf("赠送 %s x%d", giftName, num)
+	if username != "" {
+		giftText = fmt.Sprintf("%s 赠送 %s x%d", username, giftName, num)
+	}
 	var fullText string
 	if coinType == "gold" && price > 0 {
 		totalPrice := float64(price) * float64(num) / 1000.0
-		fullText = fmt.Sprintf("[礼物 ¥%.1f] %s 赠送 %s x%d", totalPrice, username, giftName, num)
+		fullText = fmt.Sprintf("[礼物 ¥%.1f] %s", totalPrice, giftText)
 	} else {
-		fullText = fmt.Sprintf("%s 赠送 %s x%d", username, giftName, num)
+		fullText = giftText
 	}
 	textWidth := w.estimateTextWidth(fullText)
 	totalDistance := w.resX + textWidth
@@ -369,7 +376,10 @@ func (w *AssWriter) AddGuard(recvAt time.Time, username, giftName string, price 
 	}
 	endCS := startCS + 500 // 5 seconds
 
-	fullText := fmt.Sprintf("[%s ¥%d] %s 开通了%s", giftName, price/1000, username, giftName)
+	fullText := fmt.Sprintf("[%s ¥%d] 开通了%s", giftName, price/1000, giftName)
+	if username != "" {
+		fullText = fmt.Sprintf("[%s ¥%d] %s 开通了%s", giftName, price/1000, username, giftName)
+	}
 	alignment, marginV := positionToAlignment(w.cfg.GuardPosition, 60)
 	line := fmt.Sprintf("Dialogue: 1,%s,%s,Guard,,0,0,%d,,{\\an%d}{\\q0}%s\n",
 		formatTime(startCS), formatTime(endCS), marginV, alignment, escapeText(fullText))
@@ -393,7 +403,10 @@ func (w *AssWriter) AddSuperChat(recvAt time.Time, username, text string, price 
 	}
 	endCS := startCS + 500 // 5 seconds
 
-	fullText := fmt.Sprintf("[SC ¥%d] %s: %s", price, username, text)
+	fullText := fmt.Sprintf("[SC ¥%d] %s", price, text)
+	if username != "" {
+		fullText = fmt.Sprintf("[SC ¥%d] %s: %s", price, username, text)
+	}
 	alignment, marginV := positionToAlignment(w.cfg.ScPosition, 100)
 	styleName := scTierStyle(price)
 	line := fmt.Sprintf("Dialogue: 1,%s,%s,%s,,0,0,%d,,{\\an%d}{\\q0}%s\n",

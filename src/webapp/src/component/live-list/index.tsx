@@ -1245,7 +1245,7 @@ class LiveList extends React.Component<Props, IState> {
             case 'danmaku':
                 // 只在"实时弹幕"Tab 激活时累积消息
                 if (this.state.expandedActiveTabs[roomId] === 'danmaku' &&
-                    message.data && message.data.type && message.data.username && message.data.timestamp) {
+                    message.data && message.data.type && message.data.timestamp) {
                     // 写入缓冲区，不立即 setState
                     if (!this.danmakuBuffer[roomId]) {
                         this.danmakuBuffer[roomId] = [];

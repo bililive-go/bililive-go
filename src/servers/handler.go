@@ -1866,6 +1866,11 @@ func applyConfigUpdates(c *configs.Config, updates map[string]interface{}) error
 		} else if _, exists := danmaku["record_super_chat"]; exists && danmaku["record_super_chat"] == nil {
 			c.Danmaku.RecordSuperChat = nil
 		}
+		if showUsername, ok := danmaku["show_username"].(bool); ok {
+			c.Danmaku.ShowUsername = configs.BoolPtr(showUsername)
+		} else if _, exists := danmaku["show_username"]; exists && danmaku["show_username"] == nil {
+			c.Danmaku.ShowUsername = nil
+		}
 		if guardPosition, ok := danmaku["guard_position"].(string); ok {
 			c.Danmaku.GuardPosition = guardPosition
 		}
@@ -2529,6 +2534,11 @@ func applyOverridableConfigUpdates(oc *configs.OverridableConfig, updates map[st
 			oc.Danmaku.RecordSuperChat = configs.BoolPtr(recordSuperChat)
 		} else if _, exists := danmaku["record_super_chat"]; exists && danmaku["record_super_chat"] == nil {
 			oc.Danmaku.RecordSuperChat = nil
+		}
+		if showUsername, ok := danmaku["show_username"].(bool); ok {
+			oc.Danmaku.ShowUsername = configs.BoolPtr(showUsername)
+		} else if _, exists := danmaku["show_username"]; exists && danmaku["show_username"] == nil {
+			oc.Danmaku.ShowUsername = nil
 		}
 		if guardPosition, ok := danmaku["guard_position"].(string); ok {
 			oc.Danmaku.GuardPosition = guardPosition
