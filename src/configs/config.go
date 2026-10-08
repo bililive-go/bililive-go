@@ -90,6 +90,7 @@ type DanmakuConfig struct {
 	RecordDouyinGift *bool `yaml:"record_douyin_gift,omitempty" json:"record_douyin_gift,omitempty"` // 是否录制礼物（抖音）
 	RecordGuard     *bool  `yaml:"record_guard,omitempty" json:"record_guard,omitempty"`       // 是否录制上舰
 	RecordSuperChat *bool  `yaml:"record_super_chat,omitempty" json:"record_super_chat,omitempty"` // 是否录制SC
+	ShowUsername    *bool  `yaml:"show_username,omitempty" json:"show_username,omitempty"`       // 是否显示弹幕发送人（适用于全部消息类型）
 	GuardPosition   string `yaml:"guard_position,omitempty" json:"guard_position"`     // 上舰位置: bottom-left, bottom-right, top-left, top-right
 	ScPosition      string `yaml:"sc_position,omitempty" json:"sc_position"`           // SC位置: bottom-left, bottom-right, top-left, top-right
 }
@@ -110,6 +111,7 @@ var defaultDanmakuConfig = DanmakuConfig{
 	RecordDouyinGift: BoolPtr(true),
 	RecordGuard:     BoolPtr(true),
 	RecordSuperChat: BoolPtr(true),
+	ShowUsername:    BoolPtr(false),
 	GuardPosition:   "bottom-left",
 	ScPosition:      "bottom-left",
 }
@@ -166,6 +168,9 @@ func (d *DanmakuConfig) SetDefaultsWithPlatform(platformKey string) {
 	}
 	if d.Opacity == nil {
 		d.Opacity = IntPtr(*defaultDanmakuConfig.Opacity)
+	}
+	if d.ShowUsername == nil {
+		d.ShowUsername = BoolPtr(*defaultDanmakuConfig.ShowUsername)
 	}
 	// Bilibili 专属字段
 	if platformKey == "" || platformKey == "bilibili" {
@@ -292,6 +297,9 @@ func mergeDanmakuConfig(base, override *DanmakuConfig) DanmakuConfig {
 	if override.RecordSuperChat != nil {
 		result.RecordSuperChat = override.RecordSuperChat
 	}
+	if override.ShowUsername != nil {
+		result.ShowUsername = override.ShowUsername
+	}
 	if override.GuardPosition != "" {
 		result.GuardPosition = override.GuardPosition
 	}
@@ -316,6 +324,7 @@ func (d *DanmakuConfig) clonePointerFields() {
 	d.RecordDouyinGift = dupBoolPtr(d.RecordDouyinGift)
 	d.RecordGuard = dupBoolPtr(d.RecordGuard)
 	d.RecordSuperChat = dupBoolPtr(d.RecordSuperChat)
+	d.ShowUsername = dupBoolPtr(d.ShowUsername)
 }
 
 func dupIntPtr(p *int) *int {

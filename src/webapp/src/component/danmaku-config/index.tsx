@@ -20,6 +20,7 @@ const DEFAULT_DANMAKU: DanmakuConfig = {
   record_douyin_gift: true,
   record_guard: true,
   record_super_chat: true,
+  show_username: false,
   guard_position: 'bottom-left',
   sc_position: 'bottom-left',
 };
@@ -37,6 +38,7 @@ interface DanmakuConfig {
   record_douyin_gift: boolean;
   record_guard: boolean;
   record_super_chat: boolean;
+  show_username: boolean;
   guard_position: string;
   sc_position: string;
 }
@@ -204,6 +206,11 @@ const DanmakuParamForm: React.FC<{
           name={['danmaku', 'opacity']}
           rules={[{ type: 'number', min: 0, max: 255, message: '0~255' }]}>
           <InputNumber min={0} max={255} style={{ width: '100%' }} />
+        </Form.Item>
+        <Form.Item
+          label={<span>显示弹幕发送人 <span style={{ fontWeight: 400, fontSize: 12, color: '#999' }}>开启后 ASS 字幕与弹幕面板显示发送人昵称，关闭则不写入昵称</span></span>}
+          name={['danmaku', 'show_username']} valuePropName="checked">
+          <Switch />
         </Form.Item>
       </div>
 

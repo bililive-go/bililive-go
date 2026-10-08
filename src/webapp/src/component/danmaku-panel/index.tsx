@@ -192,8 +192,12 @@ const DanmakuPanel: React.FC<DanmakuPanelProps> = ({ messages }) => {
         return (
           <span className="dm-line dm-danmaku">
             <span className="dm-time">{timeStr}</span>
-            <span className="dm-username">{msg.username}</span>
-            <span className="dm-colon">: </span>
+            {msg.username && (
+              <>
+                <span className="dm-username">{msg.username}</span>
+                <span className="dm-colon">: </span>
+              </>
+            )}
             {msg.content.length > 20 ? (
               <Tooltip title={msg.content} placement="topLeft" overlayClassName="dm-tooltip">
                 {contentEl}
@@ -207,7 +211,7 @@ const DanmakuPanel: React.FC<DanmakuPanelProps> = ({ messages }) => {
         return (
           <span className="dm-line dm-gift">
             <span className="dm-time">{timeStr}</span>
-            <span className="dm-username">{msg.username}</span>
+            {msg.username && <span className="dm-username">{msg.username}</span>}
             <span> 赠送 </span>
             <span className="dm-price-badge gift-price">{priceText ? `${priceText} ` : ''}{msg.gift_name || ''} x{msg.num}</span>
           </span>
@@ -217,7 +221,7 @@ const DanmakuPanel: React.FC<DanmakuPanelProps> = ({ messages }) => {
         return (
           <span className="dm-line dm-super-chat">
             <span className="dm-time">{timeStr}</span>
-            <span className="dm-username">{msg.username}</span>
+            {msg.username && <span className="dm-username">{msg.username}</span>}
             <span> </span>
             <span className="dm-price-badge sc-price">SC ¥{msg.price} {msg.content}</span>
           </span>
@@ -227,7 +231,7 @@ const DanmakuPanel: React.FC<DanmakuPanelProps> = ({ messages }) => {
         return (
           <span className="dm-line dm-guard">
             <span className="dm-time">{timeStr}</span>
-            <span className="dm-username">{msg.username}</span>
+            {msg.username && <span className="dm-username">{msg.username}</span>}
             <span> 开通了</span>
             <span className="dm-price-badge guard-price">{msg.gift_name} {guardPrice}</span>
           </span>

@@ -78,6 +78,15 @@ func (b *baseRecorder) SetBroadcastCallback(cb DanmakuBroadcastCallback) {
 	b.broadcastCb = cb
 }
 
+// displayName 按 show_username 开关决定写入 ASS 与广播到前端的发送人昵称；
+// 关闭时返回空串，AssWriter 各 Add* 方法与弹幕面板据此省略昵称。
+func (b *baseRecorder) displayName(username string) string {
+	if b.cfg.ShowUsername == nil || !*b.cfg.ShowUsername {
+		return ""
+	}
+	return username
+}
+
 // addDanmaku 弹幕回调的通用处理：加锁、检查运行状态、写入 ASS、计数。
 func (b *baseRecorder) addDanmaku(recvAt time.Time, username, content string, color int) {
 	b.mu.Lock()
@@ -85,6 +94,7 @@ func (b *baseRecorder) addDanmaku(recvAt time.Time, username, content string, co
 	if !b.running || b.assWriter == nil {
 		return
 	}
+	username = b.displayName(username)
 	b.assWriter.AddDanmaku(recvAt, username, content, color)
 	b.count++
 	if b.broadcastCb != nil {
@@ -102,6 +112,7 @@ func (b *baseRecorder) addGift(recvAt time.Time, username, giftName string, num 
 	if !b.running || b.assWriter == nil {
 		return
 	}
+	username = b.displayName(username)
 	b.assWriter.AddGift(recvAt, username, giftName, num, price, coinType)
 	b.count++
 	if b.broadcastCb != nil {
@@ -122,6 +133,7 @@ func (b *baseRecorder) addSuperChat(recvAt time.Time, username, message string, 
 	if !b.running || b.assWriter == nil {
 		return
 	}
+	username = b.displayName(username)
 	b.assWriter.AddSuperChat(recvAt, username, message, price)
 	b.count++
 	if b.broadcastCb != nil {
@@ -139,6 +151,7 @@ func (b *baseRecorder) addGuard(recvAt time.Time, username, giftName string, pri
 	if !b.running || b.assWriter == nil {
 		return
 	}
+	username = b.displayName(username)
 	b.assWriter.AddGuard(recvAt, username, giftName, price)
 	b.count++
 	if b.broadcastCb != nil {
