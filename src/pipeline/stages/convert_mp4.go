@@ -212,16 +212,23 @@ func (s *ConvertMp4Stage) Execute(ctx *pipeline.PipelineContext, input []pipelin
 		})
 
 		// 标记原始文件为可删除（由 Executor 在管道全部成功后统一删除）
-		if s.deleteSource && file.Path != outputPath {
-			if len(inputInfo.invalidAudio) > 0 {
-				// 缺少参数的音轨也可能是探测窗口后才出现的真实音频，MP4 不能完全替代原始文件。
+		if len(inputInfo.invalidAudio) > 0 {
+			// 缺少参数的音轨也可能是探测窗口后才出现的真实音频，MP4 不能完全替代原始文件。
+			// 显式撤销输入已带的删除标记，保留源文件不依赖上游阶段的标记状态。
+			wasDeletable := file.Deletable
+			file.Deletable = false
+			if uploaded, _ := file.Metadata["uploaded"].(bool); uploaded {
+				// 已上传的文件在云端有完整副本，保留上传标记，本地文件仍按上传设置清理。
+				s.logs += fmt.Sprintf("转换时排除了音轨，原始文件已上传，本地文件按上传设置清理: %s\n", file.Path)
+				s.logger.Warnf("转换时排除了音轨，原始文件已上传，本地文件按上传设置清理: %s", file.Path)
+			} else if s.deleteSource || wasDeletable {
 				s.logs += fmt.Sprintf("转换时排除了音轨，保留原始文件: %s\n", file.Path)
 				s.logger.Warnf("转换时排除了音轨，保留原始文件: %s", file.Path)
-			} else {
-				file.Deletable = true
-				s.logs += fmt.Sprintf("已标记原始文件待删除: %s\n", file.Path)
-				s.logger.Infof("已标记原始文件待删除: %s", file.Path)
 			}
+		} else if s.deleteSource && file.Path != outputPath {
+			file.Deletable = true
+			s.logs += fmt.Sprintf("已标记原始文件待删除: %s\n", file.Path)
+			s.logger.Infof("已标记原始文件待删除: %s", file.Path)
 		}
 		output = append(output, file)
 

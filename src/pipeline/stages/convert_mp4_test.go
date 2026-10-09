@@ -415,6 +415,22 @@ func TestConvertMp4Stage_FFmpeg(t *testing.T) {
 		// 有效流必须完整复制，不能通过丢弃真实音轨或重新编码来避开封装错误。
 		assertMP4TestPacketCopy(t, tools.probe(t, filepath.Join(seedDir, "av.flv")), after)
 		tools.decode(t, outputPath)
+
+		source := pipeline.FileInfo{Path: inputPath, Type: pipeline.FileTypeVideo}
+		// 输入已带删除标记时也应撤销，保留源文件不依赖上游阶段的标记状态。
+		marked := source
+		marked.Deletable = true
+		_, stage = tools.convertFile(t, marked, false, source)
+		require.Contains(t, stage.GetLogs(), "转换时排除了音轨，保留原始文件")
+		// 已上传的源文件在云端有完整副本，保留上传标记，本地文件仍按上传设置清理。
+		uploaded := source
+		uploaded.Deletable = true
+		uploaded.Metadata = map[string]any{"uploaded": true}
+		wantUploaded := uploaded
+		wantUploaded.Deletable = false
+		_, stage = tools.convertFile(t, uploaded, true, wantUploaded)
+		require.Contains(t, stage.GetLogs(), "转换时排除了音轨，原始文件已上传，本地文件按上传设置清理")
+		require.NotContains(t, stage.GetLogs(), "保留原始文件")
 	})
 
 	t.Run("保留探测窗口后出现的音轨", func(t *testing.T) {
@@ -696,14 +712,24 @@ func (tools mp4TestTools) convert(t *testing.T, inputPath string, deleteSource b
 // convertExpect 转换并检查源文件是否被标记为可删除；排除音轨时即使开启删除也应保留源文件。
 func (tools mp4TestTools) convertExpect(t *testing.T, inputPath string, deleteSource, wantDeletable bool) (string, *ConvertMp4Stage) {
 	t.Helper()
+	input := pipeline.FileInfo{Path: inputPath, Type: pipeline.FileTypeVideo}
+	wantSource := input
+	wantSource.Deletable = wantDeletable
+	return tools.convertFile(t, input, deleteSource, wantSource)
+}
+
+// convertFile 转换指定输入，并检查阶段输出中原始文件的删除及上传标记。
+func (tools mp4TestTools) convertFile(t *testing.T, input pipeline.FileInfo, deleteSource bool, wantSource pipeline.FileInfo) (string, *ConvertMp4Stage) {
+	t.Helper()
+	inputPath := input.Path
 	stage, ctx := tools.stageContext(t, deleteSource)
-	output, err := stage.Execute(ctx, []pipeline.FileInfo{{Path: inputPath, Type: pipeline.FileTypeVideo}})
+	output, err := stage.Execute(ctx, []pipeline.FileInfo{input})
 	require.NoError(t, err, "%s", stage.GetLogs())
 	require.Same(t, ctx.Logger, stage.logger, "进度告警应使用当前任务的 logger")
 	require.Len(t, output, 2)
 	outputPath := strings.TrimSuffix(inputPath, filepath.Ext(inputPath)) + ".mp4"
 	require.Equal(t, pipeline.FileInfo{Path: outputPath, Type: pipeline.FileTypeVideo, SourcePath: inputPath}, output[0])
-	require.Equal(t, pipeline.FileInfo{Path: inputPath, Type: pipeline.FileTypeVideo, Deletable: wantDeletable}, output[1])
+	require.Equal(t, wantSource, output[1])
 	require.FileExists(t, inputPath, "转换阶段只标记源文件，不应提前删除")
 	require.NoFileExists(t, filepath.Join(filepath.Dir(outputPath), ".converting_"+filepath.Base(outputPath)))
 	return outputPath, stage
