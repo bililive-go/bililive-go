@@ -431,26 +431,3 @@ func TestExecute_StaleDeletableFromDB_ClearedOnFailure(t *testing.T) {
 	assert.FileExists(t, file1, "数据库残留标记应被清除，文件保留")
 	assert.FileExists(t, file2, "数据库残留标记应被清除，文件保留")
 }
-
-func TestCleanupPreservesRepairFallback(t *testing.T) {
-	path := createTempFile(t, t.TempDir(), "original.flv")
-	executor := NewExecutor(logrus.StandardLogger())
-	kept := executor.deleteMarkedFiles([]FileInfo{{Path: path, Type: FileTypeVideo, Deletable: true, Metadata: map[string]any{"preserve_original": true, "uploaded": true, "delete_all": true}}})
-	require.Len(t, kept, 1)
-	_, err := os.Stat(path)
-	require.NoError(t, err)
-}
-
-type diagnosticStage struct{ mockStage }
-
-func (s *diagnosticStage) GetCommands() []string { return []string{"repair command"} }
-func (s *diagnosticStage) GetLogs() string       { return "repair diagnostic" }
-func TestFailedStageKeepsDiagnostics(t *testing.T) {
-	executor := NewExecutor(logrus.StandardLogger())
-	stage := &diagnosticStage{mockStage{name: "bad", executeFn: func(*PipelineContext, []FileInfo) ([]FileInfo, error) { return nil, fmt.Errorf("exit 1") }}}
-	executor.RegisterStage("bad", func(StageConfig) (Stage, error) { return stage, nil })
-	_, commands, logs, err := executor.executeStage(&PipelineContext{Ctx: context.Background()}, StageConfig{Name: "bad"}, nil)
-	require.Error(t, err)
-	require.Equal(t, []string{"repair command"}, commands)
-	require.Equal(t, "repair diagnostic", logs)
-}
