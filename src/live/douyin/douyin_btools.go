@@ -69,7 +69,18 @@ type liveInfoResp struct {
 }
 
 type streamInfoResp struct {
-	Stream string `json:"stream"`
+	Stream        string `json:"stream"`
+	VideoFallback string `json:"-"`
+	// bgo.1/bgo.2 的 dev 响应保留平台返回的所有线路，供纯音频模式选择。
+	Dev struct {
+		Sources []struct {
+			Streams []struct {
+				Quality string `json:"quality"`
+				FLV     string `json:"flv"`
+				HLS     string `json:"hls"`
+			} `json:"streams"`
+		} `json:"sources"`
+	} `json:"dev"`
 }
 
 func NewBtoolsLive(live *Live) btoolsLive {
@@ -142,22 +153,63 @@ func (l *btoolsLive) fetchStreamInfo() (streamInfo streamInfoResp, err error) {
 	}
 
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d/bgo/stream-info?platform=douyin&roomId=%s", btoolsConsts.port, url.QueryEscape(l.roomId))
+	if l.Options != nil && l.Options.AudioOnly {
+		// 只取解析元数据，不下载默认的视频流，也不需要修改配套工具。
+		endpoint += "&dev=1"
+	}
 	body, err := doBToolsRequest(endpoint)
+	if err == nil {
+		err = json.Unmarshal(body, &streamInfo)
+	}
+	if err != nil && l.Options != nil && l.Options.AudioOnly {
+		// 兼容不支持 dev 响应的旧工具；重新走原来的视频取流接口。
+		endpoint = fmt.Sprintf("http://127.0.0.1:%d/bgo/stream-info?platform=douyin&roomId=%s", btoolsConsts.port, url.QueryEscape(l.roomId))
+		body, err = doBToolsRequest(endpoint)
+		if err == nil {
+			err = json.Unmarshal(body, &streamInfo)
+		}
+	}
 	if err != nil {
 		return streamInfo, err
 	}
-	if err = json.Unmarshal(body, &streamInfo); err != nil {
-		return streamInfo, err
+	if l.Options != nil && l.Options.AudioOnly {
+		audioURL, err := streamInfo.audioStreamURL()
+		if err == nil {
+			streamInfo.VideoFallback = streamInfo.Stream
+			streamInfo.Stream = audioURL
+		} else if logger := l.GetLogger(); logger != nil {
+			logger.Info("纯音频线路不可用，使用原视频流由 FFmpeg 提取音频")
+		}
 	}
 	return streamInfo, nil
 }
 
+// audioStreamURL 仅接受平台返回并明确标记的纯音频线路。
+// 不拼接签名参数；没有可靠的纯音频地址时由调用方回退到视频提取音频。
+func (info *streamInfoResp) audioStreamURL() (string, error) {
+	for _, source := range info.Dev.Sources {
+		for _, stream := range source.Streams {
+			if stream.Quality != "ao" {
+				continue
+			}
+			for _, rawURL := range []string{stream.FLV, stream.HLS} {
+				u, err := url.Parse(rawURL)
+				if err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" && u.Query().Get("only_audio") == "1" {
+					return rawURL, nil
+				}
+			}
+		}
+	}
+	return "", fmt.Errorf("抖音未返回可用的 ao 纯音频流（only_audio=1），将使用原视频流提取音频")
+}
+
 func (l *btoolsLive) GetInfo() (info *live.Info, err error) {
 	ret := &live.Info{
-		Live:     l.Live,
-		HostName: l.hostName,
-		RoomName: l.roomName,
-		Status:   false,
+		Live:      l.Live,
+		HostName:  l.hostName,
+		RoomName:  l.roomName,
+		Status:    false,
+		AudioOnly: l.Options != nil && l.Options.AudioOnly,
 	}
 
 	var liveInfo liveInfoResp
@@ -190,9 +242,17 @@ func (l *btoolsLive) GetStreamInfos() (us []*live.StreamUrlInfo, err error) {
 		return
 	}
 
+	var fallback *url.URL
+	if streamInfo.VideoFallback != "" {
+		candidate, err := url.Parse(streamInfo.VideoFallback)
+		if err == nil && (candidate.Scheme == "https" || candidate.Scheme == "http") && candidate.Host != "" && candidate.Query().Get("only_audio") != "1" {
+			fallback = candidate
+		}
+	}
 	return []*live.StreamUrlInfo{
 		{
-			Url: u,
+			Url:              u,
+			AudioFallbackURL: fallback,
 		},
 	}, nil
 }

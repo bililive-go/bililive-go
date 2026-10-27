@@ -251,13 +251,18 @@ func (e *Executor) Execute(
 // deleteMarkedFiles 删除标记为 Deletable 或 Metadata["uploaded"] 的文件，返回保留的文件列表
 func (e *Executor) deleteMarkedFiles(files []FileInfo) []FileInfo {
 	var kept []FileInfo
-	deleteAll := false  // 标记是否为 deleteAll 模式
+	deleteAll := false   // 标记是否为 deleteAll 模式
 	deleteAfter := false // 标记是否为 deleteAfter 模式（仅删除已上传文件）
 
 	// 获取输出路径用于计算相对路径（清理 DB 上传标记）
 	cfg := configs.GetCurrentConfig()
 
 	for _, f := range files {
+		// 修复回退使用的原始录像禁止自动清理。
+		if preserve, _ := f.Metadata["preserve_original"].(bool); preserve {
+			kept = append(kept, f)
+			continue
+		}
 		// 检查删除模式（CloudUploadStage 标记）
 		if f.Metadata != nil {
 			if da, ok := f.Metadata["delete_all"].(bool); ok && da {
@@ -432,9 +437,7 @@ func (e *Executor) executeStage(
 
 	// 执行阶段
 	output, err = stage.Execute(ctx, input)
-	if err != nil {
-		return nil, nil, "", err
-	}
+	// 无论成功还是失败均保留阶段诊断。
 
 	// 如果阶段实现了 CommandRecorder 接口，获取命令记录
 	if cr, ok := stage.(CommandRecorder); ok {
@@ -442,7 +445,7 @@ func (e *Executor) executeStage(
 		logs = cr.GetLogs()
 	}
 
-	return output, commands, logs, nil
+	return output, commands, logs, err
 }
 
 // executeParallel 并行执行多个阶段

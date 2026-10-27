@@ -3,11 +3,11 @@ package build
 import (
 	"bytes"
 	"fmt"
-	"html/template"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
+	"text/template"
 	"time"
 
 	log "github.com/sirupsen/logrus"

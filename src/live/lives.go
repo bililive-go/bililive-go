@@ -175,6 +175,9 @@ func WithNickName(nickName string) Option {
 }
 
 type StreamUrlInfo struct {
+	// 纯音频拉取失败时的原视频地址；仅用于仍输出音频的兼容回退。
+	AudioFallbackURL *url.URL `json:"-"`
+
 	Url         *url.URL
 	Name        string
 	Description string
