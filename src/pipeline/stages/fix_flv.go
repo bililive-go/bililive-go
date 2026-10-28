@@ -105,7 +105,7 @@ func (s *FixFlvStage) Execute(ctx *pipeline.PipelineContext, input []pipeline.Fi
 		}
 
 		if len(outputFiles) > 1 {
-			s.logs += fmt.Sprintf("修复完成，原片保留: %s -> %d 个分段文件\n", filepath.Base(file.Path), len(outputFiles))
+			s.logs += fmt.Sprintf("修复完成，分段已发布至原录像目录并删除原片: %s -> %d 个分段文件\n", filepath.Base(file.Path), len(outputFiles))
 		} else if len(outputFiles) == 1 {
 			s.logs += fmt.Sprintf("修复完成，验证通过并安全替换原片: %s\n", outputFiles[0])
 		}

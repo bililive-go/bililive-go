@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bililive-go/bililive-go/src/live"
 	"github.com/bililive-go/bililive-go/src/live/bilibili"
@@ -60,6 +62,7 @@ func coreFLV(filler bool, change string) []byte {
 		data = append(data, prev[:]...)
 	}
 	tag(9, 0, []byte{0x17, 0, 0, 0, 0, 1, 100, 0, 31, 0xff, 0xe1, 0, 4, 0x67, 100, 0, 31, 1, 0, 2, 0x68, 1})
+	tag(8, 0, []byte{0xaf, 0, 0x12, 0x10})
 	for i := 0; i < 2; i++ {
 		audio := []byte{0xaf, 1, 42}
 		if change == "audio" {
@@ -85,41 +88,115 @@ func coreFLV(filler bool, change string) []byte {
 }
 
 func TestFLVRepairCore(t *testing.T) {
-	// 当前测试进程充当隔离的修复工具，覆盖实际进程调用与替换流程。
+	// 当前测试进程充当外部工具，直接覆盖进程调用、校验、替换和发布。
 	if mode := os.Getenv("BILILIVE_CORE_REPAIR_HELPER"); mode != "" {
 		output := os.Args[len(os.Args)-1]
 		if mode == "failure" {
 			_ = os.WriteFile(output, []byte("partial"), 0600)
 			os.Exit(1)
 		}
-		if err := os.WriteFile(output, coreFLV(false, mode), 0600); err != nil {
-			os.Exit(2)
+		if mode == "cancel" {
+			time.Sleep(time.Minute)
+			os.Exit(0)
 		}
-		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"Status": "OK", "Data": map[string]any{"OutputFiles": []string{output}}})
+		paths := []string{output}
+		if strings.HasPrefix(mode, "multi") {
+			paths = []string{output + ".one.flv", output + ".two.flv"}
+		}
+		for i, p := range paths {
+			change := mode
+			if mode == "multi-audio" && i == 1 {
+				change = "audio"
+			}
+			data := coreFLV(false, change)
+			if mode == "truncated" {
+				data = data[:len(data)-1]
+			}
+			if err := os.WriteFile(p, data, 0600); err != nil {
+				os.Exit(2)
+			}
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"Status": "OK", "Data": map[string]any{"OutputPaths": paths}})
 		os.Exit(0)
 	}
-	for _, mode := range []string{"filler-only", "failure", "picture", "audio", "timestamp"} {
+	for _, mode := range []string{"filler-only", "failure", "picture", "audio", "timestamp", "truncated", "cancel", "multi", "multi-audio", "multi-conflict"} {
 		t.Run(mode, func(t *testing.T) {
-			input := filepath.Join(t.TempDir(), "original.flv")
-			original := coreFLV(true, "")
+			dir := t.TempDir()
+			input := filepath.Join(dir, "original.flv")
+			multi := strings.HasPrefix(mode, "multi")
+			original := coreFLV(!multi, "")
+			if multi {
+				original = append(original, coreFLV(false, "")[13:]...)
+			}
 			if err := os.WriteFile(input, original, 0600); err != nil {
 				t.Fatal(err)
 			}
-			outputs, err := repairFLV(context.Background(), input, nil, func(_, output string) (*exec.Cmd, error) {
+			conflict := filepath.Join(dir, "original.part002.flv")
+			if mode == "multi-conflict" {
+				if err := os.WriteFile(conflict, []byte("existing"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ctx := context.Background()
+			if mode == "cancel" {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, 100*time.Millisecond)
+				defer cancel()
+			}
+			outputs, err := repairFLV(ctx, input, nil, func(_, output string) (*exec.Cmd, error) {
 				cmd := exec.Command(os.Args[0], "-test.run=^TestFLVRepairCore$", "--", output)
 				cmd.Env = append(os.Environ(), "BILILIVE_CORE_REPAIR_HELPER="+mode)
 				return cmd, nil
 			})
+			if mode == "multi" {
+				if err != nil || len(outputs) != 2 {
+					t.Fatalf("分段发布失败: %v %v", outputs, err)
+				}
+				if _, e := os.Stat(input); !os.IsNotExist(e) {
+					t.Fatal("发布后仍保留原片")
+				}
+				for i, p := range outputs {
+					want := filepath.Join(dir, fmt.Sprintf("original.part%03d.flv", i+1))
+					got, e := os.ReadFile(p)
+					if p != want || e != nil || !bytes.Equal(got, coreFLV(false, "")) {
+						t.Fatal("发布路径或内容不正确")
+					}
+				}
+				work, _ := filepath.Glob(filepath.Join(dir, ".bililive-fix-*"))
+				if len(work) != 0 {
+					t.Fatal("成功后工作目录未清理")
+				}
+				return
+			}
 			after, readErr := os.ReadFile(input)
 			if readErr != nil {
 				t.Fatal(readErr)
 			}
 			if mode == "filler-only" {
 				if err != nil || len(outputs) != 1 || outputs[0] != input || !bytes.Equal(after, coreFLV(false, mode)) {
-					t.Fatalf("合法填充删除未安全替换: outputs=%v err=%v", outputs, err)
+					t.Fatalf("填充删除未安全替换: %v %v", outputs, err)
 				}
-			} else if err == nil || !bytes.Equal(after, original) {
-				t.Fatalf("异常修复未保留原片: mode=%s err=%v", mode, err)
+			} else {
+				if err == nil || !bytes.Equal(after, original) {
+					t.Fatalf("异常未保留原片: %s %v", mode, err)
+				}
+				dirs, _ := filepath.Glob(filepath.Join(dir, ".bililive-fix-*"))
+				if len(dirs) != 1 {
+					t.Fatal("未保留诊断目录")
+				}
+				media, _ := filepath.Glob(filepath.Join(dirs[0], "*.flv"))
+				if len(media) != 0 {
+					t.Fatal("失败后残留修复视频")
+				}
+			}
+			if mode == "multi-conflict" {
+				got, _ := os.ReadFile(conflict)
+				if string(got) != "existing" {
+					t.Fatal("覆盖已有分段")
+				}
+				if _, e := os.Stat(filepath.Join(dir, "original.part001.flv")); !os.IsNotExist(e) {
+					t.Fatal("失败后未撤销已发布分段")
+				}
 			}
 		})
 	}

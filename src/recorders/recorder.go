@@ -475,6 +475,7 @@ func (r *recorder) tryRecord(ctx context.Context) {
 
 	// 按本轮固定下来的偏好选流
 	streamInfo := r.selectPreferredStream(streamInfos, preference)
+	douyinAudioOnly := info.AudioOnly && r.Live.GetPlatformCNName() == "抖音"
 	if streamInfo == nil || streamInfo.Url == nil {
 		// 选中的这一路没有播放地址：延迟解析的列表里除被解析的那一路之外只有元信息。
 		// 走到这里说明本轮的输入已经不再自洽，绝不能继续往下解引用 Url，
@@ -487,13 +488,13 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		r.logStreamURLRetry(err, r.pendingRetryInterval())
 		return
 	}
-	if info.AudioOnly && time.Now().Before(r.audioFallbackUntil) && streamInfo.AudioFallbackURL != nil {
+	if douyinAudioOnly && time.Now().Before(r.audioFallbackUntil) && streamInfo.AudioFallbackURL != nil {
 		fallback := *streamInfo
 		fallback.Url = streamInfo.AudioFallbackURL
 		fallback.AudioFallbackURL = nil
 		streamInfo = &fallback
 	}
-	usingAudioStream := info.AudioOnly && streamInfo.AudioFallbackURL != nil
+	usingAudioStream := douyinAudioOnly && streamInfo.AudioFallbackURL != nil
 	r.saveCurrentStreamInfo(streamInfo)
 	// 更新可用流信息到 info（用于API展示）
 	r.updateAvailableStreams(ctx, info, streamInfos)
@@ -524,13 +525,13 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	}
 	// 使用层级配置的下载器类型
 	downloaderType := resolvedConfig.Feature.GetEffectiveDownloaderType()
-	// 纯音频输出需要解封装为 AAC，原生 FLV 和录播姬下载器不能输出此格式。
-	if info.AudioOnly {
+	// 仅抖音纯音频及其视频回退需要强制 FFmpeg，其他平台沿用原下载器配置。
+	if douyinAudioOnly {
 		downloaderType = configs.DownloaderFFmpeg
 	}
 
 	// 如果启用了 FLV 代理分段且使用 FFmpeg 下载器，传递配置
-	if !info.AudioOnly && resolvedConfig.Feature.EnableFlvProxySegment && downloaderType == configs.DownloaderFFmpeg {
+	if !douyinAudioOnly && resolvedConfig.Feature.EnableFlvProxySegment && downloaderType == configs.DownloaderFFmpeg {
 		parserCfg["use_flv_proxy"] = "true"
 	}
 
