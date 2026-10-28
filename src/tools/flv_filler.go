@@ -23,6 +23,15 @@ type fillerFingerprint struct {
 	fillerBytes, fillerUnits     int64
 }
 
+// 两种体积路径共用严格的原片扫描与填充比较，输出指纹复用已有扫描结果。
+func verifyFillerRemoval(ctx context.Context, input string, output fillerFingerprint) (fillerEvidence, error) {
+	_, source, err := inspectWithoutFiller(ctx, input)
+	if err != nil {
+		return fillerEvidence{}, err
+	}
+	return compareFillerRemoval(source, output)
+}
+
 func compareFillerRemoval(source, output fillerFingerprint) (fillerEvidence, error) {
 	var evidence fillerEvidence
 	// 时间戳、包边界、编码参数和所有非填充数据都必须完全相同；不使用百分比容差。

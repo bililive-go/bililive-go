@@ -926,3 +926,26 @@ func FixFlvByBililiveRecorderWithPID(ctx context.Context, fileName string, onPID
 		return dotnet.CreateExecuteCmd(recorder.GetToolPath(), "tool", "fix", input, output, "--json-indented")
 	})
 }
+
+// HasDecodableAudio 仅解码本地录音开头的一帧，区分有效输出与空壳/损坏数据。
+// 限定输出采样率和声道，超时或工具不可用返回错误，避免误判为直播源不兼容。
+func HasDecodableAudio(ctx context.Context, ffmpegPath, path string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, ffmpegPath, "-nostdin", "-v", "error", "-i", path,
+		"-map", "0:a:0", "-frames:a", "1", "-ar", "8000", "-ac", "1", "-f", "s16le", "pipe:1")
+	var output tailWriter
+	cmd.Stdout = &output
+	err := cmd.Run()
+	if ctx.Err() != nil {
+		return false, ctx.Err()
+	}
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return false, nil
+		}
+		return false, err
+	}
+	return len(output.data) > 0, nil
+}

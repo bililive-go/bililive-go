@@ -726,7 +726,9 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	r.setCurrentFilePath(fileName)
 
 	r.getLogger().Debugln("Start ParseLiveStream(" + url.String() + ", " + fileName + ")")
+	audioStartedAt := time.Now()
 	err = r.parser.ParseLiveStream(ctx, streamInfo, r.Live, fileName)
+	audioDuration := time.Since(audioStartedAt)
 
 	// 清除当前录制文件路径
 	r.setCurrentFilePath("")
@@ -745,13 +747,29 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	// 连续秒退则说明源此刻录不了，应该把下一次尝试推后。
 	r.lastAttemptHeldStream = time.Since(parseStartedAt) >= fastFailThreshold
 
-	if usingAudioStream && err == nil {
-		if fi, statErr := os.Stat(fileName); statErr != nil || fi.Size() == 0 {
-			err = fmt.Errorf("纯音频流未产生有效输出")
+	audioInvalid := false
+	if usingAudioStream && ctx.Err() == nil && r.canRetryAudioFallback() {
+		fi, statErr := os.Stat(fileName)
+		audioInvalid = statErr != nil || fi.Size() == 0
+		if !audioInvalid {
+			ffmpegPath, probeErr := utils.GetFFmpegPathForLive(ctx, r.Live)
+			if probeErr == nil {
+				var valid bool
+				valid, probeErr = tools.HasDecodableAudio(ctx, ffmpegPath, fileName)
+				if probeErr == nil {
+					audioInvalid = !valid
+				}
+			}
+			if probeErr != nil && ctx.Err() == nil {
+				r.getLogger().WithError(probeErr).Warn("纯音频有效性检查未完成，保留录音并沿用录制结果")
+			}
+		}
+		if audioInvalid && err == nil {
+			err = fmt.Errorf("纯音频流未产生可解码的音频")
 		}
 	}
 	if err != nil {
-		if usingAudioStream && ctx.Err() == nil && r.canRetryAudioFallback() {
+		if usingAudioStream && (audioDuration < fastFailThreshold || audioInvalid) && ctx.Err() == nil && r.canRetryAudioFallback() {
 			r.audioFallbackUntil = time.Now().Add(10 * time.Minute)
 			r.getLogger().Warn("纯音频拉取不兼容，下次重试改用原视频流提取音频，10 分钟后再尝试纯音频")
 		} else {
