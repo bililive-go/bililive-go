@@ -448,7 +448,12 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	r.resetRetryLogState()
 
 	obj, _ := r.cache.Get(r.Live)
-	info := obj.(*live.Info)
+	// 录制模式只在本轮启动时确定，不修改监听器共享缓存或中断当前下载。
+	infoCopy := *obj.(*live.Info)
+	info := &infoCopy
+	if roomErr == nil {
+		info.AudioOnly = room.AudioOnly
+	}
 
 	tmpl := getDefaultFileNameTmpl()
 	// 使用层级配置的 OutputTmpl
@@ -475,7 +480,6 @@ func (r *recorder) tryRecord(ctx context.Context) {
 
 	// 按本轮固定下来的偏好选流
 	streamInfo := r.selectPreferredStream(streamInfos, preference)
-	douyinAudioOnly := info.AudioOnly && r.Live.GetPlatformCNName() == "抖音"
 	if streamInfo == nil || streamInfo.Url == nil {
 		// 选中的这一路没有播放地址：延迟解析的列表里除被解析的那一路之外只有元信息。
 		// 走到这里说明本轮的输入已经不再自洽，绝不能继续往下解引用 Url，
@@ -488,6 +492,10 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		r.logStreamURLRetry(err, r.pendingRetryInterval())
 		return
 	}
+	if streamInfo.RecordingAudioOnly != nil {
+		info.AudioOnly = *streamInfo.RecordingAudioOnly
+	}
+	douyinAudioOnly := info.AudioOnly && r.Live.GetPlatformCNName() == "抖音"
 	if douyinAudioOnly && time.Now().Before(r.audioFallbackUntil) && streamInfo.AudioFallbackURL != nil {
 		fallback := *streamInfo
 		fallback.Url = streamInfo.AudioFallbackURL

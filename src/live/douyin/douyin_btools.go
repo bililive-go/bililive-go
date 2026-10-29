@@ -144,7 +144,7 @@ func (l *btoolsLive) fetchLiveInfo() (liveInfo liveInfoResp, err error) {
 	return liveInfo, nil
 }
 
-func (l *btoolsLive) fetchStreamInfo() (streamInfo streamInfoResp, err error) {
+func (l *btoolsLive) fetchStreamInfo(audioOnly bool) (streamInfo streamInfoResp, err error) {
 	if l.roomId == "" {
 		err = l.updateChannelInfo()
 		if err != nil {
@@ -153,7 +153,7 @@ func (l *btoolsLive) fetchStreamInfo() (streamInfo streamInfoResp, err error) {
 	}
 
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d/bgo/stream-info?platform=douyin&roomId=%s", btoolsConsts.port, url.QueryEscape(l.roomId))
-	if l.Options != nil && l.Options.AudioOnly {
+	if audioOnly {
 		// 只取解析元数据，不下载默认的视频流，也不需要修改配套工具。
 		endpoint += "&dev=1"
 	}
@@ -161,7 +161,7 @@ func (l *btoolsLive) fetchStreamInfo() (streamInfo streamInfoResp, err error) {
 	if err == nil {
 		err = json.Unmarshal(body, &streamInfo)
 	}
-	if err != nil && l.Options != nil && l.Options.AudioOnly {
+	if err != nil && audioOnly {
 		// 兼容不支持 dev 响应的旧工具；重新走原来的视频取流接口。
 		endpoint = fmt.Sprintf("http://127.0.0.1:%d/bgo/stream-info?platform=douyin&roomId=%s", btoolsConsts.port, url.QueryEscape(l.roomId))
 		body, err = doBToolsRequest(endpoint)
@@ -172,7 +172,7 @@ func (l *btoolsLive) fetchStreamInfo() (streamInfo streamInfoResp, err error) {
 	if err != nil {
 		return streamInfo, err
 	}
-	if l.Options != nil && l.Options.AudioOnly {
+	if audioOnly {
 		audioURL, err := streamInfo.audioStreamURL()
 		if err == nil {
 			streamInfo.VideoFallback = streamInfo.Stream
@@ -209,7 +209,7 @@ func (l *btoolsLive) GetInfo() (info *live.Info, err error) {
 		HostName:  l.hostName,
 		RoomName:  l.roomName,
 		Status:    false,
-		AudioOnly: l.Options != nil && l.Options.AudioOnly,
+		AudioOnly: live.RecordingAudioOnly(l, nil),
 	}
 
 	var liveInfo liveInfoResp
@@ -232,7 +232,8 @@ func (l *btoolsLive) GetStreamInfos() (us []*live.StreamUrlInfo, err error) {
 		}
 	}
 	var streamInfo streamInfoResp
-	streamInfo, err = l.fetchStreamInfo()
+	audioOnly := live.RecordingAudioOnly(l, nil)
+	streamInfo, err = l.fetchStreamInfo(audioOnly)
 	if err != nil {
 		return
 	}
@@ -251,8 +252,9 @@ func (l *btoolsLive) GetStreamInfos() (us []*live.StreamUrlInfo, err error) {
 	}
 	return []*live.StreamUrlInfo{
 		{
-			Url:              u,
-			AudioFallbackURL: fallback,
+			Url:                u,
+			AudioFallbackURL:   fallback,
+			RecordingAudioOnly: &audioOnly,
 		},
 	}, nil
 }

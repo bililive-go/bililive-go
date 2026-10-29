@@ -64,7 +64,8 @@ func parseInfo(ctx context.Context, l live.Live) *live.Info {
 			Initializing: true,
 		}
 	} else {
-		info = obj.(*live.Info)
+		cached := *obj.(*live.Info)
+		info = &cached
 	}
 
 	info.Listening = inst.ListenerManager.(listeners.Manager).HasListener(ctx, l.GetLiveId())
@@ -72,7 +73,7 @@ func parseInfo(ctx context.Context, l live.Live) *live.Info {
 	// HasRecorder=true 但输出文件没有数据时，说明在重试（获取流 URL、连接失败等）
 	// 前端应显示"录制准备中"而非"录制中"，避免用户误以为正在正常录制
 	//
-	// 注意：info 是从缓存获取的共享对象，必须先重置两个互斥字段，
+	// 注意：info 是缓存的局部副本，必须先重置两个互斥字段，
 	// 否则前一次调用的残留值会导致 recording=true + recording_preparing=true 同时返回
 	info.Recording = false
 	info.RecordingPreparing = false
@@ -91,6 +92,9 @@ func parseInfo(ctx context.Context, l live.Live) *live.Info {
 	if info.RoomName == "" {
 		info.RoomName = l.GetRawUrl()
 	}
+
+	// 返回已保存的音频选项，不修改当前录制使用的快照。
+	info.AudioOnly = live.RecordingAudioOnly(l, nil)
 
 	// 设置 NotifyOnly 状态
 	info.NotifyOnly = false

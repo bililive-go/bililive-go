@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/live"
 	"github.com/bililive-go/bililive-go/src/live/bilibili"
 	"github.com/hr3lxphr6j/requests"
@@ -48,6 +49,27 @@ func TestBilibili412KeepsLiveStatus(t *testing.T) {
 	}
 	if userRequests != 1 {
 		t.Fatalf("失败后没有退避: requests=%d", userRequests)
+	}
+}
+
+func TestSavedAudioModeAppliesWithoutChangingActiveStream(t *testing.T) {
+	previous := configs.GetCurrentConfig()
+	t.Cleanup(func() { configs.SetCurrentConfig(previous) })
+	l := &bilibili.Live{}
+	l.Url, _ = url.Parse("https://live.bilibili.com/123")
+	l.Options = live.MustNewOptions()
+	configs.SetCurrentConfig(&configs.Config{LiveRooms: []configs.LiveRoom{{Url: l.GetRawUrl()}}})
+	activeMode := live.RecordingAudioOnly(l, nil)
+	activeStream := &live.StreamUrlInfo{RecordingAudioOnly: &activeMode}
+	for _, enabled := range []bool{true, false, true} {
+		_, err := configs.UpdateWithRetryTransient(func(c *configs.Config) error {
+			c.LiveRooms[0].AudioOnly = enabled
+			return nil
+		}, 3, time.Millisecond)
+		require.NoError(t, err)
+		require.Equal(t, enabled, live.RecordingAudioOnly(l, nil), "下一轮必须使用已保存配置")
+		require.False(t, live.RecordingAudioOnly(l, activeStream), "当前取流快照不能被修改")
+		require.False(t, l.Options.AudioOnly, "不并发修改平台共享选项")
 	}
 }
 
