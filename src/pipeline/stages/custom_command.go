@@ -246,6 +246,11 @@ func (s *DeleteSourceStage) Execute(ctx *pipeline.PipelineContext, input []pipel
 			}
 		}
 
+		if preserve, _ := file.Metadata["preserve_original"].(bool); preserve {
+			s.logs += fmt.Sprintf("保留修复回退的原始录像: %s\n", file.Path)
+			output = append(output, file)
+			continue
+		}
 		// 删除文件
 		if err := os.Remove(file.Path); err != nil && !os.IsNotExist(err) {
 			s.logs += fmt.Sprintf("删除失败: %s - %s\n", file.Path, err.Error())

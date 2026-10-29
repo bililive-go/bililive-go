@@ -174,7 +174,26 @@ func WithNickName(nickName string) Option {
 	}
 }
 
+// RecordingAudioOnly 读取已提交配置；取流已开始时沿用该次快照，避免下载格式与流不一致。
+func RecordingAudioOnly(l Live, stream *StreamUrlInfo) bool {
+	if stream != nil && stream.RecordingAudioOnly != nil {
+		return *stream.RecordingAudioOnly
+	}
+	if cfg := configs.GetCurrentConfig(); cfg != nil {
+		if room, err := cfg.GetLiveRoomByUrl(l.GetRawUrl()); err == nil {
+			return room.AudioOnly
+		}
+	}
+	return l.GetOptions() != nil && l.GetOptions().AudioOnly
+}
+
 type StreamUrlInfo struct {
+	// 本次取流使用的录制模式；nil 表示沿用房间配置。
+	RecordingAudioOnly *bool `json:"-"`
+
+	// 纯音频拉取失败时的原视频地址；仅用于仍输出音频的兼容回退。
+	AudioFallbackURL *url.URL `json:"-"`
+
 	Url         *url.URL
 	Name        string
 	Description string

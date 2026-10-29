@@ -1,6 +1,7 @@
 package stages
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ type FixFlvStage struct {
 	config   pipeline.StageConfig
 	commands []string
 	logs     string
+	repair   func(context.Context, string) ([]string, error)
 }
 
 // NewFixFlvStage 创建 FLV 修复阶段工厂
@@ -52,12 +54,11 @@ func (s *FixFlvStage) Execute(ctx *pipeline.PipelineContext, input []pipeline.Fi
 		}
 
 		// 检查文件是否存在
-		if _, err := os.Stat(file.Path); os.IsNotExist(err) {
-			s.logs += fmt.Sprintf("文件不存在: %s\n", file.Path)
-			continue
+		if _, err := os.Stat(file.Path); err != nil {
+			return nil, fmt.Errorf("无法访问原片 %s: %w", file.Path, err)
 		}
 
-		ctx.Logger.Infof("使用 BililiveRecorder 修复 FLV 文件: %s", file.Path)
+		ctx.Logger.Infof("使用 BililiveRecorder 修复 FLV 文件（验证后安全替换）: %s", file.Path)
 
 		// 记录命令
 		command := s.buildCommand(file.Path)
@@ -66,10 +67,32 @@ func (s *FixFlvStage) Execute(ctx *pipeline.PipelineContext, input []pipeline.Fi
 		}
 
 		// 执行修复
-		outputFiles, err := tools.FixFlvByBililiveRecorder(ctx.Ctx, file.Path)
+		repair := s.repair
+		if repair == nil {
+			repair = tools.FixFlvByBililiveRecorder
+		}
+		outputFiles, err := repair(ctx.Ctx, file.Path)
 		if err != nil {
 			s.logs += fmt.Sprintf("修复失败: %s - %s\n", file.Path, err.Error())
-			return nil, fmt.Errorf("fix FLV failed for %s: %w", file.Path, err)
+			if ctx.Ctx.Err() != nil {
+				return nil, ctx.Ctx.Err()
+			}
+			if _, probeErr := tools.InspectFLV(ctx.Ctx, file.Path); probeErr != nil {
+				return nil, fmt.Errorf("修复失败且原片结构检查失败: %v; %w", err, probeErr)
+			}
+			// 创建独立元数据，避免并行阶段共享 map 产生竞争。
+			metadata := make(map[string]any, len(file.Metadata)+2)
+			for k, v := range file.Metadata {
+				metadata[k] = v
+			}
+			metadata["preserve_original"] = true
+			metadata["fix_flv_warning"] = err.Error()
+			file.Metadata = metadata
+			file.Deletable = false
+			output = append(output, file)
+			s.logs += "警告：修复未完成，原片结构扫描通过，保留原片并继续后处理（不代表逐帧解码通过）。\n"
+			ctx.Logger.Warnf("修复未完成，使用已通过结构扫描的原片: %s: %v", file.Path, err)
+			continue
 		}
 
 		// 添加输出文件
@@ -81,10 +104,15 @@ func (s *FixFlvStage) Execute(ctx *pipeline.PipelineContext, input []pipeline.Fi
 			})
 		}
 
-		if len(outputFiles) > 1 {
-			s.logs += fmt.Sprintf("修复完成: %s -> %d 个分段文件\n", filepath.Base(file.Path), len(outputFiles))
+		_, originalErr := os.Stat(file.Path)
+		if len(outputFiles) > 0 && outputFiles[0] != file.Path && originalErr == nil {
+			warning := fmt.Sprintf("修复产物已单独发布，无法证明可安全替换损坏原片，原片保留: %s\n", file.Path)
+			s.logs += warning
+			ctx.Logger.Warn(warning)
+		} else if len(outputFiles) > 1 {
+			s.logs += fmt.Sprintf("修复完成，分段已发布至原录像目录并删除原片: %s -> %d 个分段文件\n", filepath.Base(file.Path), len(outputFiles))
 		} else if len(outputFiles) == 1 {
-			s.logs += fmt.Sprintf("修复完成: %s\n", filepath.Base(file.Path))
+			s.logs += fmt.Sprintf("修复完成，验证通过并安全替换原片: %s\n", outputFiles[0])
 		}
 
 		ctx.Logger.Infof("FLV 修复完成: %s -> %d 个文件", file.Path, len(outputFiles))
@@ -114,7 +142,7 @@ func (s *FixFlvStage) buildCommand(inputFile string) string {
 		dotnet.GetToolPath(),
 		bililiveRecorder.GetToolPath(),
 		inputFile,
-		inputFile,
+		filepath.Join(filepath.Dir(inputFile), ".bililive-fix-<随机目录>", filepath.Base(inputFile)),
 	)
 }
 

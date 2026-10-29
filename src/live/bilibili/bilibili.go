@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/hr3lxphr6j/requests"
 	"github.com/tidwall/gjson"
@@ -44,6 +46,11 @@ func (b *builder) Build(url *url.URL) (live.Live, error) {
 type Live struct {
 	internal.BaseLive
 	realID string
+
+	// 主播资料不是开播检测的前置条件，成功缓存、失败退避。
+	hostMu          sync.Mutex
+	hostName        string
+	nextHostRefresh time.Time
 }
 
 func (l *Live) parseRealId() error {
@@ -110,27 +117,64 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 		Live:      l,
 		RoomName:  gjson.GetBytes(body, "data.title").String(),
 		Status:    gjson.GetBytes(body, "data.live_status").Int() == 1,
-		AudioOnly: l.Options.AudioOnly,
+		AudioOnly: live.RecordingAudioOnly(l, nil),
 	}
 
-	resp, err = l.RequestSession.Get(userApiUrl, live.CommonUserAgent, requests.Query("roomid", l.realID))
+	info.HostName = l.getHostName(cookieKVs)
+	return info, nil
+}
+
+// getHostName 将非关键的主播资料请求与房间状态解耦。
+// 返回 412、业务错误或网络错误时仍可使用刚取得的开播状态。
+func (l *Live) getHostName(cookies map[string]string) string {
+	l.hostMu.Lock()
+	defer l.hostMu.Unlock()
+	fallback := l.hostName
+	if fallback == "" {
+		fallback = "房间" + l.realID
+	}
+	if time.Now().Before(l.nextHostRefresh) {
+		return fallback
+	}
+	// 失败时五分钟后才重试，避免每轮开播检测重复触发风控。
+	l.nextHostRefresh = time.Now().Add(5 * time.Minute)
+	name, err := l.fetchHostName(cookies)
 	if err != nil {
-		return nil, err
+		if logger := l.GetLogger(); logger != nil {
+			logger.WithError(err).Warn("获取主播资料失败，保留房间状态并使用缓存名称，5 分钟后重试")
+		}
+		return fallback
+	}
+	l.hostName = name
+	l.nextHostRefresh = time.Now().Add(6 * time.Hour)
+	return name
+}
+
+func (l *Live) fetchHostName(cookies map[string]string) (string, error) {
+	resp, err := l.RequestSession.Get(userApiUrl, live.CommonUserAgent,
+		requests.Query("roomid", l.realID), requests.Cookies(cookies))
+	if err != nil {
+		return "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("response code %d from user api", resp.StatusCode)
+		return "", fmt.Errorf("response code %d from user api", resp.StatusCode)
 	}
-	body, err = resp.Bytes()
+	body, err := resp.Bytes()
 	if err != nil {
-		return nil, err
+		return "", err
+	}
+	if !gjson.ValidBytes(body) {
+		return "", fmt.Errorf("invalid response from user api")
 	}
 	if gjson.GetBytes(body, "code").Int() != 0 {
-		return nil, fmt.Errorf("error code %d from user api", gjson.GetBytes(body, "code").Int())
+		return "", fmt.Errorf("error code %d from user api", gjson.GetBytes(body, "code").Int())
 	}
-
-	info.HostName = gjson.GetBytes(body, "data.info.uname").String()
-	return info, nil
+	name := gjson.GetBytes(body, "data.info.uname").String()
+	if strings.TrimSpace(name) == "" {
+		return "", fmt.Errorf("empty host name from user api")
+	}
+	return name, nil
 }
 
 func (l *Live) GetStreamInfos() (infos []*live.StreamUrlInfo, err error) {

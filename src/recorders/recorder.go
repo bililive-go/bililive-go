@@ -281,15 +281,15 @@ var (
 // 分段重启时新旧 recorder 通过 redirect 链共享同一份状态，
 // 确保旧任务的回调能正确递减新 recorder 的计数器
 type pipelineSharedState struct {
-	mu             sync.Mutex
-	pendingCount   int                          // 尚未完成的 Pipeline 任务数
-	enqueued       bool                         // 是否有 Pipeline 任务已入队
-	summarySent    bool                         // 摘要是否已发送（幂等保护）
-	runExited      bool                         // run() 是否已退出（defer 中置位，回调中检查）
-	details        []notify.RecordingFileDetail // 收集的文件详情
-	sourceNames    map[string]bool              // 被 Pipeline 消费的原始文件名（用于合并时排除已删除的源文件）
-	onAllTasksDone func()                       // 所有任务完成时的回调（分段重启时设置）
-	suppressSummary bool                        // 为 true 时，run() 退出不推送摘要（分段重启场景），用 mu 保护
+	mu              sync.Mutex
+	pendingCount    int                                 // 尚未完成的 Pipeline 任务数
+	enqueued        bool                                // 是否有 Pipeline 任务已入队
+	summarySent     bool                                // 摘要是否已发送（幂等保护）
+	runExited       bool                                // run() 是否已退出（defer 中置位，回调中检查）
+	details         []notify.RecordingFileDetail        // 收集的文件详情
+	sourceNames     map[string]bool                     // 被 Pipeline 消费的原始文件名（用于合并时排除已删除的源文件）
+	onAllTasksDone  func()                              // 所有任务完成时的回调（分段重启时设置）
+	suppressSummary bool                                // 为 true 时，run() 退出不推送摘要（分段重启场景），用 mu 保护
 	redirectedTo    atomic.Pointer[pipelineSharedState] // 分段重启时重定向到新 recorder 的共享状态
 }
 
@@ -313,6 +313,9 @@ func resolveState(state *pipelineSharedState) *pipelineSharedState {
 }
 
 type recorder struct {
+	// 纯音频线路失败后短暂回退视频提取，避免反复尝试同一不兼容线路。
+	audioFallbackUntil time.Time
+
 	Live       live.Live
 	ed         events.Dispatcher
 	cache      gcache.Cache
@@ -385,14 +388,14 @@ func NewRecorder(ctx context.Context, live live.Live) (Recorder, error) {
 	inst := instance.GetInstance(ctx)
 
 	return &recorder{
-		Live:            live,
-		cache:           inst.Cache,
-		startTime:       time.Now(),
-		ed:              inst.EventDispatcher.(events.Dispatcher),
-		state:           begin,
-		stop:            make(chan struct{}),
-		done:            make(chan struct{}),
-		parserLock:      new(sync.RWMutex),
+		Live:       live,
+		cache:      inst.Cache,
+		startTime:  time.Now(),
+		ed:         inst.EventDispatcher.(events.Dispatcher),
+		state:      begin,
+		stop:       make(chan struct{}),
+		done:       make(chan struct{}),
+		parserLock: new(sync.RWMutex),
 		pipelineState: &pipelineSharedState{
 			sourceNames: make(map[string]bool),
 		},
@@ -445,7 +448,12 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	r.resetRetryLogState()
 
 	obj, _ := r.cache.Get(r.Live)
-	info := obj.(*live.Info)
+	// 录制模式只在本轮启动时确定，不修改监听器共享缓存或中断当前下载。
+	infoCopy := *obj.(*live.Info)
+	info := &infoCopy
+	if roomErr == nil {
+		info.AudioOnly = room.AudioOnly
+	}
 
 	tmpl := getDefaultFileNameTmpl()
 	// 使用层级配置的 OutputTmpl
@@ -484,6 +492,17 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		r.logStreamURLRetry(err, r.pendingRetryInterval())
 		return
 	}
+	if streamInfo.RecordingAudioOnly != nil {
+		info.AudioOnly = *streamInfo.RecordingAudioOnly
+	}
+	douyinAudioOnly := info.AudioOnly && r.Live.GetPlatformCNName() == "抖音"
+	if douyinAudioOnly && time.Now().Before(r.audioFallbackUntil) && streamInfo.AudioFallbackURL != nil {
+		fallback := *streamInfo
+		fallback.Url = streamInfo.AudioFallbackURL
+		fallback.AudioFallbackURL = nil
+		streamInfo = &fallback
+	}
+	usingAudioStream := douyinAudioOnly && streamInfo.AudioFallbackURL != nil
 	r.saveCurrentStreamInfo(streamInfo)
 	// 更新可用流信息到 info（用于API展示）
 	r.updateAvailableStreams(ctx, info, streamInfos)
@@ -514,9 +533,13 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	}
 	// 使用层级配置的下载器类型
 	downloaderType := resolvedConfig.Feature.GetEffectiveDownloaderType()
+	// 仅抖音纯音频及其视频回退需要强制 FFmpeg，其他平台沿用原下载器配置。
+	if douyinAudioOnly {
+		downloaderType = configs.DownloaderFFmpeg
+	}
 
 	// 如果启用了 FLV 代理分段且使用 FFmpeg 下载器，传递配置
-	if resolvedConfig.Feature.EnableFlvProxySegment && downloaderType == configs.DownloaderFFmpeg {
+	if !douyinAudioOnly && resolvedConfig.Feature.EnableFlvProxySegment && downloaderType == configs.DownloaderFFmpeg {
 		parserCfg["use_flv_proxy"] = "true"
 	}
 
@@ -711,7 +734,9 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	r.setCurrentFilePath(fileName)
 
 	r.getLogger().Debugln("Start ParseLiveStream(" + url.String() + ", " + fileName + ")")
+	audioStartedAt := time.Now()
 	err = r.parser.ParseLiveStream(ctx, streamInfo, r.Live, fileName)
+	audioDuration := time.Since(audioStartedAt)
 
 	// 清除当前录制文件路径
 	r.setCurrentFilePath("")
@@ -730,8 +755,34 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	// 连续秒退则说明源此刻录不了，应该把下一次尝试推后。
 	r.lastAttemptHeldStream = time.Since(parseStartedAt) >= fastFailThreshold
 
+	audioInvalid := false
+	if usingAudioStream && ctx.Err() == nil && r.canRetryAudioFallback() {
+		fi, statErr := os.Stat(fileName)
+		audioInvalid = statErr != nil || fi.Size() == 0
+		if !audioInvalid {
+			ffmpegPath, probeErr := utils.GetFFmpegPathForLive(ctx, r.Live)
+			if probeErr == nil {
+				var valid bool
+				valid, probeErr = tools.HasDecodableAudio(ctx, ffmpegPath, fileName)
+				if probeErr == nil {
+					audioInvalid = !valid
+				}
+			}
+			if probeErr != nil && ctx.Err() == nil {
+				r.getLogger().WithError(probeErr).Warn("纯音频有效性检查未完成，保留录音并沿用录制结果")
+			}
+		}
+		if audioInvalid && err == nil {
+			err = fmt.Errorf("纯音频流未产生可解码的音频")
+		}
+	}
 	if err != nil {
-		r.getLogger().WithError(err).Error("failed to parse live stream")
+		if usingAudioStream && (audioDuration < fastFailThreshold || audioInvalid) && ctx.Err() == nil && r.canRetryAudioFallback() {
+			r.audioFallbackUntil = time.Now().Add(10 * time.Minute)
+			r.getLogger().Warn("纯音频拉取不兼容，下次重试改用原视频流提取音频，10 分钟后再尝试纯音频")
+		} else {
+			r.getLogger().WithError(err).Error("failed to parse live stream")
+		}
 		// 视频流快速失败时（如 404），清理没有对应视频文件的残留弹幕
 		if elapsed := time.Since(r.startTime); elapsed < fastFailThreshold {
 			cleanupOrphanedDanmakuFiles(dmFile)
@@ -1260,8 +1311,8 @@ func (r *recorder) sendAccumulatedSummary() {
 			r.getLogger(),
 			hostName,
 			platform,
-			r.recordedFiles,     // originalFiles（allUploaded 时显示用）
-			merged,              // finalFiles（含未入队分段的文件）
+			r.recordedFiles, // originalFiles（allUploaded 时显示用）
+			merged,          // finalFiles（含未入队分段的文件）
 			outputPath,
 		)
 	} else {
@@ -2105,4 +2156,14 @@ func extractDouyuRoomID(l live.Live) string {
 		return ""
 	}
 	return strings.Trim(u.Path, "/")
+}
+
+// canRetryAudioFallback 避免正常停止录制时误标记为音频线路不兼容。
+func (r *recorder) canRetryAudioFallback() bool {
+	select {
+	case <-r.stop:
+		return false
+	default:
+		return true
+	}
 }
