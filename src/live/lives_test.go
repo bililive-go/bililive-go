@@ -318,6 +318,28 @@ func TestAvailableStreamsCacheUpdateDoesNotWaitForInfoRequest(t *testing.T) {
 	}
 }
 
+func TestSetCachedInfoPreservesStreamsUpdatedInSameSecond(t *testing.T) {
+	cache := gcache.New(10).Build()
+	underlying := &blockingOptionsLive{}
+	underlying.options.Store(&Options{})
+	wrapped := NewWrappedLive(context.Background(), underlying, cache).(*WrappedLive)
+	t.Cleanup(wrapped.Close)
+	if err := cache.Set(wrapped, &Info{AvailableStreams: []*AvailableStreamInfo{{Quality: "HD"}}, AvailableStreamsUpdatedAt: 123}); err != nil {
+		t.Fatal(err)
+	}
+	if err := wrapped.setCachedInfo(&Info{RoomName: "刷新后的标题", AvailableStreamsUpdatedAt: 123}); err != nil {
+		t.Fatal(err)
+	}
+	cached, err := cache.Get(wrapped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := cached.(*Info)
+	if info.RoomName != "刷新后的标题" || len(info.AvailableStreams) != 1 || info.AvailableStreams[0].Quality != "HD" {
+		t.Fatalf("同秒刷新丢失可用流列表: %+v", info)
+	}
+}
+
 func TestRequestStatusCallbackHandlesNilInfoOnFailure(t *testing.T) {
 	callbackCalled := false
 	SetRequestStatusCallback(func(_, _ string, success bool, errMsg string) {

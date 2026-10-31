@@ -785,17 +785,24 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool, notifyOnly b
 	}
 
 	// Live 初始化包含平台网络请求，期间同 URL 的 PATCH 可能已经提交了新选项，但因
-	// 对象尚未注册而无法热应用。注册、重读最新配置、应用选项和启动监听必须与该房间
+	// 对象尚未注册而无法热应用。重读最新配置、应用选项、注册和启动监听必须与该房间
 	// 的 PATCH 共用同一把锁：PATCH 先完成时这里补应用，PATCH 后到时则等待注册完成。
 	err = func() error {
 		unlock := lockRoomLiveOptions(liveRoom, u.String())
 		defer unlock()
 
+		currentRoom, ok := latestRoomForLiveOptions(liveRoom, u.String())
+		if !ok {
+			currentRoom = *liveRoom
+		}
+		if updateErr := newLive.UpdateLiveOptionsbyConfig(ctx, &currentRoom); updateErr != nil {
+			return updateErr
+		}
+		isListen = currentRoom.IsListening
+
 		if !inst.Lives.SetIfAbsent(newLive.GetLiveId(), newLive) {
 			return errors.New("直播间已存在")
 		}
-		// 记录 LiveId 到全局配置（并发安全）
-		configs.SetLiveRoomId(u.String(), newLive.GetLiveId())
 		// 先将房间写入配置，再启动 Listener，确保 sendLiveNotification 能读到 NotifyOnly 等字段
 		if needAppend {
 			if liveRoom == nil {
@@ -803,22 +810,17 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool, notifyOnly b
 			}
 			if persist {
 				if _, appendErr := configs.AppendLiveRoom(*liveRoom); appendErr != nil {
+					inst.Lives.Delete(newLive.GetLiveId())
 					return appendErr
 				}
 			} else {
 				if _, appendErr := configs.AppendLiveRoomTransient(*liveRoom); appendErr != nil {
+					inst.Lives.Delete(newLive.GetLiveId())
 					return appendErr
 				}
 			}
 		}
-
-		currentRoom, ok := latestRoomForLiveOptions(liveRoom, u.String())
-		if ok {
-			if updateErr := newLive.UpdateLiveOptionsbyConfig(ctx, &currentRoom); updateErr != nil {
-				return updateErr
-			}
-			isListen = currentRoom.IsListening
-		}
+		configs.SetLiveRoomId(u.String(), newLive.GetLiveId())
 		if isListen {
 			inst.ListenerManager.(listeners.Manager).AddListener(ctx, newLive)
 		}

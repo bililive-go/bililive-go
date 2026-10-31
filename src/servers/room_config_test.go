@@ -223,6 +223,50 @@ func TestAddLiveImplReappliesConfigChangedDuringBuild(t *testing.T) {
 	assert.Same(t, created, registered)
 }
 
+func TestAddLiveImplOptionFailureDoesNotPublishRoom(t *testing.T) {
+	previousConfig := configs.GetCurrentConfig()
+	previousBuilder := buildLiveForAdd
+	t.Cleanup(func() {
+		configs.SetCurrentConfig(previousConfig)
+		buildLiveForAdd = previousBuilder
+	})
+
+	for _, existing := range []bool{false, true} {
+		t.Run(map[bool]string{false: "新房间", true: "已有配置"}[existing], func(t *testing.T) {
+			const roomURL = "https://live.bilibili.com/123"
+			cfg := configs.NewConfig()
+			cfg.File = filepath.Join(t.TempDir(), "config.yml")
+			if existing {
+				cfg.LiveRooms = []configs.LiveRoom{{Url: roomURL}}
+			}
+			cfg.RefreshLiveRoomIndexCache()
+			configs.SetCurrentConfig(cfg)
+			require.NoError(t, cfg.Marshal())
+
+			created := &recordingLive{rawUrl: roomURL}
+			buildLiveForAdd = func(context.Context, *configs.LiveRoom, gcache.Cache) (live.Live, error) {
+				return &failingRoomConfigLive{Live: created}, nil
+			}
+			inst := &instance.Instance{Cache: gcache.New(10).Build()}
+			ctx := ctxWithInstance(inst)
+			inst.Ctx = ctx
+			listenerManager := listeners.NewManager(ctx)
+
+			_, err := addLiveImpl(ctx, roomURL, true, false, true)
+			require.ErrorContains(t, err, "模拟运行态更新失败")
+			assert.False(t, inst.Lives.Has(created.GetLiveId()))
+			assert.False(t, listenerManager.HasListener(ctx, created.GetLiveId()))
+			room, roomErr := configs.GetCurrentConfig().GetLiveRoomByUrl(roomURL)
+			if existing {
+				require.NoError(t, roomErr)
+				assert.Empty(t, room.LiveId)
+			} else {
+				assert.Error(t, roomErr)
+			}
+		})
+	}
+}
+
 type handoffRoomConfigLive struct {
 	*recordingLive
 	updateStarted chan struct{}

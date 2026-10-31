@@ -377,7 +377,7 @@ func (w *WrappedLive) setCachedInfo(info *Info) error {
 	// 整体提交 Info 时必须保留它，避免短时 cacheMu 只解决阻塞却造成字段丢失。
 	if cached, err := w.cache.Get(w); err == nil {
 		if current, ok := cached.(*Info); ok && current != nil &&
-			current.AvailableStreamsUpdatedAt > updated.AvailableStreamsUpdatedAt {
+			current.AvailableStreamsUpdatedAt > 0 && current.AvailableStreamsUpdatedAt >= updated.AvailableStreamsUpdatedAt {
 			updated.AvailableStreams = current.AvailableStreams
 			updated.AvailableStreamsUpdatedAt = current.AvailableStreamsUpdatedAt
 		}
