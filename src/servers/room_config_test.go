@@ -21,9 +21,11 @@ import (
 
 	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/instance"
+	"github.com/bililive-go/bililive-go/src/listeners"
 	"github.com/bililive-go/bililive-go/src/live"
 	_ "github.com/bililive-go/bililive-go/src/live/bilibili"
 	"github.com/bililive-go/bililive-go/src/live/system"
+	"github.com/bililive-go/bililive-go/src/recorders"
 	"github.com/bililive-go/bililive-go/src/types"
 )
 
@@ -155,6 +157,70 @@ func TestApplyRoomLiveOptionsUsesLatestConfig(t *testing.T) {
 	require.NoError(t, applyRoomLiveOptions(ctxWithInstance(inst), &stale, roomURL))
 	require.Len(t, active.rooms, 1)
 	assert.Equal(t, latest, active.rooms[0], "旧请求必须重新读取并应用最新配置")
+}
+
+func TestAddLiveImplReappliesConfigChangedDuringBuild(t *testing.T) {
+	previousConfig := configs.GetCurrentConfig()
+	previousBuilder := buildLiveForAdd
+	t.Cleanup(func() {
+		configs.SetCurrentConfig(previousConfig)
+		buildLiveForAdd = previousBuilder
+	})
+
+	const roomURL = "https://live.bilibili.com/123"
+	initial := configs.LiveRoom{Url: roomURL, Quality: 10000, NickName: "初始化快照"}
+	cfg := configs.NewConfig()
+	cfg.File = filepath.Join(t.TempDir(), "config.yml")
+	cfg.LiveRooms = []configs.LiveRoom{initial}
+	cfg.RefreshLiveRoomIndexCache()
+	configs.SetCurrentConfig(cfg)
+	require.NoError(t, cfg.Marshal())
+
+	created := &recordingLive{rawUrl: roomURL}
+	buildStarted := make(chan configs.LiveRoom, 1)
+	releaseBuild := make(chan struct{})
+	buildLiveForAdd = func(_ context.Context, room *configs.LiveRoom, _ gcache.Cache) (live.Live, error) {
+		buildStarted <- *room
+		<-releaseBuild
+		return created, nil
+	}
+
+	inst := &instance.Instance{Cache: gcache.New(10).Build()}
+	ctx := ctxWithInstance(inst)
+	inst.Ctx = ctx
+	listeners.NewManager(ctx)
+	recorders.NewManager(ctx)
+
+	addDone := make(chan error, 1)
+	go func() {
+		_, addErr := addLiveImpl(ctx, roomURL, false, false, true)
+		addDone <- addErr
+	}()
+	builtFrom := <-buildStarted
+	assert.Equal(t, initial.Quality, builtFrom.Quality)
+	assert.Equal(t, initial.NickName, builtFrom.NickName)
+
+	// Live 仍在耗时初始化、尚未注册时提交 PATCH；请求此时找不到运行态对象，
+	// 但成功落盘的最新配置必须由注册路径在启动监听前补应用。
+	rec := patchRoomConfig(t, inst, created, false, `{"audio_only":true,"quality":80,"nick_name":"PATCH 后配置"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	close(releaseBuild)
+
+	select {
+	case addErr := <-addDone:
+		require.NoError(t, addErr)
+	case <-time.After(time.Second):
+		t.Fatal("Live 初始化释放后添加流程没有结束")
+	}
+
+	require.Len(t, created.rooms, 1)
+	applied := created.rooms[0]
+	assert.True(t, applied.AudioOnly)
+	assert.Equal(t, 80, applied.Quality)
+	assert.Equal(t, "PATCH 后配置", applied.NickName)
+	registered, ok := inst.Lives.Get(created.GetLiveId())
+	require.True(t, ok)
+	assert.Same(t, created, registered)
 }
 
 type handoffRoomConfigLive struct {

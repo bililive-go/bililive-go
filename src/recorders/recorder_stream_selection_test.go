@@ -307,7 +307,11 @@ func TestTryRecordUsesPinnedAudioModeInsteadOfStaleCache(t *testing.T) {
 	cfg := configs.GetCurrentConfig()
 	cfg.OutputTmpl = "recording.mp4"
 	cfg.OutPutPath = t.TempDir()
-	cfg.FfmpegPath = "/bin/true"
+	testExecutable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("获取测试程序路径失败: %v", err)
+	}
+	cfg.FfmpegPath = testExecutable
 	cfg.Feature.DownloaderType = configs.DownloaderNative
 
 	l, _ := newDeferredLive(t, sampleCandidates(), nil)

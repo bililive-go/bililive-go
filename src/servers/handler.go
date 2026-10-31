@@ -719,6 +719,9 @@ func addLives(writer http.ResponseWriter, r *http.Request) {
 	writeJSON(writer, info)
 }
 
+// buildLiveForAdd 允许并发回归测试把耗时初始化精确停在配置更新窗口。
+var buildLiveForAdd = live.New
+
 func addLiveImpl(ctx context.Context, urlStr string, isListen bool, notifyOnly bool, persist bool) (info *live.Info, err error) {
 	if !strings.HasPrefix(urlStr, "http://") && !strings.HasPrefix(urlStr, "https://") {
 		urlStr = "https://" + urlStr
@@ -776,33 +779,55 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool, notifyOnly b
 		}
 		needAppend = true
 	}
-	newLive, err := live.New(ctx, liveRoom, inst.Cache)
+	newLive, err := buildLiveForAdd(ctx, liveRoom, inst.Cache)
 	if err != nil {
 		return nil, err
 	}
-	if !inst.Lives.SetIfAbsent(newLive.GetLiveId(), newLive) {
-		return nil, errors.New("直播间已存在")
-	}
-	// 记录 LiveId 到全局配置（并发安全）
-	configs.SetLiveRoomId(u.String(), newLive.GetLiveId())
-	// 先将房间写入配置，再启动 Listener，确保 sendLiveNotification 能读到 NotifyOnly 等字段
-	if needAppend {
-		if liveRoom == nil {
-			return nil, errors.New("liveRoom is nil, cannot append to LiveRooms")
+
+	// Live 初始化包含平台网络请求，期间同 URL 的 PATCH 可能已经提交了新选项，但因
+	// 对象尚未注册而无法热应用。注册、重读最新配置、应用选项和启动监听必须与该房间
+	// 的 PATCH 共用同一把锁：PATCH 先完成时这里补应用，PATCH 后到时则等待注册完成。
+	err = func() error {
+		unlock := lockRoomLiveOptions(liveRoom, u.String())
+		defer unlock()
+
+		if !inst.Lives.SetIfAbsent(newLive.GetLiveId(), newLive) {
+			return errors.New("直播间已存在")
 		}
-		if persist {
-			if _, err := configs.AppendLiveRoom(*liveRoom); err != nil {
-				return nil, err
+		// 记录 LiveId 到全局配置（并发安全）
+		configs.SetLiveRoomId(u.String(), newLive.GetLiveId())
+		// 先将房间写入配置，再启动 Listener，确保 sendLiveNotification 能读到 NotifyOnly 等字段
+		if needAppend {
+			if liveRoom == nil {
+				return errors.New("liveRoom is nil, cannot append to LiveRooms")
 			}
-		} else {
-			if _, err := configs.AppendLiveRoomTransient(*liveRoom); err != nil {
-				return nil, err
+			if persist {
+				if _, appendErr := configs.AppendLiveRoom(*liveRoom); appendErr != nil {
+					return appendErr
+				}
+			} else {
+				if _, appendErr := configs.AppendLiveRoomTransient(*liveRoom); appendErr != nil {
+					return appendErr
+				}
 			}
 		}
+
+		currentRoom, ok := latestRoomForLiveOptions(liveRoom, u.String())
+		if ok {
+			if updateErr := newLive.UpdateLiveOptionsbyConfig(ctx, &currentRoom); updateErr != nil {
+				return updateErr
+			}
+			isListen = currentRoom.IsListening
+		}
+		if isListen {
+			inst.ListenerManager.(listeners.Manager).AddListener(ctx, newLive)
+		}
+		return nil
+	}()
+	if err != nil {
+		return nil, err
 	}
-	if isListen {
-		inst.ListenerManager.(listeners.Manager).AddListener(ctx, newLive)
-	}
+
 	info = parseInfo(ctx, newLive)
 	// 广播直播间列表变更事件
 	GetSSEHub().BroadcastListChange(newLive.GetLiveId(), "room_added", map[string]interface{}{
