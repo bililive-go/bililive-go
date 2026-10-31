@@ -173,7 +173,7 @@ func TestWrappedLiveSerializesConcurrentGetInfo(t *testing.T) {
 	}
 }
 
-func TestWrappedLiveSerializesOptionUpdateWithInfoCache(t *testing.T) {
+func TestWrappedLiveOptionUpdateDoesNotWaitForInfoRequest(t *testing.T) {
 	cache := gcache.New(10).Build()
 	underlying := &blockingOptionsLive{
 		infoStarted: make(chan struct{}),
@@ -199,15 +199,15 @@ func TestWrappedLiveSerializesOptionUpdateWithInfoCache(t *testing.T) {
 	}()
 	select {
 	case err := <-updateDone:
-		t.Fatalf("在途 GetInfo 完成前选项更新不应返回，err=%v", err)
-	case <-time.After(50 * time.Millisecond):
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("选项更新被在途平台请求阻塞")
 	}
 
 	close(underlying.releaseInfo)
 	if err := <-infoDone; err != nil {
-		t.Fatal(err)
-	}
-	if err := <-updateDone; err != nil {
 		t.Fatal(err)
 	}
 

@@ -295,7 +295,7 @@ type SchedulerStatusProvider interface {
 type WrappedLive struct {
 	Live
 	cache gcache.Cache
-	// requestMu 串行化同一直播间的直接刷新与调度刷新，并让选项更新等待在途刷新提交。
+	// requestMu 只串行化同一直播间的直接刷新与调度刷新。
 	requestMu sync.Mutex
 	// cacheMu 只保护缓存的短时读改写。录制器更新展示用流列表时不能等待 requestMu
 	// 覆盖的平台许可排队和网络请求，否则会延迟真正的录制启动。
@@ -361,6 +361,13 @@ func (w *WrappedLive) setCachedInfo(info *Info) error {
 	defer w.cacheMu.Unlock()
 
 	updated := *info
+	// GetInfo 可能在房间选项更新前已经按旧快照构造结果。选项本身已经原子替换，
+	// 整体提交缓存时再按当前快照校正，保存接口就无需等待覆盖网络请求的 requestMu。
+	if w.roomOptionsControlAudioMode() {
+		if options := w.GetOptions(); options != nil {
+			updated.AudioOnly = options.AudioOnly
+		}
+	}
 	// 平台刷新和初始化注入不负责可用流列表；若录制器在请求期间已经写入了更新的列表，
 	// 整体提交 Info 时必须保留它，避免短时 cacheMu 只解决阻塞却造成字段丢失。
 	if cached, err := w.cache.Get(w); err == nil {
@@ -373,12 +380,10 @@ func (w *WrappedLive) setCachedInfo(info *Info) error {
 	return w.cache.Set(w, &updated)
 }
 
-// UpdateLiveOptionsbyConfig 把底层选项更新与 GetInfo 的缓存提交放进同一临界区。
-// 这样在途请求只能先写入旧结果、再由本方法用新配置修正缓存，不能反向覆盖。
+// UpdateLiveOptionsbyConfig 先原子替换底层选项，再通过短时 cacheMu 修正已有缓存。
+// GetInfo 提交整份缓存时也会按当前选项校正 AudioOnly，因此这里不必等待包含平台排队
+// 和网络请求的 requestMu，HTTP 保存接口不会被慢轮询长时间拖住。
 func (w *WrappedLive) UpdateLiveOptionsbyConfig(ctx context.Context, room *configs.LiveRoom) error {
-	w.requestMu.Lock()
-	defer w.requestMu.Unlock()
-
 	if err := w.Live.UpdateLiveOptionsbyConfig(ctx, room); err != nil {
 		return err
 	}
@@ -575,14 +580,7 @@ func (w *WrappedLive) SeedInfo(info *Info) error {
 	seeded := *info
 	seeded.Live = w
 	seeded.LastError = ""
-	// 初始化请求可能在房间选项热更新之前已经生成。若新包装器发布后、SeedInfo 之前
-	// 恰好完成了设置保存，缓存当时还不存在；这里必须以底层 Live 的当前选项校正，
-	// 不能把初始化请求携带的旧音频模式重新注入缓存。
-	if w.roomOptionsControlAudioMode() {
-		if options := w.GetOptions(); options != nil {
-			seeded.AudioOnly = options.AudioOnly
-		}
-	}
+	// setCachedInfo 会按底层 Live 的当前选项校正初始化请求携带的旧音频模式。
 	return w.setCachedInfo(&seeded)
 }
 
