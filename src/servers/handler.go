@@ -1003,6 +1003,15 @@ func removeLiveImpl(ctx context.Context, live live.Live) error {
 			return err
 		}
 	}
+	// ListenStop 默认异步派发，而且同 ID 的房间可能已经以“不监听”状态重新添加。
+	// 这两种情况下删除请求返回时 recorder 仍可能留在 manager 中，后续切流会重启
+	// 这个孤儿 recorder，优雅更新也会一直认为有活跃录制。无论当前是否有 listener，
+	// 删除房间都同步兜底回收同 ID recorder；并发的 ListenStop 先一步回收时忽略不存在错误。
+	if recorderMgr, ok := inst.RecorderManager.(recorders.Manager); ok && recorderMgr.HasRecorder(ctx, liveId) {
+		if err := recorderMgr.RemoveRecorder(ctx, liveId); err != nil && !errors.Is(err, recorders.ErrRecorderNotExist) {
+			return err
+		}
+	}
 	inst.Lives.Delete(liveId)
 	if _, err := configs.RemoveLiveRoomByUrl(live.GetRawUrl()); err != nil {
 		return err

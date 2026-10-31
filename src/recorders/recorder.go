@@ -693,7 +693,9 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		r.getLogger().WithError(err).Error("failed to init parse")
 		return
 	}
-	r.setAndCloseParser(p)
+	if !r.setAndCloseParser(p) {
+		return
+	}
 	r.startTime = time.Now()
 	parseStartedAt := r.startTime
 
@@ -1521,7 +1523,13 @@ func (r *recorder) getParser() parser.Parser {
 	return r.parser
 }
 
-func (r *recorder) setAndCloseParser(p parser.Parser) {
+// setAndCloseParser 替换当前 parser，并返回新 parser 是否成功安装。
+//
+// recorder.Close 可能发生在 tryRecord 完成取流、创建 parser 之前。此时 Close
+// 看不到 parser，只能先关闭 r.stop；迟到的 parser 若仍被安装并启动，run 将永远
+// 无法退出，CloseForRestart 也会一直等待 r.done。parserLock 使安装与 Close 的
+// getParser 互斥，并在同一临界区检查 stop，确保关闭不会漏掉正在交接的 parser。
+func (r *recorder) setAndCloseParser(p parser.Parser) bool {
 	r.parserLock.Lock()
 	defer r.parserLock.Unlock()
 	if r.parser != nil {
@@ -1529,7 +1537,19 @@ func (r *recorder) setAndCloseParser(p parser.Parser) {
 			r.getLogger().WithError(err).Warn("failed to end recorder")
 		}
 	}
+	select {
+	case <-r.stop:
+		if p != nil {
+			if err := p.Stop(); err != nil {
+				r.getLogger().WithError(err).Warn("failed to stop parser created after recorder closed")
+			}
+		}
+		r.parser = nil
+		return false
+	default:
+	}
 	r.parser = p
+	return true
 }
 
 func (r *recorder) Start(ctx context.Context) error {
