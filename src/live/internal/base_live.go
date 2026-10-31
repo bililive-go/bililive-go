@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -20,9 +21,11 @@ type BaseLive struct {
 	Url            *url.URL
 	LastStartTime  time.Time
 	LiveId         types.LiveID
-	Options        *live.Options
 	RequestSession *requests.Session
 	Logger         *livelogger.LiveLogger
+	// Options 在监听、录制和配置热更新之间并发访问。每次更新构造完整的新值并
+	// 原子替换，读取方拿到的指针在整个操作期间保持不变。
+	options *atomic.Pointer[live.Options]
 }
 
 func genLiveId(url *url.URL) types.LiveID {
@@ -70,6 +73,7 @@ func NewBaseLive(url *url.URL) BaseLive {
 		LiveId:         liveId,
 		RequestSession: requestSession,
 		Logger:         logger,
+		options:        new(atomic.Pointer[live.Options]),
 	}
 }
 
@@ -87,7 +91,20 @@ func (a *BaseLive) UpdateLiveOptionsbyConfig(ctx context.Context, room *configs.
 	opts = append(opts, live.WithQuality(room.Quality))
 	opts = append(opts, live.WithAudioOnly(room.AudioOnly))
 	opts = append(opts, live.WithNickName(room.NickName))
-	a.Options = live.MustNewOptions(opts...)
+	nextOptions := live.MustNewOptions(opts...)
+	if a.options == nil {
+		a.SetOptions(nextOptions)
+		return nil
+	}
+	for {
+		previousOptions := a.options.Load()
+		if !live.IsForcedAuthRefresh(ctx) {
+			nextOptions.RetainRecordingVersion(previousOptions, a.Url)
+		}
+		if a.options.CompareAndSwap(previousOptions, nextOptions) {
+			break
+		}
+	}
 	return
 }
 
@@ -112,7 +129,19 @@ func (a *BaseLive) SetLastStartTime(time time.Time) {
 }
 
 func (a *BaseLive) GetOptions() *live.Options {
-	return a.Options
+	if a.options == nil {
+		return nil
+	}
+	return a.options.Load()
+}
+
+// SetOptions 原子替换房间选项。传入的 Options 在发布后必须视为不可变快照；
+// CookieJar 自身支持并发访问，可继续通过其方法更新 cookie 内容。
+func (a *BaseLive) SetOptions(options *live.Options) {
+	if a.options == nil {
+		a.options = new(atomic.Pointer[live.Options])
+	}
+	a.options.Store(options)
 }
 
 // GetLogger 返回直播间专属的日志记录器

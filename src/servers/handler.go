@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 
@@ -718,6 +719,9 @@ func addLives(writer http.ResponseWriter, r *http.Request) {
 	writeJSON(writer, info)
 }
 
+// buildLiveForAdd 允许并发回归测试把耗时初始化精确停在配置更新窗口。
+var buildLiveForAdd = live.New
+
 func addLiveImpl(ctx context.Context, urlStr string, isListen bool, notifyOnly bool, persist bool) (info *live.Info, err error) {
 	if !strings.HasPrefix(urlStr, "http://") && !strings.HasPrefix(urlStr, "https://") {
 		urlStr = "https://" + urlStr
@@ -775,33 +779,65 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool, notifyOnly b
 		}
 		needAppend = true
 	}
-	newLive, err := live.New(ctx, liveRoom, inst.Cache)
+	initialListening := liveRoom.IsListening
+	newLive, err := buildLiveForAdd(ctx, liveRoom, inst.Cache)
 	if err != nil {
 		return nil, err
 	}
-	if !inst.Lives.SetIfAbsent(newLive.GetLiveId(), newLive) {
-		return nil, errors.New("直播间已存在")
-	}
-	// 记录 LiveId 到全局配置（并发安全）
-	configs.SetLiveRoomId(u.String(), newLive.GetLiveId())
-	// 先将房间写入配置，再启动 Listener，确保 sendLiveNotification 能读到 NotifyOnly 等字段
-	if needAppend {
-		if liveRoom == nil {
-			return nil, errors.New("liveRoom is nil, cannot append to LiveRooms")
+	// Live 初始化包含平台网络请求，期间同 URL 的 PATCH 可能已经提交了新选项，但因
+	// 对象尚未注册而无法热应用。重读最新配置、应用选项、注册和启动监听必须与该房间
+	// 的 PATCH 共用同一把锁：PATCH 先完成时这里补应用，PATCH 后到时则等待注册完成。
+	err = func() error {
+		unlock := lockRoomLiveOptions(liveRoom, u.String())
+		defer unlock()
+
+		currentRoom, ok := latestRoomForLiveOptions(liveRoom, u.String())
+		if !ok {
+			currentRoom = *liveRoom
 		}
-		if persist {
-			if _, err := configs.AppendLiveRoom(*liveRoom); err != nil {
-				return nil, err
+		if updateErr := newLive.UpdateLiveOptionsbyConfig(ctx, &currentRoom); updateErr != nil {
+			return updateErr
+		}
+		if currentRoom.IsListening != initialListening {
+			isListen = currentRoom.IsListening
+		}
+
+		if !inst.Lives.SetIfAbsent(newLive.GetLiveId(), newLive) {
+			return errors.New("直播间已存在")
+		}
+		// 先将房间写入配置，再启动 Listener，确保 sendLiveNotification 能读到 NotifyOnly 等字段
+		if needAppend {
+			if liveRoom == nil {
+				return errors.New("liveRoom is nil, cannot append to LiveRooms")
 			}
-		} else {
-			if _, err := configs.AppendLiveRoomTransient(*liveRoom); err != nil {
-				return nil, err
+			if persist {
+				if _, appendErr := configs.AppendLiveRoom(*liveRoom); appendErr != nil {
+					inst.Lives.Delete(newLive.GetLiveId())
+					return appendErr
+				}
+			} else {
+				if _, appendErr := configs.AppendLiveRoomTransient(*liveRoom); appendErr != nil {
+					inst.Lives.Delete(newLive.GetLiveId())
+					return appendErr
+				}
 			}
 		}
+		configs.SetLiveRoomId(u.String(), newLive.GetLiveId())
+		if isListen {
+			inst.ListenerManager.(listeners.Manager).AddListener(ctx, newLive)
+		}
+		return nil
+	}()
+	if err != nil {
+		if registered, ok := inst.Lives.Get(newLive.GetLiveId()); !ok || registered != newLive {
+			newLive.Close()
+			if inst.Cache != nil {
+				inst.Cache.Remove(newLive)
+			}
+		}
+		return nil, err
 	}
-	if isListen {
-		inst.ListenerManager.(listeners.Manager).AddListener(ctx, newLive)
-	}
+
 	info = parseInfo(ctx, newLive)
 	// 广播直播间列表变更事件
 	GetSSEHub().BroadcastListChange(newLive.GetLiveId(), "room_added", map[string]interface{}{
@@ -974,6 +1010,15 @@ func removeLiveImpl(ctx context.Context, live live.Live) error {
 	lm := inst.ListenerManager.(listeners.Manager)
 	if lm.HasListener(ctx, liveId) {
 		if err := lm.RemoveListener(ctx, liveId); err != nil {
+			return err
+		}
+	}
+	// ListenStop 默认异步派发，而且同 ID 的房间可能已经以“不监听”状态重新添加。
+	// 这两种情况下删除请求返回时 recorder 仍可能留在 manager 中，后续切流会重启
+	// 这个孤儿 recorder，优雅更新也会一直认为有活跃录制。无论当前是否有 listener，
+	// 删除房间都同步兜底回收同 ID recorder；并发的 ListenStop 先一步回收时忽略不存在错误。
+	if recorderMgr, ok := inst.RecorderManager.(recorders.Manager); ok && recorderMgr.HasRecorder(ctx, liveId) {
+		if err := recorderMgr.RemoveRecorder(ctx, liveId); err != nil && !errors.Is(err, recorders.ErrRecorderNotExist) {
 			return err
 		}
 	}
@@ -1285,20 +1330,26 @@ func applyLiveRoomsByConfig(ctx context.Context, oldConfig *configs.Config, newC
 				return err
 			}
 		} else {
-			live, ok := inst.Lives.Get(types.LiveID(room.LiveId))
+			liveObj, ok := inst.Lives.Get(types.LiveID(room.LiveId))
 			if !ok {
 				return fmt.Errorf("live id: %s can not find", room.LiveId)
 			}
-			live.UpdateLiveOptionsbyConfig(ctx, newRoom)
+			roomCtx := ctx
+			if oldConfig.SoopLiveAuth != newConfig.SoopLiveAuth && configs.GetPlatformKeyFromUrl(liveObj.GetRawUrl()) == "sooplive" {
+				roomCtx = live.WithForcedAuthRefresh(ctx)
+			}
+			if err := applyRoomLiveOptions(roomCtx, newRoom, room.Url); err != nil {
+				return err
+			}
 			if room.IsListening != newRoom.IsListening {
 				if newRoom.IsListening {
 					// start listening
-					if err := startListening(ctx, live); err != nil {
+					if err := startListening(ctx, liveObj); err != nil {
 						return err
 					}
 				} else {
 					// stop listening
-					if err := stopListening(ctx, live.GetLiveId()); err != nil {
+					if err := stopListening(ctx, liveObj.GetLiveId()); err != nil {
 						return err
 					}
 				}
@@ -2269,6 +2320,8 @@ func updateRoomConfigById(writer http.ResponseWriter, r *http.Request) {
 
 	// 记录更新前的 NotifyOnly 状态，用于判断是否需要自动开始录制
 	var wasNotifyOnly bool
+	var updatedRoom configs.LiveRoom
+	var originalURL string
 	inst := instance.GetInstance(r.Context())
 
 	_, err = configs.UpdateWithRetry(func(c *configs.Config) error {
@@ -2301,6 +2354,7 @@ func updateRoomConfigById(writer http.ResponseWriter, r *http.Request) {
 
 		// 保存更新前的 NotifyOnly 状态
 		wasNotifyOnly = room.NotifyOnly
+		originalURL = room.Url
 
 		// 更新直播间特有字段
 		if url, ok := updates["url"].(string); ok {
@@ -2333,6 +2387,7 @@ func updateRoomConfigById(writer http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		updatedRoom = *room
 		return nil
 	}, 3, 10*time.Millisecond)
 
@@ -2340,6 +2395,14 @@ func updateRoomConfigById(writer http.ResponseWriter, r *http.Request) {
 		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
 			ErrNo:  http.StatusInternalServerError,
 			ErrMsg: "更新直播间配置失败: " + err.Error(),
+		})
+		return
+	}
+
+	if err := applyRoomLiveOptions(r.Context(), &updatedRoom, originalURL); err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "直播间配置已保存，但应用运行时选项失败: " + err.Error(),
 		})
 		return
 	}
@@ -2552,6 +2615,157 @@ func applyOverridableConfigUpdates(oc *configs.OverridableConfig, updates map[st
 	}
 }
 
+type roomLiveOptionsLockEntry struct {
+	mu   sync.Mutex
+	refs int
+}
+
+// roomLiveOptionsLocks 只串行化同一房间的运行态应用。WrappedLive 的更新可能等待平台
+// 限流并执行网络请求；不同房间不能因此共用一把全局锁而互相阻塞。
+var roomLiveOptionsLocks = struct {
+	sync.Mutex
+	entries map[string]*roomLiveOptionsLockEntry
+}{entries: make(map[string]*roomLiveOptionsLockEntry)}
+
+func roomLiveOptionsLockKeys(room *configs.LiveRoom, originalURL string) []string {
+	keys := make([]string, 0, 4)
+	seen := make(map[string]struct{}, 4)
+	add := func(prefix, value string) {
+		if value == "" {
+			return
+		}
+		key := prefix + value
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	add("id:", string(room.LiveId))
+	add("url:", originalURL)
+	add("url:", room.Url)
+	// 初始化回填 LiveId 或通过 ID 修改 URL 时，同一房间在两个请求快照中的标识可能
+	// 不同。把当前配置中的 ID 和 URL 也注册为别名，仍然落到同一个锁条目。
+	if current, ok := latestRoomForLiveOptions(room, originalURL); ok {
+		add("id:", string(current.LiveId))
+		add("url:", current.Url)
+	}
+	return keys
+}
+
+func lockRoomLiveOptions(room *configs.LiveRoom, originalURL string) func() {
+	keys := roomLiveOptionsLockKeys(room, originalURL)
+	roomLiveOptionsLocks.Lock()
+	var entry *roomLiveOptionsLockEntry
+	for _, key := range keys {
+		if current := roomLiveOptionsLocks.entries[key]; current != nil {
+			entry = current
+			break
+		}
+	}
+	if entry == nil {
+		entry = &roomLiveOptionsLockEntry{}
+	}
+	for _, key := range keys {
+		if current := roomLiveOptionsLocks.entries[key]; current == nil || current == entry {
+			roomLiveOptionsLocks.entries[key] = entry
+		}
+	}
+	entry.refs++
+	roomLiveOptionsLocks.Unlock()
+
+	entry.mu.Lock()
+	return func() {
+		entry.mu.Unlock()
+		roomLiveOptionsLocks.Lock()
+		entry.refs--
+		if entry.refs == 0 {
+			for key, current := range roomLiveOptionsLocks.entries {
+				if current == entry {
+					delete(roomLiveOptionsLocks.entries, key)
+				}
+			}
+		}
+		roomLiveOptionsLocks.Unlock()
+	}
+}
+
+func latestRoomForLiveOptions(room *configs.LiveRoom, originalURL string) (configs.LiveRoom, bool) {
+	cfg := configs.GetCurrentConfig()
+	if cfg == nil {
+		return configs.LiveRoom{}, false
+	}
+	if room.LiveId != "" {
+		for i := range cfg.LiveRooms {
+			if cfg.LiveRooms[i].LiveId == room.LiveId {
+				return cfg.LiveRooms[i], true
+			}
+		}
+	}
+	for _, candidateURL := range []string{room.Url, originalURL} {
+		if candidateURL == "" {
+			continue
+		}
+		if current, err := cfg.GetLiveRoomByUrl(candidateURL); err == nil {
+			return *current, true
+		}
+	}
+	return configs.LiveRoom{}, false
+}
+
+func findRoomLive(inst *instance.Instance, room *configs.LiveRoom, originalURL string) live.Live {
+	if room.LiveId != "" {
+		if liveObj, ok := inst.Lives.Get(room.LiveId); ok {
+			return liveObj
+		}
+	}
+	var liveObj live.Live
+	inst.Lives.Range(func(_ types.LiveID, candidate live.Live) bool {
+		rawURL := candidate.GetRawUrl()
+		if rawURL == room.Url || rawURL == originalURL {
+			liveObj = candidate
+			return false
+		}
+		return true
+	})
+	return liveObj
+}
+
+// applyRoomLiveOptions 在配置提交成功后同步现有 Live，录制参数由下一次录制采用。
+func applyRoomLiveOptions(ctx context.Context, room *configs.LiveRoom, originalURL string) error {
+	unlock := lockRoomLiveOptions(room, originalURL)
+	defer unlock()
+
+	currentRoom, ok := latestRoomForLiveOptions(room, originalURL)
+	if !ok {
+		// 房间已被后续配置删除或替换，不能再应用调用方捕获的旧快照。
+		return nil
+	}
+
+	inst := instance.GetInstance(ctx)
+	for range 3 {
+		liveObj := findRoomLive(inst, &currentRoom, originalURL)
+		if liveObj == nil {
+			// 尚未创建的 Live 会在初始化时读取已保存的配置。
+			return nil
+		}
+		runtimeRoom := currentRoom
+		runtimeRoom.Url = liveObj.GetRawUrl()
+		if err := liveObj.UpdateLiveOptionsbyConfig(ctx, &runtimeRoom); err != nil {
+			return err
+		}
+
+		// InitializingLive 完成时会用新的 WrappedLive 替换 map 条目。若交接发生在
+		// 查找之后，旧包装器虽更新了共享的 OriginalLive，缓存键却已失效；继续对
+		// 当前活动包装器应用一次，直到 map 中的对象稳定。
+		current := findRoomLive(inst, &currentRoom, originalURL)
+		if current == nil || current == liveObj {
+			return nil
+		}
+	}
+	return errors.New("直播间初始化交接期间运行态对象持续变化")
+}
+
 // updateRoomConfig 更新直播间配置
 func updateRoomConfig(writer http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -2585,6 +2799,7 @@ func updateRoomConfig(writer http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var updatedRoom configs.LiveRoom
 	_, err = configs.UpdateWithRetry(func(c *configs.Config) error {
 		room, err := c.GetLiveRoomByUrl(decodedUrl)
 		if err != nil {
@@ -2616,6 +2831,7 @@ func updateRoomConfig(writer http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		updatedRoom = *room
 		return nil
 	}, 3, 10*time.Millisecond)
 
@@ -2623,6 +2839,14 @@ func updateRoomConfig(writer http.ResponseWriter, r *http.Request) {
 		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
 			ErrNo:  http.StatusInternalServerError,
 			ErrMsg: "更新直播间配置失败: " + err.Error(),
+		})
+		return
+	}
+
+	if err := applyRoomLiveOptions(r.Context(), &updatedRoom, decodedUrl); err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "直播间配置已保存，但应用运行时选项失败: " + err.Error(),
 		})
 		return
 	}
@@ -3163,7 +3387,7 @@ func getLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 // UpdateLiveOptionsbyConfig 从全局当前配置现读；因此调用方必须在
 // 配置更新（CAS 提交）成功之后调用，否则刷到的可能是并发写入的更新值。
 func applyCookiesToLives(ctx context.Context, newCfg *configs.Config, hosts ...string) {
-	inst := instance.GetInstance(ctx)
+	ctx = live.WithForcedAuthRefresh(ctx)
 	hostSet := make(map[string]struct{}, len(hosts))
 	for _, host := range hosts {
 		hostSet[host] = struct{}{}
@@ -3178,21 +3402,9 @@ func applyCookiesToLives(ctx context.Context, newCfg *configs.Config, hosts ...s
 			continue
 		}
 
-		liveObj, _ := inst.Lives.Get(room.LiveId)
-		if liveObj == nil {
-			inst.Lives.Range(func(_ types.LiveID, l live.Live) bool {
-				if l.GetRawUrl() == room.Url {
-					liveObj = l
-					return false
-				}
-				return true
-			})
+		if err := applyRoomLiveOptions(ctx, &room, room.Url); err != nil {
+			applog.GetLogger().WithError(err).Warn("应用直播间登录态失败: " + string(room.LiveId) + " " + room.Url)
 		}
-		if liveObj == nil {
-			applog.GetLogger().Warn("can't find live by id or url: " + string(room.LiveId) + " " + room.Url)
-			continue
-		}
-		liveObj.UpdateLiveOptionsbyConfig(ctx, &room)
 	}
 }
 

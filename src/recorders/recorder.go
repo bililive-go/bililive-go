@@ -423,6 +423,14 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	// 请求，期间用户在面板点"切换清晰度"改的就是这个偏好，重读会让下面的最终选择与
 	// 上面的解析顺序按两套偏好算，选中根本没解析过 Url 的候选。
 	preference := resolvedConfig.StreamPreference
+	// Bilibili/Soop 的取流结果会受 AudioOnly 影响。先固定一份不可变的 Options
+	// 快照，取流结束后再核对录制相关选项的版本：若期间发生过变化，本轮流地址属于哪个模式
+	// 已无法可靠判断，必须丢弃后重取，不能再和另一版本的解析参数混用。
+	optionsControlAudioMode := live.RoomOptionsControlAudioMode(platformKey)
+	var recordingOptions *live.Options
+	if optionsControlAudioMode {
+		recordingOptions = r.Live.GetOptions()
+	}
 	if streamInfos, err = r.getStreamInfosForRecording(preference); err == live.ErrNotImplemented {
 		var urls []*url.URL
 		// TODO: remove deprecated method GetStreamUrls
@@ -442,10 +450,21 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		r.logStreamURLRetry(err, r.pendingRetryInterval())
 		return
 	}
+	if optionsControlAudioMode && !live.SameRecordingOptions(recordingOptions, r.Live.GetOptions()) {
+		r.logStreamURLRetry(errors.New("直播间选项在取流期间发生变化"), r.pendingRetryInterval())
+		return
+	}
 	r.resetRetryLogState()
 
 	obj, _ := r.cache.Get(r.Live)
 	info := obj.(*live.Info)
+	if optionsControlAudioMode && recordingOptions != nil {
+		// 缓存修正与选项发布不是一个原子步骤，而且缓存也可能仍是轮询的旧结果。
+		// 本轮文件名、扩展名和解析器参数必须全部使用取流时固定的同一份音频模式。
+		recordingInfo := *info
+		recordingInfo.AudioOnly = recordingOptions.AudioOnly
+		info = &recordingInfo
+	}
 
 	tmpl := getDefaultFileNameTmpl()
 	// 使用层级配置的 OutputTmpl
@@ -485,8 +504,9 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		return
 	}
 	r.saveCurrentStreamInfo(streamInfo)
-	// 更新可用流信息到 info（用于API展示）
-	r.updateAvailableStreams(ctx, info, streamInfos)
+	// 更新缓存中的可用流信息（用于 API 展示）。这里不能把本轮持有的旧 info 整体
+	// 写回缓存，否则并发的房间选项更新可能被旧 AudioOnly 覆盖。
+	r.updateAvailableStreams(ctx, streamInfos)
 
 	url := streamInfo.Url
 
@@ -673,7 +693,9 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		r.getLogger().WithError(err).Error("failed to init parse")
 		return
 	}
-	r.setAndCloseParser(p)
+	if !r.setAndCloseParser(p) {
+		return
+	}
 	r.startTime = time.Now()
 	parseStartedAt := r.startTime
 
@@ -1501,7 +1523,13 @@ func (r *recorder) getParser() parser.Parser {
 	return r.parser
 }
 
-func (r *recorder) setAndCloseParser(p parser.Parser) {
+// setAndCloseParser 替换当前 parser，并返回新 parser 是否成功安装。
+//
+// recorder.Close 可能发生在 tryRecord 完成取流、创建 parser 之前。此时 Close
+// 看不到 parser，只能先关闭 r.stop；迟到的 parser 若仍被安装并启动，run 将永远
+// 无法退出，CloseForRestart 也会一直等待 r.done。parserLock 使安装与 Close 的
+// getParser 互斥，并在同一临界区检查 stop，确保关闭不会漏掉正在交接的 parser。
+func (r *recorder) setAndCloseParser(p parser.Parser) bool {
 	r.parserLock.Lock()
 	defer r.parserLock.Unlock()
 	if r.parser != nil {
@@ -1509,7 +1537,19 @@ func (r *recorder) setAndCloseParser(p parser.Parser) {
 			r.getLogger().WithError(err).Warn("failed to end recorder")
 		}
 	}
+	select {
+	case <-r.stop:
+		if p != nil {
+			if err := p.Stop(); err != nil {
+				r.getLogger().WithError(err).Warn("failed to stop parser created after recorder closed")
+			}
+		}
+		r.parser = nil
+		return false
+	default:
+	}
 	r.parser = p
+	return true
 }
 
 func (r *recorder) Start(ctx context.Context) error {
@@ -1871,8 +1911,13 @@ func (r *recorder) saveCurrentStreamInfo(s *live.StreamUrlInfo) {
 	r.currentFileLock.Unlock()
 }
 
-// updateAvailableStreams 更新可用流信息到 Info
-func (r *recorder) updateAvailableStreams(ctx context.Context, info *live.Info, streamInfos []*live.StreamUrlInfo) {
+// cachedAvailableStreamsUpdater 让 WrappedLive 在同一房间的缓存协调锁下合并可用流字段。
+type cachedAvailableStreamsUpdater interface {
+	UpdateCachedAvailableStreams(streams []*live.AvailableStreamInfo, updatedAt int64) error
+}
+
+// updateAvailableStreams 更新缓存中的可用流信息。
+func (r *recorder) updateAvailableStreams(ctx context.Context, streamInfos []*live.StreamUrlInfo) {
 	availableStreams := make([]*live.AvailableStreamInfo, 0, len(streamInfos))
 
 	for _, s := range streamInfos {
@@ -1916,12 +1961,22 @@ func (r *recorder) updateAvailableStreams(ctx context.Context, info *live.Info, 
 		availableStreams = append(availableStreams, stream)
 	}
 
-	info.AvailableStreams = availableStreams
-	info.AvailableStreamsUpdatedAt = time.Now().Unix()
+	updatedAt := time.Now().Unix()
 
-	// 更新缓存，以便 API 可以获取到最新的可用流信息
-	if r.cache != nil {
-		r.cache.Set(r.Live, info)
+	// 生产路径中的 Live 是 WrappedLive，由它与 GetInfo、配置热更新串行合并缓存。
+	// 回退路径供未包装的测试或调用方使用，也始终从缓存的最新对象复制，避免把本轮早先
+	// 读取的 Info 整体写回。
+	if updater, ok := r.Live.(cachedAvailableStreamsUpdater); ok {
+		_ = updater.UpdateCachedAvailableStreams(availableStreams, updatedAt)
+	} else if r.cache != nil {
+		if cached, err := r.cache.Get(r.Live); err == nil {
+			if info, ok := cached.(*live.Info); ok && info != nil {
+				updated := *info
+				updated.AvailableStreams = availableStreams
+				updated.AvailableStreamsUpdatedAt = updatedAt
+				_ = r.cache.Set(r.Live, &updated)
+			}
+		}
 	}
 
 	// 保存到数据库（使用 goroutine 避免阻塞录制流程）

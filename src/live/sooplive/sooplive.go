@@ -64,6 +64,7 @@ type Live struct {
 	runtimeCookie      string
 	ignoreStoredCookie bool
 	stateMu            sync.RWMutex
+	optionsMu          sync.RWMutex
 	// reuseMu 保护下面两个短期复用缓存，监控线程与录制线程会同时读写它们。
 	// 只缓存播放页与频道信息：aid 这类播放凭证一旦跨尝试复用，
 	// 平台拒绝旧凭证时本地无从得知，会把几秒的恢复拖成缓存窗口那么长的停录。
@@ -141,6 +142,7 @@ type viewPreset struct {
 // 2. 再尝试调用 Soop API 纠正主播名、标题和开播状态。
 func (l *Live) GetInfo() (*live.Info, error) {
 	l.GetLogger().Debugf("Soop GetInfo 开始: url=%s", l.GetRawUrl())
+	options := l.GetOptions()
 	meta, err := l.fetchPageMetaCached()
 	if err != nil {
 		l.GetLogger().WithError(err).Debug("Soop GetInfo 失败：页面元信息获取失败")
@@ -152,7 +154,7 @@ func (l *Live) GetInfo() (*live.Info, error) {
 		HostName:  meta.HostName,
 		RoomName:  meta.RoomName,
 		Status:    false,
-		AudioOnly: l.Options.AudioOnly,
+		AudioOnly: options.AudioOnly,
 	}
 
 	// 页面明确离线（nBroadNo=null 或 /null）或既没有页面 broadNo 也没有路径 broadNo 时，
@@ -408,12 +410,23 @@ func (l *Live) GetPlatformCNName() string {
 }
 
 func (l *Live) UpdateLiveOptionsbyConfig(ctx context.Context, room *configs.LiveRoom) error {
+	l.optionsMu.Lock()
+	defer l.optionsMu.Unlock()
+	previousOptions := l.BaseLive.GetOptions()
 	if err := l.BaseLive.UpdateLiveOptionsbyConfig(ctx, room); err != nil {
 		return err
 	}
 
-	l.resetRuntimeState()
+	if !live.SameRecordingOptions(previousOptions, l.BaseLive.GetOptions()) || live.IsForcedAuthRefresh(ctx) {
+		l.resetRuntimeState()
+	}
 	return nil
+}
+
+func (l *Live) GetOptions() *live.Options {
+	l.optionsMu.RLock()
+	defer l.optionsMu.RUnlock()
+	return l.BaseLive.GetOptions()
 }
 
 // fetchPageMeta 从播放页 HTML 中提取频道名、bno、主播名、标题等基础信息。
@@ -811,7 +824,8 @@ func (l *Live) getCookieMap() map[string]string {
 		return map[string]string{}
 	}
 
-	cookies := l.Options.Cookies.Cookies(l.Url)
+	options := l.GetOptions()
+	cookies := options.Cookies.Cookies(l.Url)
 	cookieMap := make(map[string]string, len(cookies))
 	for _, item := range cookies {
 		cookieMap[item.Name] = item.Value
@@ -972,11 +986,12 @@ func (l *Live) applySessionCookie(cookie string) {
 	// 换了登录身份，旧会话抓到的播放页与播放信息一律不再复用
 	l.clearReuseCache()
 
+	options := l.GetOptions()
 	for _, targetURL := range []*url.URL{playSoopURL, l.Url} {
 		if targetURL == nil {
 			continue
 		}
-		live.WithKVStringCookies(targetURL, cookie)(l.Options)
+		live.WithKVStringCookies(targetURL, cookie)(options)
 	}
 }
 
@@ -1030,8 +1045,9 @@ func (l *Live) getPrimaryCookieString() string {
 	}
 
 	cfg := configs.GetCurrentConfig()
+	options := l.GetOptions()
 	if cfg == nil || cfg.Cookies == nil {
-		return buildCookieStringFromCookies(l.Options.Cookies.Cookies(l.Url))
+		return buildCookieStringFromCookies(options.Cookies.Cookies(l.Url))
 	}
 	if cookie := strings.TrimSpace(cfg.Cookies[l.Url.Host]); cookie != "" {
 		return cookie
@@ -1039,7 +1055,7 @@ func (l *Live) getPrimaryCookieString() string {
 	if cookie := strings.TrimSpace(cfg.Cookies[domainPlaySoop]); cookie != "" {
 		return cookie
 	}
-	return buildCookieStringFromCookies(l.Options.Cookies.Cookies(l.Url))
+	return buildCookieStringFromCookies(options.Cookies.Cookies(l.Url))
 }
 
 func (l *Live) getRuntimeState() (string, bool) {

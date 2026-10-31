@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,6 +22,8 @@ import (
 	livemock "github.com/bililive-go/bililive-go/src/live/mock"
 	eventsmock "github.com/bililive-go/bililive-go/src/pkg/events/mock"
 	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
+	"github.com/bililive-go/bililive-go/src/pkg/parser"
+	parsermock "github.com/bililive-go/bililive-go/src/pkg/parser/mock"
 )
 
 const testRoomURL = "https://example.com/room"
@@ -34,7 +38,14 @@ type deferredLive struct {
 	afterResolve func(candidate *live.StreamUrlInfo)
 	resolveSeen  *[]string
 	logger       *livelogger.LiveLogger
+	rawURL       string
+	streamSuffix string
+	options      atomic.Pointer[live.Options]
 }
+
+func (d *deferredLive) GetRawUrl() string { return d.rawURL }
+
+func (d *deferredLive) GetOptions() *live.Options { return d.options.Load() }
 
 func (d *deferredLive) ListStreamCandidates() ([]*live.StreamUrlInfo, error) {
 	return d.candidates, nil
@@ -49,7 +60,11 @@ func (d *deferredLive) ResolveStreamCandidate(candidate *live.StreamUrlInfo) err
 			return err
 		}
 	}
-	candidate.Url = &url.URL{Scheme: "https", Host: "cdn.example.com", Path: "/" + candidate.Quality + ".m3u8"}
+	suffix := d.streamSuffix
+	if suffix == "" {
+		suffix = ".m3u8"
+	}
+	candidate.Url = &url.URL{Scheme: "https", Host: "cdn.example.com", Path: "/" + candidate.Quality + suffix}
 	if d.afterResolve != nil {
 		d.afterResolve(candidate)
 	}
@@ -72,22 +87,64 @@ func newDeferredLive(t *testing.T, candidates []*live.StreamUrlInfo, resolveErr 
 	base := livemock.NewMockLive(ctrl)
 	logger := testLogger()
 	base.EXPECT().GetLogger().Return(logger).AnyTimes()
-	base.EXPECT().GetRawUrl().Return(testRoomURL).AnyTimes()
 	base.EXPECT().GetPlatformCNName().Return("SOOP").AnyTimes()
 	seen := make([]string, 0, len(candidates))
-	return &deferredLive{
+	l := &deferredLive{
 		MockLive:    base,
 		candidates:  candidates,
 		resolveErr:  resolveErr,
 		resolveSeen: &seen,
 		logger:      logger,
-	}, &seen
+		rawURL:      testRoomURL,
+	}
+	l.options.Store(live.MustNewOptions())
+	return l, &seen
 }
 
 func sampleCandidates() []*live.StreamUrlInfo {
 	return []*live.StreamUrlInfo{
 		{Quality: "HD", AttributesForStreamSelect: map[string]string{"quality_key": "HD"}},
 		{Quality: "SD", AttributesForStreamSelect: map[string]string{"quality_key": "SD"}},
+	}
+}
+
+func TestUpdateAvailableStreamsMergesIntoLatestWrappedCache(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	underlying := livemock.NewMockLive(ctrl)
+	cache := gcache.New(2).LRU().Build()
+	wrapped := live.NewWrappedLive(context.Background(), underlying, cache)
+	t.Cleanup(wrapped.Close)
+
+	current := &live.Info{Live: wrapped, AudioOnly: false, RoomName: "最新标题"}
+	if err := cache.Set(wrapped, current); err != nil {
+		t.Fatalf("写入直播信息缓存失败: %v", err)
+	}
+	r := &recorder{Live: wrapped, cache: cache}
+	r.updateAvailableStreams(context.Background(), []*live.StreamUrlInfo{{
+		Quality: "HD",
+		Format:  "flv",
+		Codec:   "h264",
+	}})
+
+	cached, err := cache.Get(wrapped)
+	if err != nil {
+		t.Fatalf("读取直播信息缓存失败: %v", err)
+	}
+	updated := cached.(*live.Info)
+	if updated.AudioOnly {
+		t.Fatal("合并可用流时不能把最新的 AudioOnly 覆盖成旧值")
+	}
+	if updated.RoomName != current.RoomName {
+		t.Fatalf("合并可用流时覆盖了其他缓存字段: %q", updated.RoomName)
+	}
+	if len(updated.AvailableStreams) != 1 || updated.AvailableStreams[0].Quality != "HD" {
+		t.Fatalf("可用流没有写入最新缓存: %+v", updated.AvailableStreams)
+	}
+	if updated.AvailableStreamsUpdatedAt == 0 {
+		t.Fatal("可用流更新时间没有写入缓存")
+	}
+	if current.AvailableStreams != nil || current.AvailableStreamsUpdatedAt != 0 {
+		t.Fatal("不能就地修改其他 goroutine 可能仍在读取的旧 Info")
 	}
 }
 
@@ -209,6 +266,95 @@ func TestTryRecordKeepsResolvedCandidateThroughoutAttempt(t *testing.T) {
 	r.currentFileLock.RUnlock()
 	if !strings.Contains(streamURL, "/HD.m3u8") {
 		t.Fatalf("本轮应录制已解析的 HD，实际 %q", streamURL)
+	}
+}
+
+// TestTryRecordRejectsStreamsResolvedAcrossOptionVersions 覆盖关闭“仅录音频”恰好发生在
+// 平台取流期间的窗口。流地址可能已经按新模式生成，而尝试开头固定的还是旧模式；此时
+// 不能继续用任意一边的 AudioOnly 猜测，必须丢弃整次结果并在下一轮重新取流。
+func TestTryRecordRejectsStreamsResolvedAcrossOptionVersions(t *testing.T) {
+	restoreConfig := swapTestConfig(t)
+	defer restoreConfig()
+
+	l, _ := newDeferredLive(t, sampleCandidates(), nil)
+	l.rawURL = "https://play.sooplive.com/test"
+	l.options.Store(live.MustNewOptions(live.WithAudioOnly(true)))
+	l.afterResolve = func(*live.StreamUrlInfo) {
+		l.options.Store(live.MustNewOptions(live.WithAudioOnly(false)))
+	}
+
+	r := &recorder{Live: l}
+	r.tryRecord(context.Background())
+
+	logs := l.logger.GetLogs()
+	if !strings.Contains(logs, "直播间选项在取流期间发生变化") {
+		t.Fatalf("跨选项版本的取流结果没有被丢弃：\n%s", logs)
+	}
+	r.currentFileLock.RLock()
+	streamURL := r.currentStreamURL
+	r.currentFileLock.RUnlock()
+	if streamURL != "" {
+		t.Fatalf("跨选项版本的流不应进入录制准备阶段，实际保存了 %q", streamURL)
+	}
+}
+
+// TestTryRecordUsesPinnedAudioModeInsteadOfStaleCache 验证取流期间选项版本稳定时，
+// 文件扩展名和 parser 参数来自同一份选项快照，而不是稍后独立读取的旧 Info 缓存。
+func TestTryRecordUsesPinnedAudioModeInsteadOfStaleCache(t *testing.T) {
+	restoreConfig := swapTestConfig(t)
+	defer restoreConfig()
+
+	cfg := configs.GetCurrentConfig()
+	cfg.OutputTmpl = "recording.mp4"
+	cfg.OutPutPath = t.TempDir()
+	testExecutable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("获取测试程序路径失败: %v", err)
+	}
+	cfg.FfmpegPath = testExecutable
+	cfg.Feature.DownloaderType = configs.DownloaderNative
+
+	l, _ := newDeferredLive(t, sampleCandidates(), nil)
+	l.rawURL = "https://play.sooplive.com/test"
+	l.streamSuffix = ".mp4"
+	l.options.Store(live.MustNewOptions(live.WithAudioOnly(false)))
+
+	inst := &instance.Instance{Cache: gcache.New(1).LRU().Build()}
+	ctx := context.WithValue(context.Background(), instance.Key, inst)
+	if err := inst.Cache.Set(l, &live.Info{Live: l, AudioOnly: true}); err != nil {
+		t.Fatalf("写入旧直播信息缓存失败: %v", err)
+	}
+
+	ctrl := gomock.NewController(t)
+	p := parsermock.NewMockParser(ctrl)
+	var parserConfig map[string]string
+	var outputFile string
+	p.EXPECT().ParseLiveStream(gomock.Any(), gomock.Any(), l, gomock.Any()).
+		DoAndReturn(func(_ context.Context, _ *live.StreamUrlInfo, _ live.Live, file string) error {
+			outputFile = file
+			return nil
+		})
+	p.EXPECT().Stop().Return(nil)
+
+	previousNewParser := newParser
+	newParser = func(_ *url.URL, _ configs.DownloaderType, parserCfg map[string]string, _ *livelogger.LiveLogger) (parser.Parser, error) {
+		parserConfig = make(map[string]string, len(parserCfg))
+		for key, value := range parserCfg {
+			parserConfig[key] = value
+		}
+		return p, nil
+	}
+	t.Cleanup(func() { newParser = previousNewParser })
+
+	r := &recorder{Live: l, cache: inst.Cache, parserLock: new(sync.RWMutex)}
+	r.tryRecord(ctx)
+	r.setAndCloseParser(nil)
+
+	if parserConfig["audio_only"] != "false" {
+		t.Fatalf("parser 使用了旧缓存中的音频模式: %#v", parserConfig)
+	}
+	if filepath.Ext(outputFile) != ".mp4" {
+		t.Fatalf("关闭仅录音频后仍生成了音频文件名: %q", outputFile)
 	}
 }
 

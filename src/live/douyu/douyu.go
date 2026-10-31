@@ -176,10 +176,11 @@ func loginCookieUsable() bool {
 // getCookieString 从 Options cookie jar 中读取斗鱼域名的 cookie 字符串（"k1=v1; k2=v2"）。
 // 未配置 cookie、或这份登录态已确凿失效时返回空串，调用方据此决定是否附加 Cookie 头。
 func (l *Live) getCookieString() string {
-	if l.Options == nil || l.Options.Cookies == nil || !loginCookieUsable() {
+	options := l.GetOptions()
+	if options == nil || options.Cookies == nil || !loginCookieUsable() {
 		return ""
 	}
-	cookies := l.Options.Cookies.Cookies(l.Url)
+	cookies := options.Cookies.Cookies(l.Url)
 	parts := make([]string, 0, len(cookies))
 	for _, c := range cookies {
 		parts = append(parts, c.Name+"="+c.Value)
@@ -243,9 +244,10 @@ func (l *Live) getDID() string {
 	if l.did != "" {
 		return l.did
 	}
-	if l.Options != nil && l.Options.Cookies != nil {
+	options := l.GetOptions()
+	if options != nil && options.Cookies != nil {
 		found := make(map[string]string, len(deviceIDCookieKeys))
-		for _, c := range l.Options.Cookies.Cookies(l.Url) {
+		for _, c := range options.Cookies.Cookies(l.Url) {
 			if c.Value != "" {
 				found[c.Name] = c.Value
 			}
@@ -265,8 +267,12 @@ func (l *Live) getDID() string {
 // did 优先复用登录 cookie 里的斗鱼设备号，若一直沿用首次的值，换号之后签名里的 did
 // 仍是上一份登录态的设备号，与新 cookie 不匹配（表现为偶发签名被拒、退回匿名录制）。
 func (l *Live) UpdateLiveOptionsbyConfig(ctx context.Context, room *configs.LiveRoom) error {
+	previousOptions := l.GetOptions()
 	if err := l.BaseLive.UpdateLiveOptionsbyConfig(ctx, room); err != nil {
 		return err
+	}
+	if live.SameRecordingOptions(previousOptions, l.GetOptions()) && !live.IsForcedAuthRefresh(ctx) {
+		return nil
 	}
 	l.didMu.Lock()
 	defer l.didMu.Unlock()

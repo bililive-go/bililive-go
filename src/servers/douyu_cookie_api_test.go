@@ -210,6 +210,8 @@ func (r *recordingLive) UpdateLiveOptionsbyConfig(_ context.Context, room *confi
 
 // 续期/扫码成功后必须把新登录态推给运行中的房间，否则要等到下次重启才生效。
 func TestApplyCookiesToLivesTargetsOnlyRequestedHost(t *testing.T) {
+	previous := configs.GetCurrentConfig()
+	t.Cleanup(func() { configs.SetCurrentConfig(previous) })
 	douyuRoom := configs.LiveRoom{Url: "https://www.douyu.com/123", LiveId: types.LiveID("https://www.douyu.com/123")}
 	huyaRoom := configs.LiveRoom{Url: "https://www.huya.com/456", LiveId: types.LiveID("https://www.huya.com/456")}
 	l1 := &recordingLive{rawUrl: douyuRoom.Url, cnName: "斗鱼"}
@@ -221,6 +223,8 @@ func TestApplyCookiesToLivesTargetsOnlyRequestedHost(t *testing.T) {
 
 	newCfg := configs.NewConfig()
 	newCfg.LiveRooms = []configs.LiveRoom{douyuRoom, huyaRoom}
+	newCfg.RefreshLiveRoomIndexCache()
+	configs.SetCurrentConfig(newCfg)
 	applyCookiesToLives(ctx, newCfg, dy.CookieHost)
 
 	if len(l1.rooms) != 1 {

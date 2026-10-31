@@ -2,6 +2,7 @@ package recorders
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -130,7 +131,7 @@ func (m *manager) registryListener(ctx context.Context, ed events.Dispatcher) {
 		if !m.HasRecorder(ctx, live.GetLiveId()) {
 			return
 		}
-		if err := m.RemoveRecorder(ctx, live.GetLiveId()); err != nil {
+		if err := m.RemoveRecorder(ctx, live.GetLiveId()); err != nil && !errors.Is(err, ErrRecorderNotExist) {
 			live.GetLogger().Errorf("failed to remove recorder, err: %v", err)
 		}
 	})

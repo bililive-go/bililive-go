@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/bluele/gcache"
@@ -19,8 +20,28 @@ import (
 	"github.com/bililive-go/bililive-go/src/pkg/events"
 	eventsmock "github.com/bililive-go/bililive-go/src/pkg/events/mock"
 	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
+	parsermock "github.com/bililive-go/bililive-go/src/pkg/parser/mock"
 	"github.com/bililive-go/bililive-go/src/types"
 )
+
+func TestSetAndCloseParserRejectsParserCreatedAfterRecorderClosed(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	p := parsermock.NewMockParser(ctrl)
+	p.EXPECT().Stop().Return(nil)
+
+	r := &recorder{
+		stop:       make(chan struct{}),
+		parserLock: new(sync.RWMutex),
+	}
+	close(r.stop)
+
+	if r.setAndCloseParser(p) {
+		t.Fatal("recorder 已关闭后创建的 parser 不应被安装")
+	}
+	if installed := r.getParser(); installed != nil {
+		t.Fatalf("recorder 已关闭后仍保留 parser: %T", installed)
+	}
+}
 
 func TestTryRecordStopsWithoutPanicWhenFilenameRenderFails(t *testing.T) {
 	previousConfig := configs.GetCurrentConfig()

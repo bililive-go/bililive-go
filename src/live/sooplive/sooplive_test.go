@@ -127,7 +127,7 @@ window.szBroadTitle = '标题';
 	l := &Live{
 		BaseLive: internal.NewBaseLive(u),
 	}
-	l.Options = livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=valid; AUTH=ok"))
+	l.SetOptions(livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=valid; AUTH=ok")))
 
 	meta, err := l.fetchPageMeta()
 	assert.NoError(t, err)
@@ -161,7 +161,7 @@ window.szBroadTitle = 'offline';
 	l := &Live{
 		BaseLive: internal.NewBaseLive(u),
 	}
-	l.Options = livepkg.MustNewOptions()
+	l.SetOptions(livepkg.MustNewOptions())
 
 	meta, err := l.fetchPageMeta()
 	assert.NoError(t, err)
@@ -191,7 +191,7 @@ window.szBroadTitle = 'missing nBroadNo';
 	l := &Live{
 		BaseLive: internal.NewBaseLive(u),
 	}
-	l.Options = livepkg.MustNewOptions()
+	l.SetOptions(livepkg.MustNewOptions())
 
 	meta, err := l.fetchPageMeta()
 	assert.NoError(t, err)
@@ -228,7 +228,7 @@ window.szBroadTitle = 'offline by null path';
 	l := &Live{
 		BaseLive: internal.NewBaseLive(u),
 	}
-	l.Options = livepkg.MustNewOptions()
+	l.SetOptions(livepkg.MustNewOptions())
 
 	meta, err := l.fetchPageMeta()
 	assert.NoError(t, err)
@@ -257,7 +257,7 @@ window.szBroadTitle = 'offline';
 	l := &Live{
 		BaseLive: internal.NewBaseLive(u),
 	}
-	l.Options = livepkg.MustNewOptions()
+	l.SetOptions(livepkg.MustNewOptions())
 
 	_, err = l.GetStreamInfos()
 	assert.Error(t, err)
@@ -288,7 +288,7 @@ window.szBroadTitle = 'offline by null path';
 	l := &Live{
 		BaseLive: internal.NewBaseLive(u),
 	}
-	l.Options = livepkg.MustNewOptions()
+	l.SetOptions(livepkg.MustNewOptions())
 
 	_, err = l.GetStreamInfos()
 	assert.Error(t, err)
@@ -360,7 +360,7 @@ func TestTryVerifyAndReloginIfNeededKeepsCookieWhenVerifyEndpointFails(t *testin
 	l := &Live{
 		BaseLive: internal.NewBaseLive(u),
 	}
-	l.Options = livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=expired"))
+	l.SetOptions(livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=expired")))
 
 	err = l.tryVerifyAndReloginIfNeeded()
 	assert.NoError(t, err)
@@ -399,7 +399,7 @@ func TestTryVerifyAndReloginIfNeededIgnoreInvalidCookieForPublicRoom(t *testing.
 	l := &Live{
 		BaseLive: internal.NewBaseLive(u),
 	}
-	l.Options = livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=expired"))
+	l.SetOptions(livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=expired")))
 
 	err = l.tryVerifyAndReloginIfNeeded()
 	assert.NoError(t, err)
@@ -438,7 +438,7 @@ func TestTryVerifyAndReloginIfNeededSkipsAutoLoginWhenVerifyEndpointFails(t *tes
 	l := &Live{
 		BaseLive: internal.NewBaseLive(u),
 	}
-	l.Options = livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=expired"))
+	l.SetOptions(livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=expired")))
 
 	err = l.tryVerifyAndReloginIfNeeded()
 	assert.NoError(t, err)
@@ -490,7 +490,7 @@ func TestTryVerifyAndReloginIfNeededAutoLoginWhenCredentialsExist(t *testing.T) 
 	l := &Live{
 		BaseLive: internal.NewBaseLive(u),
 	}
-	l.Options = livepkg.MustNewOptions()
+	l.SetOptions(livepkg.MustNewOptions())
 
 	err = l.tryVerifyAndReloginIfNeeded()
 	assert.NoError(t, err)
@@ -534,7 +534,7 @@ func TestTryVerifyAndReloginIfNeededKeepsCookieAndErrorsWhenAutoLoginFails(t *te
 		BaseLive:      internal.NewBaseLive(u),
 		runtimeCookie: "SESS=runtime-expired; AUTH=stale",
 	}
-	l.Options = livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=option-expired"))
+	l.SetOptions(livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=option-expired")))
 
 	// 已配凭证说明房间需要登录态（19+ 房间匿名必定取不到流）：
 	// 错误必须上抛让外层轮询退避生效，且不能把请求推成完全匿名。
@@ -577,7 +577,7 @@ func TestTryAutoLoginCooldownBlocksRepeatedAttempts(t *testing.T) {
 	u, err := url.Parse("https://play.sooplive.com/mbntv")
 	assert.NoError(t, err)
 	l := &Live{BaseLive: internal.NewBaseLive(u)}
-	l.Options = livepkg.MustNewOptions()
+	l.SetOptions(livepkg.MustNewOptions())
 
 	assert.Error(t, l.tryAutoLogin())
 	assert.Equal(t, int32(1), atomic.LoadInt32(&loginCalls))
@@ -633,7 +633,7 @@ func TestTryAutoLoginCooldownAppliesToSuccessfulAttempts(t *testing.T) {
 	u, err := url.Parse("https://play.sooplive.com/mbntv")
 	assert.NoError(t, err)
 	l := &Live{BaseLive: internal.NewBaseLive(u)}
-	l.Options = livepkg.MustNewOptions()
+	l.SetOptions(livepkg.MustNewOptions())
 
 	assert.NoError(t, l.tryAutoLogin())
 
@@ -715,7 +715,7 @@ func TestTryAutoLoginAdoptsCookiePersistedByOtherRoomDuringCooldown(t *testing.T
 		u, err := url.Parse("https://play.sooplive.com/mbntv")
 		assert.NoError(t, err)
 		l := &Live{BaseLive: internal.NewBaseLive(u)}
-		l.Options = livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=expired"))
+		l.SetOptions(livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=expired")))
 		return l
 	}
 
@@ -793,7 +793,7 @@ func TestTryAutoLoginKeepsCooldownErrorWhenPersistedCookieAlsoInvalid(t *testing
 	u, err := url.Parse("https://play.sooplive.com/mbntv")
 	assert.NoError(t, err)
 	l := &Live{BaseLive: internal.NewBaseLive(u)}
-	l.Options = livepkg.MustNewOptions()
+	l.SetOptions(livepkg.MustNewOptions())
 
 	// 第一次照常登录并占住冷却窗口
 	assert.NoError(t, l.tryAutoLogin())
@@ -821,7 +821,7 @@ func TestGetCookieMapPrefersLatestConfigCookieOverStaleOptions(t *testing.T) {
 	l := &Live{
 		BaseLive: internal.NewBaseLive(u),
 	}
-	l.Options = livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=expired; AUTH=old"))
+	l.SetOptions(livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=expired; AUTH=old")))
 
 	cookieMap := l.getCookieMap()
 	assert.Equal(t, "fresh", cookieMap["SESS"])
@@ -842,7 +842,7 @@ func TestGetPrimaryCookieStringPrefersRuntimeCookie(t *testing.T) {
 		BaseLive:      internal.NewBaseLive(u),
 		runtimeCookie: "SESS=fresh; AUTH=ok",
 	}
-	l.Options = livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=older"))
+	l.SetOptions(livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=older")))
 
 	assert.Equal(t, "SESS=fresh; AUTH=ok", l.getPrimaryCookieString())
 }
@@ -862,7 +862,7 @@ func TestUpdateLiveOptionsbyConfigClearsRuntimeState(t *testing.T) {
 		runtimeCookie:      "SESS=runtime; AUTH=old",
 		ignoreStoredCookie: true,
 	}
-	l.Options = livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=runtime; AUTH=old"))
+	l.SetOptions(livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=runtime; AUTH=old")))
 
 	room := &configs.LiveRoom{
 		Url: u.String(),
@@ -878,6 +878,75 @@ func TestUpdateLiveOptionsbyConfigClearsRuntimeState(t *testing.T) {
 	assert.Equal(t, "new", cookieMap["AUTH"])
 }
 
+func TestUpdateLiveOptionsPreservesRuntimeStateUntilForcedRefresh(t *testing.T) {
+	previousConfig := configs.GetCurrentConfig()
+	t.Cleanup(func() { configs.SetCurrentConfig(previousConfig) })
+	config := configs.NewConfig()
+	configs.SetCurrentConfig(config)
+	u, err := url.Parse("https://play.sooplive.com/mbntv")
+	assert.NoError(t, err)
+	l := &Live{BaseLive: internal.NewBaseLive(u)}
+	room := &configs.LiveRoom{Url: u.String()}
+	assert.NoError(t, l.UpdateLiveOptionsbyConfig(context.Background(), room))
+	l.setRuntimeState("runtime-cookie", true)
+	before := l.GetOptions()
+	room.NickName = "新昵称"
+	assert.NoError(t, l.UpdateLiveOptionsbyConfig(context.Background(), room))
+	cookie, ignoreStoredCookie := l.getRuntimeState()
+	assert.Equal(t, "runtime-cookie", cookie)
+	assert.True(t, ignoreStoredCookie)
+	assert.True(t, livepkg.SameRecordingOptions(before, l.GetOptions()))
+
+	before = l.GetOptions()
+	assert.NoError(t, l.UpdateLiveOptionsbyConfig(livepkg.WithForcedAuthRefresh(context.Background()), room))
+	cookie, ignoreStoredCookie = l.getRuntimeState()
+	assert.Empty(t, cookie)
+	assert.False(t, ignoreStoredCookie)
+	assert.False(t, livepkg.SameRecordingOptions(before, l.GetOptions()))
+}
+
+func TestOptionsSnapshotWaitsForRuntimeStateReset(t *testing.T) {
+	previousConfig := configs.GetCurrentConfig()
+	t.Cleanup(func() { configs.SetCurrentConfig(previousConfig) })
+	configs.SetCurrentConfig(configs.NewConfig())
+	u, err := url.Parse("https://play.sooplive.com/mbntv")
+	assert.NoError(t, err)
+	l := &Live{BaseLive: internal.NewBaseLive(u)}
+	room := &configs.LiveRoom{Url: u.String()}
+	assert.NoError(t, l.UpdateLiveOptionsbyConfig(context.Background(), room))
+	l.setRuntimeState("old-cookie", true)
+	previous := l.GetOptions()
+
+	l.stateMu.Lock()
+	updateDone := make(chan error, 1)
+	go func() {
+		updateDone <- l.UpdateLiveOptionsbyConfig(livepkg.WithForcedAuthRefresh(context.Background()), room)
+	}()
+	if !assert.Eventually(t, func() bool { return l.BaseLive.GetOptions() != previous }, time.Second, time.Millisecond) {
+		l.stateMu.Unlock()
+		<-updateDone
+		return
+	}
+	snapshotDone := make(chan *livepkg.Options, 1)
+	go func() { snapshotDone <- l.GetOptions() }()
+	select {
+	case <-snapshotDone:
+		t.Error("运行态重置完成前不应暴露新选项")
+	case <-time.After(30 * time.Millisecond):
+	}
+	l.stateMu.Unlock()
+	assert.NoError(t, <-updateDone)
+	select {
+	case snapshot := <-snapshotDone:
+		assert.False(t, livepkg.SameRecordingOptions(previous, snapshot))
+	case <-time.After(time.Second):
+		t.Fatal("运行态重置完成后选项读取仍被阻塞")
+	}
+	cookie, ignoreStoredCookie := l.getRuntimeState()
+	assert.Empty(t, cookie)
+	assert.False(t, ignoreStoredCookie)
+}
+
 func TestUpdateLiveOptionsbyConfigKeepsClearActionEffective(t *testing.T) {
 	cfg := configs.NewConfig()
 	cfg.Cookies = map[string]string{}
@@ -890,7 +959,7 @@ func TestUpdateLiveOptionsbyConfigKeepsClearActionEffective(t *testing.T) {
 		BaseLive:      internal.NewBaseLive(u),
 		runtimeCookie: "SESS=runtime; AUTH=old",
 	}
-	l.Options = livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=runtime; AUTH=old"))
+	l.SetOptions(livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=runtime; AUTH=old")))
 
 	room := &configs.LiveRoom{
 		Url: u.String(),
@@ -909,7 +978,7 @@ func TestRuntimeStateHelpersConcurrentAccess(t *testing.T) {
 	l := &Live{
 		BaseLive: internal.NewBaseLive(u),
 	}
-	l.Options = livepkg.MustNewOptions()
+	l.SetOptions(livepkg.MustNewOptions())
 
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
@@ -962,7 +1031,7 @@ func TestTryVerifyAndReloginIfNeededCachesVerifyResult(t *testing.T) {
 	u, err := url.Parse("https://play.sooplive.com/mbntv")
 	assert.NoError(t, err)
 	l := &Live{BaseLive: internal.NewBaseLive(u)}
-	l.Options = livepkg.MustNewOptions()
+	l.SetOptions(livepkg.MustNewOptions())
 
 	assert.NoError(t, l.tryVerifyAndReloginIfNeeded())
 	assert.NoError(t, l.tryVerifyAndReloginIfNeeded())
@@ -1021,7 +1090,7 @@ func TestTryVerifyAndReloginIfNeededDeduplicatesAutoLogin(t *testing.T) {
 		u, err := url.Parse("https://play.sooplive.com/mbntv")
 		assert.NoError(t, err)
 		l := &Live{BaseLive: internal.NewBaseLive(u)}
-		l.Options = livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=expired"))
+		l.SetOptions(livepkg.MustNewOptions(livepkg.WithKVStringCookies(u, "SESS=expired")))
 		return l
 	}
 
@@ -1082,7 +1151,7 @@ func TestTryAutoLoginDeduplicatesCookiePersistence(t *testing.T) {
 		u, err := url.Parse("https://play.sooplive.com/mbntv")
 		assert.NoError(t, err)
 		l := &Live{BaseLive: internal.NewBaseLive(u)}
-		l.Options = livepkg.MustNewOptions()
+		l.SetOptions(livepkg.MustNewOptions())
 		return l
 	}
 
@@ -1137,7 +1206,7 @@ func TestTryAutoLoginRejectsUnverifiedLoginResult(t *testing.T) {
 	u, err := url.Parse("https://play.sooplive.com/mbntv")
 	assert.NoError(t, err)
 	l := &Live{BaseLive: internal.NewBaseLive(u)}
-	l.Options = livepkg.MustNewOptions()
+	l.SetOptions(livepkg.MustNewOptions())
 
 	err = l.tryAutoLogin()
 	assert.Error(t, err)

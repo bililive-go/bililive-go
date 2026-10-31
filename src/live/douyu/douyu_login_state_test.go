@@ -26,7 +26,7 @@ func newLiveWithCookie(t *testing.T, cookie string) *Live {
 	}
 	l := &Live{}
 	l.Url = u
-	l.Options = live.MustNewOptions(live.WithKVStringCookies(u, cookie))
+	l.SetOptions(live.MustNewOptions(live.WithKVStringCookies(u, cookie)))
 	return l
 }
 
@@ -182,6 +182,29 @@ func TestUpdateLiveOptionsbyConfigClearsCachedDID(t *testing.T) {
 	}
 	if got := l.getCookieString(); !strings.Contains(got, "acf_uid=99") {
 		t.Fatalf("热应用未把新 cookie 落到 Options: %q", got)
+	}
+}
+
+func TestUnrelatedOptionsPreserveDIDButForcedRefreshClearsIt(t *testing.T) {
+	setCfgForTest(t, configs.NewConfig())
+	l := newLiveWithCookie(t, "")
+	room := &configs.LiveRoom{Url: l.Url.String()}
+	if err := l.UpdateLiveOptionsbyConfig(context.Background(), room); err != nil {
+		t.Fatal(err)
+	}
+	l.did = "existing-device-id"
+	room.NickName = "新昵称"
+	if err := l.UpdateLiveOptionsbyConfig(context.Background(), room); err != nil {
+		t.Fatal(err)
+	}
+	if l.did != "existing-device-id" {
+		t.Fatalf("无关设置不应清除设备号: %q", l.did)
+	}
+	if err := l.UpdateLiveOptionsbyConfig(live.WithForcedAuthRefresh(context.Background()), room); err != nil {
+		t.Fatal(err)
+	}
+	if l.did != "" {
+		t.Fatalf("显式刷新登录态应清除设备号: %q", l.did)
 	}
 }
 

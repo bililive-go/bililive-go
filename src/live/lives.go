@@ -111,10 +111,11 @@ func (p InitializingFinishedParam) GetLiveId() types.LiveID {
 }
 
 type Options struct {
-	Cookies   *cookiejar.Jar
-	Quality   int
-	AudioOnly bool
-	NickName  string
+	Cookies          *cookiejar.Jar
+	Quality          int
+	AudioOnly        bool
+	NickName         string
+	recordingVersion *byte
 }
 
 func NewOptions(opts ...Option) (*Options, error) {
@@ -122,11 +123,49 @@ func NewOptions(opts ...Option) (*Options, error) {
 	if err != nil {
 		return nil, err
 	}
-	options := &Options{Cookies: cookieJar, Quality: 0}
+	options := &Options{Cookies: cookieJar, Quality: 0, recordingVersion: new(byte)}
 	for _, opt := range opts {
 		opt(options)
 	}
 	return options, nil
+}
+
+func (options *Options) RetainRecordingVersion(previous *Options, roomURL *url.URL) {
+	if previous == nil || previous.recordingVersion == nil || previous.AudioOnly != options.AudioOnly || previous.Quality != options.Quality || previous.Cookies == nil || options.Cookies == nil {
+		options.recordingVersion = new(byte)
+		return
+	}
+	previousCookies := previous.Cookies.Cookies(roomURL)
+	nextCookies := options.Cookies.Cookies(roomURL)
+	if len(previousCookies) != len(nextCookies) {
+		options.recordingVersion = new(byte)
+		return
+	}
+	for index := range previousCookies {
+		if previousCookies[index].Name != nextCookies[index].Name || previousCookies[index].Value != nextCookies[index].Value {
+			options.recordingVersion = new(byte)
+			return
+		}
+	}
+	options.recordingVersion = previous.recordingVersion
+}
+
+func SameRecordingOptions(first, second *Options) bool {
+	if first == second {
+		return true
+	}
+	return first != nil && second != nil && first.recordingVersion != nil && first.recordingVersion == second.recordingVersion
+}
+
+type forcedAuthRefreshKey struct{}
+
+func WithForcedAuthRefresh(ctx context.Context) context.Context {
+	return context.WithValue(ctx, forcedAuthRefreshKey{}, true)
+}
+
+func IsForcedAuthRefresh(ctx context.Context) bool {
+	forced, _ := ctx.Value(forcedAuthRefreshKey{}).(bool)
+	return forced
 }
 
 func MustNewOptions(opts ...Option) *Options {
@@ -295,8 +334,11 @@ type SchedulerStatusProvider interface {
 type WrappedLive struct {
 	Live
 	cache gcache.Cache
-	// requestMu 串行化同一直播间的直接刷新与调度刷新，并保护缓存的读改写顺序。
+	// requestMu 只串行化同一直播间的直接刷新与调度刷新。
 	requestMu sync.Mutex
+	// cacheMu 只保护缓存的短时读改写。录制器更新展示用流列表时不能等待 requestMu
+	// 覆盖的平台许可排队和网络请求，否则会延迟真正的录制启动。
+	cacheMu sync.Mutex
 
 	// 请求调度相关字段
 	mu                  sync.Mutex
@@ -323,6 +365,97 @@ func NewWrappedLive(ctx context.Context, live Live, cache gcache.Cache) Live {
 		schedulerCtx:    schedulerCtx,
 		schedulerCancel: schedulerCancel,
 	}
+}
+
+// RoomOptionsControlAudioMode 判断平台的音频模式是否由房间选项控制。
+// 猫耳等纯音频平台的 Info.AudioOnly 由平台自身决定，不能套用房间选项的默认值。
+func RoomOptionsControlAudioMode(platformKey string) bool {
+	return platformKey == "bilibili" || platformKey == "sooplive"
+}
+
+func (w *WrappedLive) roomOptionsControlAudioMode() bool {
+	return RoomOptionsControlAudioMode(configs.GetPlatformKeyFromUrl(w.GetRawUrl()))
+}
+
+func (w *WrappedLive) updateCachedInfo(update func(*Info)) error {
+	if w.cache == nil {
+		return nil
+	}
+	w.cacheMu.Lock()
+	defer w.cacheMu.Unlock()
+
+	cached, err := w.cache.Get(w)
+	if err != nil {
+		return nil
+	}
+	info, ok := cached.(*Info)
+	if !ok || info == nil {
+		return nil
+	}
+	updated := *info
+	update(&updated)
+	return w.cache.Set(w, &updated)
+}
+
+func (w *WrappedLive) setCachedInfo(info *Info) error {
+	if w.cache == nil {
+		return nil
+	}
+	w.cacheMu.Lock()
+	defer w.cacheMu.Unlock()
+
+	updated := *info
+	// GetInfo 可能在房间选项更新前已经按旧快照构造结果。选项本身已经原子替换，
+	// 整体提交缓存时再按当前快照校正，保存接口就无需等待覆盖网络请求的 requestMu。
+	if w.roomOptionsControlAudioMode() {
+		if options := w.GetOptions(); options != nil {
+			updated.AudioOnly = options.AudioOnly
+		}
+	}
+	// 平台刷新和初始化注入不负责可用流列表；若录制器在请求期间已经写入了更新的列表，
+	// 整体提交 Info 时必须保留它，避免短时 cacheMu 只解决阻塞却造成字段丢失。
+	if cached, err := w.cache.Get(w); err == nil {
+		if current, ok := cached.(*Info); ok && current != nil &&
+			current.AvailableStreamsUpdatedAt > 0 && current.AvailableStreamsUpdatedAt >= updated.AvailableStreamsUpdatedAt {
+			updated.AvailableStreams = current.AvailableStreams
+			updated.AvailableStreamsUpdatedAt = current.AvailableStreamsUpdatedAt
+		}
+	}
+	return w.cache.Set(w, &updated)
+}
+
+// UpdateLiveOptionsbyConfig 先原子替换底层选项，再通过短时 cacheMu 修正已有缓存。
+// GetInfo 提交整份缓存时也会按当前选项校正 AudioOnly，因此这里不必等待包含平台排队
+// 和网络请求的 requestMu，HTTP 保存接口不会被慢轮询长时间拖住。
+func (w *WrappedLive) UpdateLiveOptionsbyConfig(ctx context.Context, room *configs.LiveRoom) error {
+	if err := w.Live.UpdateLiveOptionsbyConfig(ctx, room); err != nil {
+		return err
+	}
+
+	// 只有这两个平台的 Info.AudioOnly 来自房间选项；猫耳等平台的音频属性
+	// 由平台自身决定，不能在保存昵称等设置时被房间的默认值覆盖。
+	if !w.roomOptionsControlAudioMode() {
+		return nil
+	}
+	audioOnly := room.AudioOnly
+	if options := w.GetOptions(); options != nil {
+		audioOnly = options.AudioOnly
+	}
+	return w.updateCachedInfo(func(info *Info) {
+		// 录制任务可能仍持有旧 Info；复制后替换，确保当前文件不中途切换格式。
+		info.AudioOnly = audioOnly
+	})
+}
+
+// UpdateCachedAvailableStreams 把录制器探测到的可用流合并进最新缓存。
+// 录制器可能仍持有一次录制开始时读取的旧 Info，不能直接把旧对象整体写回；否则会把
+// UpdateLiveOptionsbyConfig 刚更新的 AudioOnly 等字段覆盖掉。这里只使用短时 cacheMu，
+// 不等待 GetInfo 覆盖的平台排队和网络请求。
+func (w *WrappedLive) UpdateCachedAvailableStreams(streams []*AvailableStreamInfo, updatedAt int64) error {
+	return w.updateCachedInfo(func(info *Info) {
+		info.AvailableStreams = streams
+		info.AvailableStreamsUpdatedAt = updatedAt
+	})
 }
 
 // Close 停止请求调度器，释放相关资源
@@ -448,7 +581,7 @@ func (w *WrappedLive) GetInfo() (*Info, error) {
 		if !requestFailed {
 			i.LastError = ""
 		}
-		w.cache.Set(w, i)
+		_ = w.setCachedInfo(i)
 	}
 
 	// 发送调度器刷新完成事件，通知前端更新倒计时
@@ -488,31 +621,20 @@ func (w *WrappedLive) SeedInfo(info *Info) error {
 	w.consecutiveFailures = 0
 	w.mu.Unlock()
 
-	info.LastError = ""
-	if w.cache == nil {
-		return nil
-	}
-	return w.cache.Set(w, info)
+	seeded := *info
+	seeded.Live = w
+	seeded.LastError = ""
+	// setCachedInfo 会按底层 Live 的当前选项校正初始化请求携带的旧音频模式。
+	return w.setCachedInfo(&seeded)
 }
 
 // cacheLastError 把最近一次的错误信息记录到缓存的直播间信息上。
 // 通过「读出来 → 复制 → 改副本 → 写回」的方式更新，避免修改其他 goroutine
 // 正在读取的 *Info（gcache 只保证自身的并发安全，不保证值对象的）。
 func (w *WrappedLive) cacheLastError(err error) {
-	if w.cache == nil {
-		return
-	}
-	cached, cacheErr := w.cache.Get(w)
-	if cacheErr != nil {
-		return
-	}
-	info, ok := cached.(*Info)
-	if !ok || info == nil {
-		return
-	}
-	updated := *info
-	updated.LastError = err.Error()
-	w.cache.Set(w, &updated)
+	_ = w.updateCachedInfo(func(info *Info) {
+		info.LastError = err.Error()
+	})
 }
 
 // dispatchSchedulerRefreshEvent 发送调度器刷新完成事件
