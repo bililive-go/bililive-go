@@ -325,6 +325,40 @@ func NewWrappedLive(ctx context.Context, live Live, cache gcache.Cache) Live {
 	}
 }
 
+// UpdateLiveOptionsbyConfig 把底层选项更新与 GetInfo 的缓存提交放进同一临界区。
+// 这样在途请求只能先写入旧结果、再由本方法用新配置修正缓存，不能反向覆盖。
+func (w *WrappedLive) UpdateLiveOptionsbyConfig(ctx context.Context, room *configs.LiveRoom) error {
+	w.requestMu.Lock()
+	defer w.requestMu.Unlock()
+
+	if err := w.Live.UpdateLiveOptionsbyConfig(ctx, room); err != nil {
+		return err
+	}
+
+	// 只有这两个平台的 Info.AudioOnly 来自房间选项；猫耳等平台的音频属性
+	// 由平台自身决定，不能在保存昵称等设置时被房间的默认值覆盖。
+	platform := configs.GetPlatformKeyFromUrl(w.GetRawUrl())
+	if platform != "bilibili" && platform != "sooplive" {
+		return nil
+	}
+	if w.cache == nil {
+		return nil
+	}
+
+	cached, err := w.cache.Get(w)
+	if err != nil {
+		return nil
+	}
+	info, ok := cached.(*Info)
+	if !ok || info == nil {
+		return nil
+	}
+	// 录制任务可能仍持有旧 Info；复制后替换，确保当前文件不中途切换格式。
+	updated := *info
+	updated.AudioOnly = room.AudioOnly
+	return w.cache.Set(w, &updated)
+}
+
 // Close 停止请求调度器，释放相关资源
 func (w *WrappedLive) Close() {
 	w.schedulerCancel()

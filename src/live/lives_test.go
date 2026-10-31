@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bluele/gcache"
+
+	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/types"
 )
 
@@ -33,6 +36,26 @@ func (l *errorInfoLive) GetRawUrl() string         { return "" }
 func (l *errorInfoLive) GetLiveId() types.LiveID   { return "error-test" }
 func (l *errorInfoLive) GetPlatformCNName() string { return "测试平台" }
 func (l *errorInfoLive) GetInfo() (*Info, error)   { return nil, errors.New("请求失败") }
+
+type blockingOptionsLive struct {
+	Live
+	options     atomic.Pointer[Options]
+	infoStarted chan struct{}
+	releaseInfo chan struct{}
+}
+
+func (l *blockingOptionsLive) GetRawUrl() string { return "https://live.bilibili.com/123" }
+func (l *blockingOptionsLive) GetInfo() (*Info, error) {
+	options := l.options.Load()
+	close(l.infoStarted)
+	<-l.releaseInfo
+	return &Info{Live: l, AudioOnly: options.AudioOnly}, nil
+}
+func (l *blockingOptionsLive) UpdateLiveOptionsbyConfig(_ context.Context, room *configs.LiveRoom) error {
+	l.options.Store(&Options{AudioOnly: room.AudioOnly, Quality: room.Quality, NickName: room.NickName})
+	return nil
+}
+func (l *blockingOptionsLive) GetOptions() *Options { return l.options.Load() }
 
 // 未加载全局配置时 getConfiguredInterval 会直接返回默认间隔，
 // 因此可以直接构造一个空的 WrappedLive 来验证退避曲线。
@@ -147,6 +170,53 @@ func TestWrappedLiveSerializesConcurrentGetInfo(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatal("并发 GetInfo 未完成")
 		}
+	}
+}
+
+func TestWrappedLiveSerializesOptionUpdateWithInfoCache(t *testing.T) {
+	cache := gcache.New(10).Build()
+	underlying := &blockingOptionsLive{
+		infoStarted: make(chan struct{}),
+		releaseInfo: make(chan struct{}),
+	}
+	underlying.options.Store(&Options{AudioOnly: false})
+	w := NewWrappedLive(context.Background(), underlying, cache).(*WrappedLive)
+	t.Cleanup(w.Close)
+
+	infoDone := make(chan error, 1)
+	go func() {
+		_, err := w.GetInfo()
+		infoDone <- err
+	}()
+	<-underlying.infoStarted
+
+	updateDone := make(chan error, 1)
+	go func() {
+		updateDone <- w.UpdateLiveOptionsbyConfig(context.Background(), &configs.LiveRoom{
+			Url:       underlying.GetRawUrl(),
+			AudioOnly: true,
+		})
+	}()
+	select {
+	case err := <-updateDone:
+		t.Fatalf("在途 GetInfo 完成前选项更新不应返回，err=%v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(underlying.releaseInfo)
+	if err := <-infoDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-updateDone; err != nil {
+		t.Fatal(err)
+	}
+
+	cached, err := cache.Get(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info := cached.(*Info); !info.AudioOnly {
+		t.Fatal("在途 GetInfo 的旧音频标志覆盖了热更新")
 	}
 }
 

@@ -176,10 +176,11 @@ func loginCookieUsable() bool {
 // getCookieString 从 Options cookie jar 中读取斗鱼域名的 cookie 字符串（"k1=v1; k2=v2"）。
 // 未配置 cookie、或这份登录态已确凿失效时返回空串，调用方据此决定是否附加 Cookie 头。
 func (l *Live) getCookieString() string {
-	if l.Options == nil || l.Options.Cookies == nil || !loginCookieUsable() {
+	options := l.GetOptions()
+	if options == nil || options.Cookies == nil || !loginCookieUsable() {
 		return ""
 	}
-	cookies := l.Options.Cookies.Cookies(l.Url)
+	cookies := options.Cookies.Cookies(l.Url)
 	parts := make([]string, 0, len(cookies))
 	for _, c := range cookies {
 		parts = append(parts, c.Name+"="+c.Value)
@@ -243,9 +244,10 @@ func (l *Live) getDID() string {
 	if l.did != "" {
 		return l.did
 	}
-	if l.Options != nil && l.Options.Cookies != nil {
+	options := l.GetOptions()
+	if options != nil && options.Cookies != nil {
 		found := make(map[string]string, len(deviceIDCookieKeys))
-		for _, c := range l.Options.Cookies.Cookies(l.Url) {
+		for _, c := range options.Cookies.Cookies(l.Url) {
 			if c.Value != "" {
 				found[c.Name] = c.Value
 			}

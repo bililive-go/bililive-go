@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/bluele/gcache"
@@ -22,6 +23,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/live"
 	_ "github.com/bililive-go/bililive-go/src/live/bilibili"
 	"github.com/bililive-go/bililive-go/src/live/system"
+	"github.com/bililive-go/bililive-go/src/types"
 )
 
 // 构造真实的平台 Live 和初始化包装，但不连接上游或启动监听器。
@@ -38,9 +40,10 @@ func newRoomConfigTestLive(t *testing.T, initializing, missingID bool) (*configs
 	require.NoError(t, err)
 	t.Cleanup(wrapped.Close)
 	original := wrapped.(*live.WrappedLive).Live.(*system.InitializingLive).OriginalLive
-	active := original
-	if initializing {
-		active = wrapped
+	active := wrapped
+	if !initializing {
+		active = live.NewWrappedLive(inst.Ctx, original, inst.Cache)
+		t.Cleanup(active.Close)
 	}
 	if !missingID {
 		room.LiveId = active.GetLiveId()
@@ -132,6 +135,86 @@ func TestRoomConfigUpdatesLiveOptions(t *testing.T) {
 	}
 }
 
+func TestApplyRoomLiveOptionsUsesLatestConfig(t *testing.T) {
+	previous := configs.GetCurrentConfig()
+	t.Cleanup(func() { configs.SetCurrentConfig(previous) })
+
+	const roomURL = "https://live.bilibili.com/123"
+	liveID := types.LiveID(roomURL)
+	stale := configs.LiveRoom{Url: roomURL, LiveId: liveID, Quality: 80, AudioOnly: true, NickName: "旧提交"}
+	latest := configs.LiveRoom{Url: roomURL, LiveId: liveID, Quality: 10000, AudioOnly: false, NickName: "新提交"}
+	cfg := configs.NewConfig()
+	cfg.LiveRooms = []configs.LiveRoom{latest}
+	cfg.RefreshLiveRoomIndexCache()
+	configs.SetCurrentConfig(cfg)
+
+	active := &recordingLive{rawUrl: roomURL}
+	inst := &instance.Instance{Ctx: context.Background()}
+	inst.Lives.Set(liveID, active)
+	require.NoError(t, applyRoomLiveOptions(ctxWithInstance(inst), &stale, roomURL))
+	require.Len(t, active.rooms, 1)
+	assert.Equal(t, latest, active.rooms[0], "旧请求必须重新读取并应用最新配置")
+}
+
+type handoffRoomConfigLive struct {
+	*recordingLive
+	updateStarted chan struct{}
+	releaseUpdate chan struct{}
+	updateCalls   atomic.Int32
+}
+
+func (l *handoffRoomConfigLive) UpdateLiveOptionsbyConfig(ctx context.Context, room *configs.LiveRoom) error {
+	if l.updateCalls.Add(1) == 1 {
+		close(l.updateStarted)
+		<-l.releaseUpdate
+	}
+	return l.recordingLive.UpdateLiveOptionsbyConfig(ctx, room)
+}
+
+func TestApplyRoomLiveOptionsFollowsInitializingHandoff(t *testing.T) {
+	previous := configs.GetCurrentConfig()
+	t.Cleanup(func() { configs.SetCurrentConfig(previous) })
+
+	const roomURL = "https://live.bilibili.com/123"
+	liveID := types.LiveID(roomURL)
+	room := configs.LiveRoom{Url: roomURL, LiveId: liveID, AudioOnly: true}
+	cfg := configs.NewConfig()
+	cfg.LiveRooms = []configs.LiveRoom{room}
+	cfg.RefreshLiveRoomIndexCache()
+	configs.SetCurrentConfig(cfg)
+
+	cache := gcache.New(10).Build()
+	underlying := &handoffRoomConfigLive{
+		recordingLive: &recordingLive{rawUrl: roomURL},
+		updateStarted: make(chan struct{}),
+		releaseUpdate: make(chan struct{}),
+	}
+	oldWrapped := live.NewWrappedLive(context.Background(), underlying, cache)
+	newWrapped := live.NewWrappedLive(context.Background(), underlying, cache)
+	t.Cleanup(oldWrapped.Close)
+	t.Cleanup(newWrapped.Close)
+	require.NoError(t, cache.Set(oldWrapped, &live.Info{Live: oldWrapped, AudioOnly: false}))
+	require.NoError(t, cache.Set(newWrapped, &live.Info{Live: newWrapped, AudioOnly: false}))
+
+	inst := &instance.Instance{Ctx: context.Background(), Cache: cache}
+	inst.Lives.Set(liveID, oldWrapped)
+	done := make(chan error, 1)
+	go func() {
+		done <- applyRoomLiveOptions(ctxWithInstance(inst), &room, roomURL)
+	}()
+	<-underlying.updateStarted
+
+	// 模拟 RoomInitializingFinished 在应用过程中把旧包装器替换成新包装器。
+	inst.Lives.Set(liveID, newWrapped)
+	close(underlying.releaseUpdate)
+	require.NoError(t, <-done)
+	assert.Equal(t, int32(2), underlying.updateCalls.Load(), "换键后必须继续更新当前活动包装器")
+
+	cached, err := cache.Get(newWrapped)
+	require.NoError(t, err)
+	assert.True(t, cached.(*live.Info).AudioOnly, "新包装器不能保留交接前的音频标志")
+}
+
 func TestRoomConfigSaveFailureKeepsLiveOptions(t *testing.T) {
 	for _, byID := range []bool{true, false} {
 		entry := "URL入口"
@@ -199,16 +282,18 @@ func TestRoomConfigRespectsPlatformAudioMode(t *testing.T) {
 			previous := configs.GetCurrentConfig()
 			t.Cleanup(func() { configs.SetCurrentConfig(previous) })
 			cfg := writableConfig(t)
-			active := &recordingLive{rawUrl: tc.roomURL}
+			inst := &instance.Instance{Ctx: context.Background(), Cache: gcache.New(10).Build()}
+			underlying := &recordingLive{rawUrl: tc.roomURL}
+			active := live.NewWrappedLive(inst.Ctx, underlying, inst.Cache)
+			t.Cleanup(active.Close)
 			cfg.LiveRooms = []configs.LiveRoom{{Url: tc.roomURL, LiveId: active.GetLiveId()}}
 			cfg.RefreshLiveRoomIndexCache()
-			inst := &instance.Instance{Ctx: context.Background(), Cache: gcache.New(10).Build()}
 			inst.Lives.Set(active.GetLiveId(), active)
 			previousInfo := &live.Info{Live: active, AudioOnly: tc.cachedAudio}
 			require.NoError(t, inst.Cache.Set(active, previousInfo))
 			rec := patchRoomConfig(t, inst, active, true, tc.body)
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-			require.Len(t, active.rooms, 1)
+			require.Len(t, underlying.rooms, 1)
 			cached, err := inst.Cache.Get(active)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantAudio, cached.(*live.Info).AudioOnly)
