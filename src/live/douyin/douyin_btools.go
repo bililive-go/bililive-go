@@ -24,7 +24,7 @@ var btoolsConsts = struct {
 //
 // 不能用 http.DefaultClient：它没有超时，本地服务一旦卡住（而不是报错），
 // 调用方会永久阻塞，直播间轮询 goroutine 会不断堆积。
-// 这里的请求全部打到 127.0.0.1，正常应在毫秒级返回，给 15 秒已经非常宽松。
+// 本地接口还会等待抖音上游及端点回退；15 秒是整次调用的预算。
 var btoolsClient = &http.Client{
 	Timeout: 15 * time.Second,
 }
@@ -45,10 +45,7 @@ func doBToolsRequest(endpoint string) ([]byte, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		// 读掉 body 才能让连接回到连接池复用，否则每次失败都会新建一条 TCP 连接，
-		// 大量直播间同时失败时会迅速耗尽本地端口
-		_, _ = io.Copy(io.Discard, resp.Body)
-		return nil, fmt.Errorf("请求失败: %s", resp.Status)
+		return nil, readBToolsError(resp)
 	}
 
 	return io.ReadAll(resp.Body)
