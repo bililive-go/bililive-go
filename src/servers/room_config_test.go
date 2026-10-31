@@ -267,6 +267,111 @@ func TestAddLiveImplOptionFailureDoesNotPublishRoom(t *testing.T) {
 	}
 }
 
+type addTestListenerManager struct {
+	listeners.Manager
+	added bool
+}
+
+func (manager *addTestListenerManager) AddListener(context.Context, live.Live) error {
+	manager.added = true
+	return nil
+}
+
+func (manager *addTestListenerManager) HasListener(context.Context, types.LiveID) bool {
+	return manager.added
+}
+
+func TestAddLiveImplPreservesRequestedListeningUnlessConfigChanged(t *testing.T) {
+	previousConfig := configs.GetCurrentConfig()
+	previousBuilder := buildLiveForAdd
+	t.Cleanup(func() {
+		configs.SetCurrentConfig(previousConfig)
+		buildLiveForAdd = previousBuilder
+	})
+
+	for _, testCase := range []struct {
+		name             string
+		initial          bool
+		requested        bool
+		changeDuringInit bool
+		latest           bool
+		expected         bool
+	}{
+		{name: "请求启动监听", initial: false, requested: true, expected: true},
+		{name: "请求不监听", initial: true, requested: false, expected: false},
+		{name: "初始化期间关闭监听", initial: true, requested: true, changeDuringInit: true, latest: false, expected: false},
+		{name: "初始化期间启动监听", initial: false, requested: false, changeDuringInit: true, latest: true, expected: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			const roomURL = "https://live.bilibili.com/123"
+			cfg := configs.NewConfig()
+			cfg.File = filepath.Join(t.TempDir(), "config.yml")
+			cfg.LiveRooms = []configs.LiveRoom{{Url: roomURL, IsListening: testCase.initial}}
+			cfg.RefreshLiveRoomIndexCache()
+			configs.SetCurrentConfig(cfg)
+			require.NoError(t, cfg.Marshal())
+
+			created := &recordingLive{rawUrl: roomURL}
+			buildLiveForAdd = func(_ context.Context, _ *configs.LiveRoom, _ gcache.Cache) (live.Live, error) {
+				if testCase.changeDuringInit {
+					_, err := configs.UpdateWithRetryTransient(func(current *configs.Config) error {
+						current.LiveRooms[0].IsListening = testCase.latest
+						return nil
+					}, 3, time.Millisecond)
+					require.NoError(t, err)
+				}
+				return created, nil
+			}
+			inst := &instance.Instance{Cache: gcache.New(10).Build()}
+			ctx := ctxWithInstance(inst)
+			inst.Ctx = ctx
+			manager := &addTestListenerManager{}
+			inst.ListenerManager = manager
+			recorders.NewManager(ctx)
+
+			_, err := addLiveImpl(ctx, roomURL, testCase.requested, false, true)
+			require.NoError(t, err)
+			assert.Equal(t, testCase.expected, manager.added)
+		})
+	}
+}
+
+type addFailureTrackingLive struct {
+	*recordingLive
+	closed bool
+}
+
+func (tracked *addFailureTrackingLive) Close() { tracked.closed = true }
+
+func TestAddLiveImplAppendFailureCleansUpNewLive(t *testing.T) {
+	previousConfig := configs.GetCurrentConfig()
+	previousBuilder := buildLiveForAdd
+	t.Cleanup(func() {
+		configs.SetCurrentConfig(previousConfig)
+		buildLiveForAdd = previousBuilder
+	})
+
+	const roomURL = "https://live.bilibili.com/123"
+	cfg := configs.NewConfig()
+	cfg.File = t.TempDir()
+	configs.SetCurrentConfig(cfg)
+	created := &addFailureTrackingLive{recordingLive: &recordingLive{rawUrl: roomURL}}
+	buildLiveForAdd = func(_ context.Context, _ *configs.LiveRoom, cache gcache.Cache) (live.Live, error) {
+		require.NoError(t, cache.Set(created, &live.Info{Live: created}))
+		return created, nil
+	}
+	inst := &instance.Instance{Cache: gcache.New(10).Build()}
+	ctx := ctxWithInstance(inst)
+	inst.Ctx = ctx
+
+	_, err := addLiveImpl(ctx, roomURL, true, false, true)
+	require.Error(t, err)
+	assert.False(t, inst.Lives.Has(created.GetLiveId()))
+	assert.True(t, created.closed)
+	_, cacheErr := inst.Cache.Get(created)
+	assert.ErrorIs(t, cacheErr, gcache.KeyNotFoundError)
+}
+
 type handoffRoomConfigLive struct {
 	*recordingLive
 	updateStarted chan struct{}

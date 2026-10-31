@@ -779,11 +779,11 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool, notifyOnly b
 		}
 		needAppend = true
 	}
+	initialListening := liveRoom.IsListening
 	newLive, err := buildLiveForAdd(ctx, liveRoom, inst.Cache)
 	if err != nil {
 		return nil, err
 	}
-
 	// Live 初始化包含平台网络请求，期间同 URL 的 PATCH 可能已经提交了新选项，但因
 	// 对象尚未注册而无法热应用。重读最新配置、应用选项、注册和启动监听必须与该房间
 	// 的 PATCH 共用同一把锁：PATCH 先完成时这里补应用，PATCH 后到时则等待注册完成。
@@ -798,7 +798,9 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool, notifyOnly b
 		if updateErr := newLive.UpdateLiveOptionsbyConfig(ctx, &currentRoom); updateErr != nil {
 			return updateErr
 		}
-		isListen = currentRoom.IsListening
+		if currentRoom.IsListening != initialListening {
+			isListen = currentRoom.IsListening
+		}
 
 		if !inst.Lives.SetIfAbsent(newLive.GetLiveId(), newLive) {
 			return errors.New("直播间已存在")
@@ -827,6 +829,12 @@ func addLiveImpl(ctx context.Context, urlStr string, isListen bool, notifyOnly b
 		return nil
 	}()
 	if err != nil {
+		if registered, ok := inst.Lives.Get(newLive.GetLiveId()); !ok || registered != newLive {
+			newLive.Close()
+			if inst.Cache != nil {
+				inst.Cache.Remove(newLive)
+			}
+		}
 		return nil, err
 	}
 
