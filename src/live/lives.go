@@ -359,6 +359,31 @@ func (w *WrappedLive) UpdateLiveOptionsbyConfig(ctx context.Context, room *confi
 	return w.cache.Set(w, &updated)
 }
 
+// UpdateCachedAvailableStreams 把录制器探测到的可用流合并进最新缓存。
+// 录制器可能仍持有一次录制开始时读取的旧 Info，不能直接把旧对象整体写回；否则会把
+// UpdateLiveOptionsbyConfig 刚更新的 AudioOnly 等字段覆盖掉。与 GetInfo、配置热更新共用
+// requestMu 后，缓存的读改写会按同一房间串行提交。
+func (w *WrappedLive) UpdateCachedAvailableStreams(streams []*AvailableStreamInfo, updatedAt int64) error {
+	w.requestMu.Lock()
+	defer w.requestMu.Unlock()
+
+	if w.cache == nil {
+		return nil
+	}
+	cached, err := w.cache.Get(w)
+	if err != nil {
+		return nil
+	}
+	info, ok := cached.(*Info)
+	if !ok || info == nil {
+		return nil
+	}
+	updated := *info
+	updated.AvailableStreams = streams
+	updated.AvailableStreamsUpdatedAt = updatedAt
+	return w.cache.Set(w, &updated)
+}
+
 // Close 停止请求调度器，释放相关资源
 func (w *WrappedLive) Close() {
 	w.schedulerCancel()

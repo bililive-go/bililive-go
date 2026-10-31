@@ -2567,9 +2567,80 @@ func applyOverridableConfigUpdates(oc *configs.OverridableConfig, updates map[st
 	}
 }
 
-// roomLiveOptionsMu 让所有房间运行态应用按提交后的配置顺序收敛。配置提交本身仍由
-// configs 的乐观锁并发执行；进入这里后始终重读最新快照，旧请求不会把新值倒回去。
-var roomLiveOptionsMu sync.Mutex
+type roomLiveOptionsLockEntry struct {
+	mu   sync.Mutex
+	refs int
+}
+
+// roomLiveOptionsLocks 只串行化同一房间的运行态应用。WrappedLive 的更新可能等待平台
+// 限流并执行网络请求；不同房间不能因此共用一把全局锁而互相阻塞。
+var roomLiveOptionsLocks = struct {
+	sync.Mutex
+	entries map[string]*roomLiveOptionsLockEntry
+}{entries: make(map[string]*roomLiveOptionsLockEntry)}
+
+func roomLiveOptionsLockKeys(room *configs.LiveRoom, originalURL string) []string {
+	keys := make([]string, 0, 4)
+	seen := make(map[string]struct{}, 4)
+	add := func(prefix, value string) {
+		if value == "" {
+			return
+		}
+		key := prefix + value
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	add("id:", string(room.LiveId))
+	add("url:", originalURL)
+	add("url:", room.Url)
+	// 初始化回填 LiveId 或通过 ID 修改 URL 时，同一房间在两个请求快照中的标识可能
+	// 不同。把当前配置中的 ID 和 URL 也注册为别名，仍然落到同一个锁条目。
+	if current, ok := latestRoomForLiveOptions(room, originalURL); ok {
+		add("id:", string(current.LiveId))
+		add("url:", current.Url)
+	}
+	return keys
+}
+
+func lockRoomLiveOptions(room *configs.LiveRoom, originalURL string) func() {
+	keys := roomLiveOptionsLockKeys(room, originalURL)
+	roomLiveOptionsLocks.Lock()
+	var entry *roomLiveOptionsLockEntry
+	for _, key := range keys {
+		if current := roomLiveOptionsLocks.entries[key]; current != nil {
+			entry = current
+			break
+		}
+	}
+	if entry == nil {
+		entry = &roomLiveOptionsLockEntry{}
+	}
+	for _, key := range keys {
+		if current := roomLiveOptionsLocks.entries[key]; current == nil || current == entry {
+			roomLiveOptionsLocks.entries[key] = entry
+		}
+	}
+	entry.refs++
+	roomLiveOptionsLocks.Unlock()
+
+	entry.mu.Lock()
+	return func() {
+		entry.mu.Unlock()
+		roomLiveOptionsLocks.Lock()
+		entry.refs--
+		if entry.refs == 0 {
+			for key, current := range roomLiveOptionsLocks.entries {
+				if current == entry {
+					delete(roomLiveOptionsLocks.entries, key)
+				}
+			}
+		}
+		roomLiveOptionsLocks.Unlock()
+	}
+}
 
 func latestRoomForLiveOptions(room *configs.LiveRoom, originalURL string) (configs.LiveRoom, bool) {
 	cfg := configs.GetCurrentConfig()
@@ -2614,8 +2685,8 @@ func findRoomLive(inst *instance.Instance, room *configs.LiveRoom, originalURL s
 
 // applyRoomLiveOptions 在配置提交成功后同步现有 Live，录制参数由下一次录制采用。
 func applyRoomLiveOptions(ctx context.Context, room *configs.LiveRoom, originalURL string) error {
-	roomLiveOptionsMu.Lock()
-	defer roomLiveOptionsMu.Unlock()
+	unlock := lockRoomLiveOptions(room, originalURL)
+	defer unlock()
 
 	currentRoom, ok := latestRoomForLiveOptions(room, originalURL)
 	if !ok {

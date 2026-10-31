@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/bluele/gcache"
 	"github.com/gorilla/mux"
@@ -213,6 +214,118 @@ func TestApplyRoomLiveOptionsFollowsInitializingHandoff(t *testing.T) {
 	cached, err := cache.Get(newWrapped)
 	require.NoError(t, err)
 	assert.True(t, cached.(*live.Info).AudioOnly, "新包装器不能保留交接前的音频标志")
+}
+
+func TestApplyRoomLiveOptionsDoesNotBlockOtherRooms(t *testing.T) {
+	previous := configs.GetCurrentConfig()
+	t.Cleanup(func() { configs.SetCurrentConfig(previous) })
+
+	roomA := configs.LiveRoom{
+		Url:     "https://live.bilibili.com/123",
+		LiveId:  types.LiveID("https://live.bilibili.com/123"),
+		Quality: 80,
+	}
+	roomB := configs.LiveRoom{
+		Url:     "https://www.douyu.com/456",
+		LiveId:  types.LiveID("https://www.douyu.com/456"),
+		Quality: 10000,
+	}
+	cfg := configs.NewConfig()
+	cfg.LiveRooms = []configs.LiveRoom{roomA, roomB}
+	cfg.RefreshLiveRoomIndexCache()
+	configs.SetCurrentConfig(cfg)
+
+	blocked := &handoffRoomConfigLive{
+		recordingLive: &recordingLive{rawUrl: roomA.Url},
+		updateStarted: make(chan struct{}),
+		releaseUpdate: make(chan struct{}),
+	}
+	fast := &recordingLive{rawUrl: roomB.Url}
+	inst := &instance.Instance{Ctx: context.Background()}
+	inst.Lives.Set(roomA.LiveId, blocked)
+	inst.Lives.Set(roomB.LiveId, fast)
+	ctx := ctxWithInstance(inst)
+
+	released := false
+	defer func() {
+		if !released {
+			close(blocked.releaseUpdate)
+		}
+	}()
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- applyRoomLiveOptions(ctx, &roomA, roomA.Url)
+	}()
+	<-blocked.updateStarted
+
+	secondDone := make(chan error, 1)
+	go func() {
+		secondDone <- applyRoomLiveOptions(ctx, &roomB, roomB.Url)
+	}()
+	select {
+	case err := <-secondDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("一个房间的慢更新阻塞了另一个房间")
+	}
+
+	close(blocked.releaseUpdate)
+	released = true
+	require.NoError(t, <-firstDone)
+	require.Len(t, fast.rooms, 1)
+}
+
+func TestApplyRoomLiveOptionsSerializesIdentityTransition(t *testing.T) {
+	previous := configs.GetCurrentConfig()
+	t.Cleanup(func() { configs.SetCurrentConfig(previous) })
+
+	const roomURL = "https://live.bilibili.com/123"
+	liveID := types.LiveID("custom-live-id")
+	latest := configs.LiveRoom{Url: roomURL, LiveId: liveID, AudioOnly: true}
+	beforeIDBackfill := latest
+	beforeIDBackfill.LiveId = ""
+	cfg := configs.NewConfig()
+	cfg.LiveRooms = []configs.LiveRoom{latest}
+	cfg.RefreshLiveRoomIndexCache()
+	configs.SetCurrentConfig(cfg)
+
+	blocked := &handoffRoomConfigLive{
+		recordingLive: &recordingLive{rawUrl: roomURL},
+		updateStarted: make(chan struct{}),
+		releaseUpdate: make(chan struct{}),
+	}
+	inst := &instance.Instance{Ctx: context.Background()}
+	inst.Lives.Set(liveID, blocked)
+	ctx := ctxWithInstance(inst)
+
+	released := false
+	defer func() {
+		if !released {
+			close(blocked.releaseUpdate)
+		}
+	}()
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- applyRoomLiveOptions(ctx, &beforeIDBackfill, roomURL)
+	}()
+	<-blocked.updateStarted
+
+	secondDone := make(chan error, 1)
+	go func() {
+		secondDone <- applyRoomLiveOptions(ctx, &latest, roomURL)
+	}()
+	select {
+	case err := <-secondDone:
+		t.Fatalf("同一房间的 ID 回填前后快照没有共用运行态应用锁: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	assert.Equal(t, int32(1), blocked.updateCalls.Load(), "第二次更新应等待同一房间的第一次更新")
+
+	close(blocked.releaseUpdate)
+	released = true
+	require.NoError(t, <-firstDone)
+	require.NoError(t, <-secondDone)
+	assert.Equal(t, int32(2), blocked.updateCalls.Load())
 }
 
 func TestRoomConfigSaveFailureKeepsLiveOptions(t *testing.T) {

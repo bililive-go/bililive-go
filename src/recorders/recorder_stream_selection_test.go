@@ -91,6 +91,46 @@ func sampleCandidates() []*live.StreamUrlInfo {
 	}
 }
 
+func TestUpdateAvailableStreamsMergesIntoLatestWrappedCache(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	underlying := livemock.NewMockLive(ctrl)
+	cache := gcache.New(2).LRU().Build()
+	wrapped := live.NewWrappedLive(context.Background(), underlying, cache)
+	t.Cleanup(wrapped.Close)
+
+	current := &live.Info{Live: wrapped, AudioOnly: false, RoomName: "最新标题"}
+	if err := cache.Set(wrapped, current); err != nil {
+		t.Fatalf("写入直播信息缓存失败: %v", err)
+	}
+	r := &recorder{Live: wrapped, cache: cache}
+	r.updateAvailableStreams(context.Background(), []*live.StreamUrlInfo{{
+		Quality: "HD",
+		Format:  "flv",
+		Codec:   "h264",
+	}})
+
+	cached, err := cache.Get(wrapped)
+	if err != nil {
+		t.Fatalf("读取直播信息缓存失败: %v", err)
+	}
+	updated := cached.(*live.Info)
+	if updated.AudioOnly {
+		t.Fatal("合并可用流时不能把最新的 AudioOnly 覆盖成旧值")
+	}
+	if updated.RoomName != current.RoomName {
+		t.Fatalf("合并可用流时覆盖了其他缓存字段: %q", updated.RoomName)
+	}
+	if len(updated.AvailableStreams) != 1 || updated.AvailableStreams[0].Quality != "HD" {
+		t.Fatalf("可用流没有写入最新缓存: %+v", updated.AvailableStreams)
+	}
+	if updated.AvailableStreamsUpdatedAt == 0 {
+		t.Fatal("可用流更新时间没有写入缓存")
+	}
+	if current.AvailableStreams != nil || current.AvailableStreamsUpdatedAt != 0 {
+		t.Fatal("不能就地修改其他 goroutine 可能仍在读取的旧 Info")
+	}
+}
+
 func TestGetStreamInfosForRecordingResolvesOnlyPreferredCandidate(t *testing.T) {
 	restoreConfig := swapTestConfig(t)
 	defer restoreConfig()
