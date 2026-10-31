@@ -328,9 +328,14 @@ func NewWrappedLive(ctx context.Context, live Live, cache gcache.Cache) Live {
 	}
 }
 
+// RoomOptionsControlAudioMode 判断平台的音频模式是否由房间选项控制。
+// 猫耳等纯音频平台的 Info.AudioOnly 由平台自身决定，不能套用房间选项的默认值。
+func RoomOptionsControlAudioMode(platformKey string) bool {
+	return platformKey == "bilibili" || platformKey == "sooplive"
+}
+
 func (w *WrappedLive) roomOptionsControlAudioMode() bool {
-	platform := configs.GetPlatformKeyFromUrl(w.GetRawUrl())
-	return platform == "bilibili" || platform == "sooplive"
+	return RoomOptionsControlAudioMode(configs.GetPlatformKeyFromUrl(w.GetRawUrl()))
 }
 
 func (w *WrappedLive) updateCachedInfo(update func(*Info)) error {

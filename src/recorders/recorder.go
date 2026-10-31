@@ -423,6 +423,14 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	// 请求，期间用户在面板点"切换清晰度"改的就是这个偏好，重读会让下面的最终选择与
 	// 上面的解析顺序按两套偏好算，选中根本没解析过 Url 的候选。
 	preference := resolvedConfig.StreamPreference
+	// Bilibili/Soop 的取流结果会受 AudioOnly 影响。先固定一份不可变的 Options
+	// 快照，取流结束后再核对指针：若期间发布过新快照，本轮流地址属于哪个模式
+	// 已无法可靠判断，必须丢弃后重取，不能再和另一版本的解析参数混用。
+	optionsControlAudioMode := live.RoomOptionsControlAudioMode(platformKey)
+	var recordingOptions *live.Options
+	if optionsControlAudioMode {
+		recordingOptions = r.Live.GetOptions()
+	}
 	if streamInfos, err = r.getStreamInfosForRecording(preference); err == live.ErrNotImplemented {
 		var urls []*url.URL
 		// TODO: remove deprecated method GetStreamUrls
@@ -442,10 +450,21 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		r.logStreamURLRetry(err, r.pendingRetryInterval())
 		return
 	}
+	if optionsControlAudioMode && recordingOptions != r.Live.GetOptions() {
+		r.logStreamURLRetry(errors.New("直播间选项在取流期间发生变化"), r.pendingRetryInterval())
+		return
+	}
 	r.resetRetryLogState()
 
 	obj, _ := r.cache.Get(r.Live)
 	info := obj.(*live.Info)
+	if optionsControlAudioMode && recordingOptions != nil {
+		// 缓存修正与选项发布不是一个原子步骤，而且缓存也可能仍是轮询的旧结果。
+		// 本轮文件名、扩展名和解析器参数必须全部使用取流时固定的同一份音频模式。
+		recordingInfo := *info
+		recordingInfo.AudioOnly = recordingOptions.AudioOnly
+		info = &recordingInfo
+	}
 
 	tmpl := getDefaultFileNameTmpl()
 	// 使用层级配置的 OutputTmpl
