@@ -2269,6 +2269,8 @@ func updateRoomConfigById(writer http.ResponseWriter, r *http.Request) {
 
 	// 记录更新前的 NotifyOnly 状态，用于判断是否需要自动开始录制
 	var wasNotifyOnly bool
+	var updatedRoom configs.LiveRoom
+	var originalURL string
 	inst := instance.GetInstance(r.Context())
 
 	_, err = configs.UpdateWithRetry(func(c *configs.Config) error {
@@ -2301,6 +2303,7 @@ func updateRoomConfigById(writer http.ResponseWriter, r *http.Request) {
 
 		// 保存更新前的 NotifyOnly 状态
 		wasNotifyOnly = room.NotifyOnly
+		originalURL = room.Url
 
 		// 更新直播间特有字段
 		if url, ok := updates["url"].(string); ok {
@@ -2333,6 +2336,7 @@ func updateRoomConfigById(writer http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		updatedRoom = *room
 		return nil
 	}, 3, 10*time.Millisecond)
 
@@ -2340,6 +2344,14 @@ func updateRoomConfigById(writer http.ResponseWriter, r *http.Request) {
 		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
 			ErrNo:  http.StatusInternalServerError,
 			ErrMsg: "更新直播间配置失败: " + err.Error(),
+		})
+		return
+	}
+
+	if err := applyRoomLiveOptions(r.Context(), &updatedRoom, originalURL); err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "直播间配置已保存，但应用运行时选项失败: " + err.Error(),
 		})
 		return
 	}
@@ -2552,6 +2564,47 @@ func applyOverridableConfigUpdates(oc *configs.OverridableConfig, updates map[st
 	}
 }
 
+// applyRoomLiveOptions 在配置提交成功后同步现有 Live，录制参数由下一次录制采用。
+func applyRoomLiveOptions(ctx context.Context, room *configs.LiveRoom, originalURL string) error {
+	inst := instance.GetInstance(ctx)
+	liveObj, _ := inst.Lives.Get(room.LiveId)
+	if liveObj == nil {
+		// LiveId 不写入 YAML；尚未回填 ID 时通过保存前的 URL 查找。
+		inst.Lives.Range(func(_ types.LiveID, candidate live.Live) bool {
+			if candidate.GetRawUrl() == originalURL {
+				liveObj = candidate
+				return false
+			}
+			return true
+		})
+	}
+	if liveObj == nil {
+		// 尚未创建的 Live 会在初始化时读取已保存的配置。
+		return nil
+	}
+	if err := liveObj.UpdateLiveOptionsbyConfig(ctx, room); err != nil {
+		return err
+	}
+	// 只有这两个平台的 Info.AudioOnly 来自房间选项；猫耳等平台的音频属性
+	// 由平台自身决定，不能在保存昵称等设置时被房间的默认值覆盖。
+	platform := configs.GetPlatformKeyFromUrl(liveObj.GetRawUrl())
+	if platform != "bilibili" && platform != "sooplive" {
+		return nil
+	}
+	// 录制器使用缓存 Info 决定扩展名和解析器参数。复制后替换，避免修改
+	// 正在录制的任务持有的 Info，也无需等待下一次上游轮询才能采用音频模式。
+	if inst.Cache != nil {
+		if cached, err := inst.Cache.Get(liveObj); err == nil {
+			if info, ok := cached.(*live.Info); ok && info != nil {
+				updated := *info
+				updated.AudioOnly = room.AudioOnly
+				return inst.Cache.Set(liveObj, &updated)
+			}
+		}
+	}
+	return nil
+}
+
 // updateRoomConfig 更新直播间配置
 func updateRoomConfig(writer http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -2585,6 +2638,7 @@ func updateRoomConfig(writer http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var updatedRoom configs.LiveRoom
 	_, err = configs.UpdateWithRetry(func(c *configs.Config) error {
 		room, err := c.GetLiveRoomByUrl(decodedUrl)
 		if err != nil {
@@ -2616,6 +2670,7 @@ func updateRoomConfig(writer http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		updatedRoom = *room
 		return nil
 	}, 3, 10*time.Millisecond)
 
@@ -2623,6 +2678,14 @@ func updateRoomConfig(writer http.ResponseWriter, r *http.Request) {
 		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
 			ErrNo:  http.StatusInternalServerError,
 			ErrMsg: "更新直播间配置失败: " + err.Error(),
+		})
+		return
+	}
+
+	if err := applyRoomLiveOptions(r.Context(), &updatedRoom, decodedUrl); err != nil {
+		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
+			ErrNo:  http.StatusInternalServerError,
+			ErrMsg: "直播间配置已保存，但应用运行时选项失败: " + err.Error(),
 		})
 		return
 	}
