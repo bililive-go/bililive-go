@@ -220,6 +220,104 @@ func TestWrappedLiveSerializesOptionUpdateWithInfoCache(t *testing.T) {
 	}
 }
 
+func TestSeedInfoUsesCurrentAudioOption(t *testing.T) {
+	cache := gcache.New(10).Build()
+	underlying := &blockingOptionsLive{}
+	underlying.options.Store(&Options{AudioOnly: true})
+	w := NewWrappedLive(context.Background(), underlying, cache).(*WrappedLive)
+	t.Cleanup(w.Close)
+
+	// 模拟新包装器已经发布、但初始化 Info 尚未注入时保存了房间设置。
+	if err := w.UpdateLiveOptionsbyConfig(context.Background(), &configs.LiveRoom{
+		Url:       underlying.GetRawUrl(),
+		AudioOnly: false,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stale := &Info{Live: underlying, AudioOnly: true, LastError: "初始化旧结果"}
+	if err := w.SeedInfo(stale); err != nil {
+		t.Fatal(err)
+	}
+
+	cached, err := cache.Get(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seeded := cached.(*Info)
+	if seeded.AudioOnly {
+		t.Fatal("SeedInfo 用初始化旧结果覆盖了当前音频选项")
+	}
+	if seeded.Live != w || seeded.LastError != "" {
+		t.Fatalf("注入的缓存状态不正确: Live=%T LastError=%q", seeded.Live, seeded.LastError)
+	}
+	if !stale.AudioOnly || stale.LastError != "初始化旧结果" {
+		t.Fatal("SeedInfo 不应就地修改初始化流程仍可能持有的旧 Info")
+	}
+}
+
+func TestAvailableStreamsCacheUpdateDoesNotWaitForInfoRequest(t *testing.T) {
+	cache := gcache.New(10).Build()
+	underlying := &blockingOptionsLive{
+		infoStarted: make(chan struct{}),
+		releaseInfo: make(chan struct{}),
+	}
+	underlying.options.Store(&Options{AudioOnly: false})
+	w := NewWrappedLive(context.Background(), underlying, cache).(*WrappedLive)
+	t.Cleanup(w.Close)
+	if err := cache.Set(w, &Info{Live: w, RoomName: "缓存标题"}); err != nil {
+		t.Fatal(err)
+	}
+
+	released := false
+	defer func() {
+		if !released {
+			close(underlying.releaseInfo)
+		}
+	}()
+	infoDone := make(chan error, 1)
+	go func() {
+		_, err := w.GetInfo()
+		infoDone <- err
+	}()
+	<-underlying.infoStarted
+
+	streamsDone := make(chan error, 1)
+	go func() {
+		streamsDone <- w.UpdateCachedAvailableStreams([]*AvailableStreamInfo{{Quality: "HD"}}, 123)
+	}()
+	select {
+	case err := <-streamsDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("展示用流列表缓存被在途平台请求阻塞")
+	}
+
+	cached, err := cache.Get(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := cached.(*Info)
+	if len(info.AvailableStreams) != 1 || info.AvailableStreams[0].Quality != "HD" || info.AvailableStreamsUpdatedAt != 123 {
+		t.Fatalf("可用流没有合并进最新缓存: %+v", info)
+	}
+
+	close(underlying.releaseInfo)
+	released = true
+	if err := <-infoDone; err != nil {
+		t.Fatal(err)
+	}
+	cached, err = cache.Get(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info = cached.(*Info)
+	if len(info.AvailableStreams) != 1 || info.AvailableStreams[0].Quality != "HD" || info.AvailableStreamsUpdatedAt != 123 {
+		t.Fatalf("平台请求提交覆盖了录制器刚更新的可用流: %+v", info)
+	}
+}
+
 func TestRequestStatusCallbackHandlesNilInfoOnFailure(t *testing.T) {
 	callbackCalled := false
 	SetRequestStatusCallback(func(_, _ string, success bool, errMsg string) {

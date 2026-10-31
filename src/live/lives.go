@@ -295,8 +295,11 @@ type SchedulerStatusProvider interface {
 type WrappedLive struct {
 	Live
 	cache gcache.Cache
-	// requestMu 串行化同一直播间的直接刷新与调度刷新，并保护缓存的读改写顺序。
+	// requestMu 串行化同一直播间的直接刷新与调度刷新，并让选项更新等待在途刷新提交。
 	requestMu sync.Mutex
+	// cacheMu 只保护缓存的短时读改写。录制器更新展示用流列表时不能等待 requestMu
+	// 覆盖的平台许可排队和网络请求，否则会延迟真正的录制启动。
+	cacheMu sync.Mutex
 
 	// 请求调度相关字段
 	mu                  sync.Mutex
@@ -325,6 +328,51 @@ func NewWrappedLive(ctx context.Context, live Live, cache gcache.Cache) Live {
 	}
 }
 
+func (w *WrappedLive) roomOptionsControlAudioMode() bool {
+	platform := configs.GetPlatformKeyFromUrl(w.GetRawUrl())
+	return platform == "bilibili" || platform == "sooplive"
+}
+
+func (w *WrappedLive) updateCachedInfo(update func(*Info)) error {
+	if w.cache == nil {
+		return nil
+	}
+	w.cacheMu.Lock()
+	defer w.cacheMu.Unlock()
+
+	cached, err := w.cache.Get(w)
+	if err != nil {
+		return nil
+	}
+	info, ok := cached.(*Info)
+	if !ok || info == nil {
+		return nil
+	}
+	updated := *info
+	update(&updated)
+	return w.cache.Set(w, &updated)
+}
+
+func (w *WrappedLive) setCachedInfo(info *Info) error {
+	if w.cache == nil {
+		return nil
+	}
+	w.cacheMu.Lock()
+	defer w.cacheMu.Unlock()
+
+	updated := *info
+	// 平台刷新和初始化注入不负责可用流列表；若录制器在请求期间已经写入了更新的列表，
+	// 整体提交 Info 时必须保留它，避免短时 cacheMu 只解决阻塞却造成字段丢失。
+	if cached, err := w.cache.Get(w); err == nil {
+		if current, ok := cached.(*Info); ok && current != nil &&
+			current.AvailableStreamsUpdatedAt > updated.AvailableStreamsUpdatedAt {
+			updated.AvailableStreams = current.AvailableStreams
+			updated.AvailableStreamsUpdatedAt = current.AvailableStreamsUpdatedAt
+		}
+	}
+	return w.cache.Set(w, &updated)
+}
+
 // UpdateLiveOptionsbyConfig 把底层选项更新与 GetInfo 的缓存提交放进同一临界区。
 // 这样在途请求只能先写入旧结果、再由本方法用新配置修正缓存，不能反向覆盖。
 func (w *WrappedLive) UpdateLiveOptionsbyConfig(ctx context.Context, room *configs.LiveRoom) error {
@@ -337,51 +385,28 @@ func (w *WrappedLive) UpdateLiveOptionsbyConfig(ctx context.Context, room *confi
 
 	// 只有这两个平台的 Info.AudioOnly 来自房间选项；猫耳等平台的音频属性
 	// 由平台自身决定，不能在保存昵称等设置时被房间的默认值覆盖。
-	platform := configs.GetPlatformKeyFromUrl(w.GetRawUrl())
-	if platform != "bilibili" && platform != "sooplive" {
+	if !w.roomOptionsControlAudioMode() {
 		return nil
 	}
-	if w.cache == nil {
-		return nil
+	audioOnly := room.AudioOnly
+	if options := w.GetOptions(); options != nil {
+		audioOnly = options.AudioOnly
 	}
-
-	cached, err := w.cache.Get(w)
-	if err != nil {
-		return nil
-	}
-	info, ok := cached.(*Info)
-	if !ok || info == nil {
-		return nil
-	}
-	// 录制任务可能仍持有旧 Info；复制后替换，确保当前文件不中途切换格式。
-	updated := *info
-	updated.AudioOnly = room.AudioOnly
-	return w.cache.Set(w, &updated)
+	return w.updateCachedInfo(func(info *Info) {
+		// 录制任务可能仍持有旧 Info；复制后替换，确保当前文件不中途切换格式。
+		info.AudioOnly = audioOnly
+	})
 }
 
 // UpdateCachedAvailableStreams 把录制器探测到的可用流合并进最新缓存。
 // 录制器可能仍持有一次录制开始时读取的旧 Info，不能直接把旧对象整体写回；否则会把
-// UpdateLiveOptionsbyConfig 刚更新的 AudioOnly 等字段覆盖掉。与 GetInfo、配置热更新共用
-// requestMu 后，缓存的读改写会按同一房间串行提交。
+// UpdateLiveOptionsbyConfig 刚更新的 AudioOnly 等字段覆盖掉。这里只使用短时 cacheMu，
+// 不等待 GetInfo 覆盖的平台排队和网络请求。
 func (w *WrappedLive) UpdateCachedAvailableStreams(streams []*AvailableStreamInfo, updatedAt int64) error {
-	w.requestMu.Lock()
-	defer w.requestMu.Unlock()
-
-	if w.cache == nil {
-		return nil
-	}
-	cached, err := w.cache.Get(w)
-	if err != nil {
-		return nil
-	}
-	info, ok := cached.(*Info)
-	if !ok || info == nil {
-		return nil
-	}
-	updated := *info
-	updated.AvailableStreams = streams
-	updated.AvailableStreamsUpdatedAt = updatedAt
-	return w.cache.Set(w, &updated)
+	return w.updateCachedInfo(func(info *Info) {
+		info.AvailableStreams = streams
+		info.AvailableStreamsUpdatedAt = updatedAt
+	})
 }
 
 // Close 停止请求调度器，释放相关资源
@@ -507,7 +532,7 @@ func (w *WrappedLive) GetInfo() (*Info, error) {
 		if !requestFailed {
 			i.LastError = ""
 		}
-		w.cache.Set(w, i)
+		_ = w.setCachedInfo(i)
 	}
 
 	// 发送调度器刷新完成事件，通知前端更新倒计时
@@ -547,31 +572,27 @@ func (w *WrappedLive) SeedInfo(info *Info) error {
 	w.consecutiveFailures = 0
 	w.mu.Unlock()
 
-	info.LastError = ""
-	if w.cache == nil {
-		return nil
+	seeded := *info
+	seeded.Live = w
+	seeded.LastError = ""
+	// 初始化请求可能在房间选项热更新之前已经生成。若新包装器发布后、SeedInfo 之前
+	// 恰好完成了设置保存，缓存当时还不存在；这里必须以底层 Live 的当前选项校正，
+	// 不能把初始化请求携带的旧音频模式重新注入缓存。
+	if w.roomOptionsControlAudioMode() {
+		if options := w.GetOptions(); options != nil {
+			seeded.AudioOnly = options.AudioOnly
+		}
 	}
-	return w.cache.Set(w, info)
+	return w.setCachedInfo(&seeded)
 }
 
 // cacheLastError 把最近一次的错误信息记录到缓存的直播间信息上。
 // 通过「读出来 → 复制 → 改副本 → 写回」的方式更新，避免修改其他 goroutine
 // 正在读取的 *Info（gcache 只保证自身的并发安全，不保证值对象的）。
 func (w *WrappedLive) cacheLastError(err error) {
-	if w.cache == nil {
-		return
-	}
-	cached, cacheErr := w.cache.Get(w)
-	if cacheErr != nil {
-		return
-	}
-	info, ok := cached.(*Info)
-	if !ok || info == nil {
-		return
-	}
-	updated := *info
-	updated.LastError = err.Error()
-	w.cache.Set(w, &updated)
+	_ = w.updateCachedInfo(func(info *Info) {
+		info.LastError = err.Error()
+	})
 }
 
 // dispatchSchedulerRefreshEvent 发送调度器刷新完成事件
