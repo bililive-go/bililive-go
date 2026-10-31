@@ -30,7 +30,7 @@ func TestGetDIDReusesDeviceIDFromCookie(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			l := &Live{}
 			l.Url = u
-			l.Options = live.MustNewOptions(live.WithKVStringCookies(u, c.cookie))
+			l.SetOptions(live.MustNewOptions(live.WithKVStringCookies(u, c.cookie)))
 			if got := l.getDID(); got != c.want {
 				t.Fatalf("签名 did=%q 期望=%q（cookie=%s）", got, c.want, c.cookie)
 			}
@@ -46,7 +46,7 @@ func TestGetDIDFallsBackToStableGeneratedID(t *testing.T) {
 	}
 	l := &Live{}
 	l.Url = u
-	l.Options = live.MustNewOptions(live.WithKVStringCookies(u, "acf_uid=42; acf_auth=x"))
+	l.SetOptions(live.MustNewOptions(live.WithKVStringCookies(u, "acf_uid=42; acf_auth=x")))
 	first := l.getDID()
 	if !regexp.MustCompile(`^[0-9a-f]{32}$`).MatchString(first) {
 		t.Fatalf("生成的 did 形态异常: %q", first)

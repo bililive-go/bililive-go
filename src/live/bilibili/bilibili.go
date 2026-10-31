@@ -46,12 +46,12 @@ type Live struct {
 	realID string
 }
 
-func (l *Live) parseRealId() error {
+func (l *Live) parseRealId(options *live.Options) error {
 	paths := strings.Split(l.Url.Path, "/")
 	if len(paths) < 2 {
 		return live.ErrRoomUrlIncorrect
 	}
-	cookies := l.Options.Cookies.Cookies(l.Url)
+	cookies := options.Cookies.Cookies(l.Url)
 	cookieKVs := make(map[string]string)
 	for _, item := range cookies {
 		cookieKVs[item.Name] = item.Value
@@ -73,13 +73,14 @@ func (l *Live) parseRealId() error {
 }
 
 func (l *Live) GetInfo() (info *live.Info, err error) {
+	options := l.GetOptions()
 	// Parse the short id from URL to full id
 	if l.realID == "" {
-		if err := l.parseRealId(); err != nil {
+		if err := l.parseRealId(options); err != nil {
 			return nil, err
 		}
 	}
-	cookies := l.Options.Cookies.Cookies(l.Url)
+	cookies := options.Cookies.Cookies(l.Url)
 	cookieKVs := make(map[string]string)
 	for _, item := range cookies {
 		cookieKVs[item.Name] = item.Value
@@ -110,7 +111,7 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 		Live:      l,
 		RoomName:  gjson.GetBytes(body, "data.title").String(),
 		Status:    gjson.GetBytes(body, "data.live_status").Int() == 1,
-		AudioOnly: l.Options.AudioOnly,
+		AudioOnly: options.AudioOnly,
 	}
 
 	resp, err = l.RequestSession.Get(userApiUrl, live.CommonUserAgent, requests.Query("roomid", l.realID))
@@ -134,12 +135,13 @@ func (l *Live) GetInfo() (info *live.Info, err error) {
 }
 
 func (l *Live) GetStreamInfos() (infos []*live.StreamUrlInfo, err error) {
+	options := l.GetOptions()
 	if l.realID == "" {
-		if err := l.parseRealId(); err != nil {
+		if err := l.parseRealId(options); err != nil {
 			return nil, err
 		}
 	}
-	cookies := l.Options.Cookies.Cookies(l.Url)
+	cookies := options.Cookies.Cookies(l.Url)
 	cookieKVs := make(map[string]string)
 	for _, item := range cookies {
 		cookieKVs[item.Name] = item.Value
@@ -163,7 +165,7 @@ func (l *Live) GetStreamInfos() (infos []*live.StreamUrlInfo, err error) {
 	agent := live.CommonUserAgent
 
 	// for audio only use android api
-	if l.Options.AudioOnly {
+	if options.AudioOnly {
 		params := map[string]string{
 			"appkey":      "iVGUTjsxvpLeuDCf",
 			"build":       "6310200",
@@ -176,7 +178,7 @@ func (l *Live) GetStreamInfos() (infos []*live.StreamUrlInfo, err error) {
 			"platform":    "android",
 			"protocol":    "0,1",
 			"room_id":     l.realID,
-			"qn":          strconv.Itoa(l.Options.Quality),
+			"qn":          strconv.Itoa(options.Quality),
 		}
 		values := url.Values{}
 		for key, value := range params {
@@ -272,7 +274,7 @@ func (l *Live) GetStreamInfos() (infos []*live.StreamUrlInfo, err error) {
 							Quality:              quality,
 							Format:               format,
 							Codec:                codec,
-							HeadersForDownloader: l.getHeadersForDownloader(),
+							HeadersForDownloader: l.getHeadersForDownloader(options),
 
 							// 填充用于前端流选择的属性
 							AttributesForStreamSelect: map[string]string{
@@ -304,7 +306,7 @@ func (l *Live) GetStreamInfos() (infos []*live.StreamUrlInfo, err error) {
 		urlStrings := make([]string, 0, 4)
 		addr := ""
 
-		if l.Options.Quality == 0 && gjson.GetBytes(body, "data.playurl_info.playurl.stream.1.format.1.codec.#").Int() > 1 {
+		if options.Quality == 0 && gjson.GetBytes(body, "data.playurl_info.playurl.stream.1.format.1.codec.#").Int() > 1 {
 			addr = "data.playurl_info.playurl.stream.1.format.1.codec.1" // hevc m3u8
 			l.GetLogger().Debug("fallback: 选择 HEVC M3U8 流")
 		} else {
@@ -324,7 +326,7 @@ func (l *Live) GetStreamInfos() (infos []*live.StreamUrlInfo, err error) {
 		if err != nil {
 			return nil, err
 		}
-		infos = utils.GenUrlInfos(urls, l.getHeadersForDownloader())
+		infos = utils.GenUrlInfos(urls, l.getHeadersForDownloader(options))
 	}
 
 	return
@@ -374,15 +376,15 @@ func (l *Live) GetPlatformCNName() string {
 // GetRealID returns the resolved real room ID, resolving short IDs if necessary.
 func (l *Live) GetRealID() string {
 	if l.realID == "" {
-		l.parseRealId()
+		l.parseRealId(l.GetOptions())
 	}
 	return l.realID
 }
 
-func (l *Live) getHeadersForDownloader() map[string]string {
+func (l *Live) getHeadersForDownloader(options *live.Options) map[string]string {
 	agent := biliWebAgent
 	referer := l.GetRawUrl()
-	if l.Options.AudioOnly {
+	if options.AudioOnly {
 		agent = biliAppAgent
 		referer = ""
 	}

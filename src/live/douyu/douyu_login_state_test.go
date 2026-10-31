@@ -26,7 +26,7 @@ func newLiveWithCookie(t *testing.T, cookie string) *Live {
 	}
 	l := &Live{}
 	l.Url = u
-	l.Options = live.MustNewOptions(live.WithKVStringCookies(u, cookie))
+	l.SetOptions(live.MustNewOptions(live.WithKVStringCookies(u, cookie)))
 	return l
 }
 

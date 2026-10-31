@@ -37,7 +37,7 @@ type Live struct {
 }
 
 func (l *Live) getData() (*gjson.Result, error) {
-	cookies := l.Options.Cookies.Cookies(l.Url)
+	cookies := l.GetOptions().Cookies.Cookies(l.Url)
 	cookieKVs := make(map[string]string)
 	for _, item := range cookies {
 		cookieKVs[item.Name] = item.Value
@@ -97,9 +97,9 @@ func (l *Live) GetStreamUrls() (us []*url.URL, err error) {
 
 	// 由于更高清晰度需要cookie，暂时无法传，先注释
 	//maxQuality := len(data.Get("liveroom.liveStream.playUrls.0.adaptationSet.representation").Array()) - 1
-	//if l.Options.Quality != 0 && maxQuality >= l.Options.Quality {
-	//	addr = "liveroom.liveStream.playUrls.0.adaptationSet.representation." + strconv.Itoa(l.Options.Quality) + ".url"
-	//} else if l.Options.Quality != 0 {
+	//if l.GetOptions().Quality != 0 && maxQuality >= l.GetOptions().Quality {
+	//	addr = "liveroom.liveStream.playUrls.0.adaptationSet.representation." + strconv.Itoa(l.GetOptions().Quality) + ".url"
+	//} else if l.GetOptions().Quality != 0 {
 	//	addr = "liveroom.liveStream.playUrls.0.adaptationSet.representation." + strconv.Itoa(maxQuality) + ".url"
 	//} else {
 	//	addr = "liveroom.liveStream.playUrls.0.adaptationSet.representation.0.url"

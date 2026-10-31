@@ -40,7 +40,7 @@ type Live struct {
 }
 
 func (l *Live) GetInfo() (info *live.Info, err error) {
-	cookies := l.Options.Cookies.Cookies(l.Url)
+	cookies := l.GetOptions().Cookies.Cookies(l.Url)
 	cookieKVs := make(map[string]string)
 	for _, item := range cookies {
 		cookieKVs[item.Name] = item.Value
