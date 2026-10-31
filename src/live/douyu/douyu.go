@@ -267,8 +267,12 @@ func (l *Live) getDID() string {
 // did 优先复用登录 cookie 里的斗鱼设备号，若一直沿用首次的值，换号之后签名里的 did
 // 仍是上一份登录态的设备号，与新 cookie 不匹配（表现为偶发签名被拒、退回匿名录制）。
 func (l *Live) UpdateLiveOptionsbyConfig(ctx context.Context, room *configs.LiveRoom) error {
+	previousOptions := l.GetOptions()
 	if err := l.BaseLive.UpdateLiveOptionsbyConfig(ctx, room); err != nil {
 		return err
+	}
+	if live.SameRecordingOptions(previousOptions, l.GetOptions()) && !live.IsForcedAuthRefresh(ctx) {
+		return nil
 	}
 	l.didMu.Lock()
 	defer l.didMu.Unlock()

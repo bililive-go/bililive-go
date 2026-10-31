@@ -185,6 +185,29 @@ func TestUpdateLiveOptionsbyConfigClearsCachedDID(t *testing.T) {
 	}
 }
 
+func TestUnrelatedOptionsPreserveDIDButForcedRefreshClearsIt(t *testing.T) {
+	setCfgForTest(t, configs.NewConfig())
+	l := newLiveWithCookie(t, "")
+	room := &configs.LiveRoom{Url: l.Url.String()}
+	if err := l.UpdateLiveOptionsbyConfig(context.Background(), room); err != nil {
+		t.Fatal(err)
+	}
+	l.did = "existing-device-id"
+	room.NickName = "新昵称"
+	if err := l.UpdateLiveOptionsbyConfig(context.Background(), room); err != nil {
+		t.Fatal(err)
+	}
+	if l.did != "existing-device-id" {
+		t.Fatalf("无关设置不应清除设备号: %q", l.did)
+	}
+	if err := l.UpdateLiveOptionsbyConfig(live.WithForcedAuthRefresh(context.Background()), room); err != nil {
+		t.Fatal(err)
+	}
+	if l.did != "" {
+		t.Fatalf("显式刷新登录态应清除设备号: %q", l.did)
+	}
+}
+
 // 别名 URL 房间热应用后必须仍能取到 www.douyu.com 那份 cookie（房间 URL 在加载时已归一）
 func TestNormalizeLiveRoomUrlAliases(t *testing.T) {
 	cases := map[string]string{

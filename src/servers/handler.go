@@ -1330,22 +1330,26 @@ func applyLiveRoomsByConfig(ctx context.Context, oldConfig *configs.Config, newC
 				return err
 			}
 		} else {
-			live, ok := inst.Lives.Get(types.LiveID(room.LiveId))
+			liveObj, ok := inst.Lives.Get(types.LiveID(room.LiveId))
 			if !ok {
 				return fmt.Errorf("live id: %s can not find", room.LiveId)
 			}
-			if err := applyRoomLiveOptions(ctx, newRoom, room.Url); err != nil {
+			roomCtx := ctx
+			if oldConfig.SoopLiveAuth != newConfig.SoopLiveAuth && configs.GetPlatformKeyFromUrl(liveObj.GetRawUrl()) == "sooplive" {
+				roomCtx = live.WithForcedAuthRefresh(ctx)
+			}
+			if err := applyRoomLiveOptions(roomCtx, newRoom, room.Url); err != nil {
 				return err
 			}
 			if room.IsListening != newRoom.IsListening {
 				if newRoom.IsListening {
 					// start listening
-					if err := startListening(ctx, live); err != nil {
+					if err := startListening(ctx, liveObj); err != nil {
 						return err
 					}
 				} else {
 					// stop listening
-					if err := stopListening(ctx, live.GetLiveId()); err != nil {
+					if err := stopListening(ctx, liveObj.GetLiveId()); err != nil {
 						return err
 					}
 				}
@@ -2745,7 +2749,9 @@ func applyRoomLiveOptions(ctx context.Context, room *configs.LiveRoom, originalU
 			// 尚未创建的 Live 会在初始化时读取已保存的配置。
 			return nil
 		}
-		if err := liveObj.UpdateLiveOptionsbyConfig(ctx, &currentRoom); err != nil {
+		runtimeRoom := currentRoom
+		runtimeRoom.Url = liveObj.GetRawUrl()
+		if err := liveObj.UpdateLiveOptionsbyConfig(ctx, &runtimeRoom); err != nil {
 			return err
 		}
 
@@ -3381,6 +3387,7 @@ func getLiveHostCookie(writer http.ResponseWriter, r *http.Request) {
 // UpdateLiveOptionsbyConfig 从全局当前配置现读；因此调用方必须在
 // 配置更新（CAS 提交）成功之后调用，否则刷到的可能是并发写入的更新值。
 func applyCookiesToLives(ctx context.Context, newCfg *configs.Config, hosts ...string) {
+	ctx = live.WithForcedAuthRefresh(ctx)
 	hostSet := make(map[string]struct{}, len(hosts))
 	for _, host := range hosts {
 		hostSet[host] = struct{}{}

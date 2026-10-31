@@ -151,6 +151,10 @@ func (l *InitializingLive) UpdateLiveOptionsbyConfig(ctx context.Context, room *
 	return l.OriginalLive.UpdateLiveOptionsbyConfig(ctx, room)
 }
 
+func (l *InitializingLive) GetOptions() *live.Options {
+	return l.OriginalLive.GetOptions()
+}
+
 // GetRoomID 委托给原始 Live：房间号由平台实现自己解析，包装对象没有。
 // 少了这层转发，WrappedLive 的类型断言只能走到本对象就返回空，斗鱼别名 URL
 // （如 /lotterytimer）的弹幕录制会退回拿 URL 路径当房间号，弹幕登录直接失败。

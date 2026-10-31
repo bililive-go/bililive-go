@@ -159,6 +159,73 @@ func TestApplyRoomLiveOptionsUsesLatestConfig(t *testing.T) {
 	assert.Equal(t, latest, active.rooms[0], "旧请求必须重新读取并应用最新配置")
 }
 
+func TestApplyRoomLiveOptionsUsesActiveLiveURL(t *testing.T) {
+	previousConfig := configs.GetCurrentConfig()
+	t.Cleanup(func() { configs.SetCurrentConfig(previousConfig) })
+	const originalURL = "https://live.bilibili.com/123"
+	const changedURL = "https://play.sooplive.com/456"
+	active := &recordingLive{rawUrl: originalURL}
+	room := configs.LiveRoom{Url: changedURL, LiveId: active.GetLiveId(), NickName: "新昵称"}
+	config := configs.NewConfig()
+	config.LiveRooms = []configs.LiveRoom{room}
+	config.RefreshLiveRoomIndexCache()
+	configs.SetCurrentConfig(config)
+	inst := &instance.Instance{Ctx: context.Background()}
+	inst.Lives.Set(active.GetLiveId(), active)
+
+	require.NoError(t, applyRoomLiveOptions(ctxWithInstance(inst), &room, originalURL))
+	require.Len(t, active.rooms, 1)
+	assert.Equal(t, originalURL, active.rooms[0].Url)
+	assert.Equal(t, "新昵称", active.rooms[0].NickName)
+	assert.Equal(t, changedURL, configs.GetCurrentConfig().LiveRooms[0].Url)
+}
+
+type authRefreshTrackingLive struct {
+	*recordingLive
+	forced bool
+}
+
+func (tracked *authRefreshTrackingLive) UpdateLiveOptionsbyConfig(ctx context.Context, room *configs.LiveRoom) error {
+	tracked.forced = live.IsForcedAuthRefresh(ctx)
+	return tracked.recordingLive.UpdateLiveOptionsbyConfig(ctx, room)
+}
+
+func TestApplyLiveRoomsByConfigRefreshesSoopAuthChanges(t *testing.T) {
+	previousConfig := configs.GetCurrentConfig()
+	t.Cleanup(func() { configs.SetCurrentConfig(previousConfig) })
+	for _, testCase := range []struct {
+		name          string
+		roomURL       string
+		authChanged   bool
+		expectRefresh bool
+	}{
+		{name: "SOOP账号改变", roomURL: "https://play.sooplive.com/test", authChanged: true, expectRefresh: true},
+		{name: "SOOP账号未变", roomURL: "https://play.sooplive.com/test"},
+		{name: "其他平台", roomURL: "https://live.bilibili.com/123", authChanged: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			active := &authRefreshTrackingLive{recordingLive: &recordingLive{rawUrl: testCase.roomURL}}
+			room := configs.LiveRoom{Url: testCase.roomURL, LiveId: active.GetLiveId()}
+			oldConfig := configs.NewConfig()
+			oldConfig.LiveRooms = []configs.LiveRoom{room}
+			oldConfig.SoopLiveAuth.Username = "old-user"
+			oldConfig.RefreshLiveRoomIndexCache()
+			newConfig := configs.NewConfig()
+			newConfig.LiveRooms = []configs.LiveRoom{room}
+			newConfig.SoopLiveAuth = oldConfig.SoopLiveAuth
+			if testCase.authChanged {
+				newConfig.SoopLiveAuth.Username = ""
+			}
+			newConfig.RefreshLiveRoomIndexCache()
+			configs.SetCurrentConfig(newConfig)
+			inst := &instance.Instance{}
+			inst.Lives.Set(active.GetLiveId(), active)
+			require.NoError(t, applyLiveRoomsByConfig(ctxWithInstance(inst), oldConfig, newConfig))
+			assert.Equal(t, testCase.expectRefresh, active.forced)
+		})
+	}
+}
+
 func TestAddLiveImplReappliesConfigChangedDuringBuild(t *testing.T) {
 	previousConfig := configs.GetCurrentConfig()
 	previousBuilder := buildLiveForAdd

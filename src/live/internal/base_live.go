@@ -91,7 +91,20 @@ func (a *BaseLive) UpdateLiveOptionsbyConfig(ctx context.Context, room *configs.
 	opts = append(opts, live.WithQuality(room.Quality))
 	opts = append(opts, live.WithAudioOnly(room.AudioOnly))
 	opts = append(opts, live.WithNickName(room.NickName))
-	a.SetOptions(live.MustNewOptions(opts...))
+	nextOptions := live.MustNewOptions(opts...)
+	if a.options == nil {
+		a.SetOptions(nextOptions)
+		return nil
+	}
+	for {
+		previousOptions := a.options.Load()
+		if !live.IsForcedAuthRefresh(ctx) {
+			nextOptions.RetainRecordingVersion(previousOptions, a.Url)
+		}
+		if a.options.CompareAndSwap(previousOptions, nextOptions) {
+			break
+		}
+	}
 	return
 }
 

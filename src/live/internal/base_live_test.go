@@ -7,7 +7,52 @@ import (
 	"testing"
 
 	"github.com/bililive-go/bililive-go/src/configs"
+	"github.com/bililive-go/bililive-go/src/live"
 )
+
+func TestRecordingOptionsVersionTracksRelevantChanges(t *testing.T) {
+	previousConfig := configs.GetCurrentConfig()
+	t.Cleanup(func() { configs.SetCurrentConfig(previousConfig) })
+	config := configs.NewConfig()
+	config.Cookies = map[string]string{"live.bilibili.com": "session=first"}
+	configs.SetCurrentConfig(config)
+	u, err := url.Parse("https://live.bilibili.com/123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveRoom := NewBaseLive(u)
+	room := configs.LiveRoom{Url: u.String(), Quality: 80}
+	update := func() *live.Options {
+		t.Helper()
+		if err := liveRoom.UpdateLiveOptionsbyConfig(context.Background(), &room); err != nil {
+			t.Fatal(err)
+		}
+		return liveRoom.GetOptions()
+	}
+	initial := update()
+	room.NickName = "新昵称"
+	renamed := update()
+	if !live.SameRecordingOptions(initial, renamed) {
+		t.Fatal("仅改昵称不应使取流版本失效")
+	}
+	room.AudioOnly = true
+	audio := update()
+	room.AudioOnly = false
+	restored := update()
+	if live.SameRecordingOptions(initial, audio) || live.SameRecordingOptions(initial, restored) {
+		t.Fatal("音频模式发生过变化时，即使恢复原值也必须丢弃在途取流")
+	}
+	room.Quality = 10000
+	quality := update()
+	if live.SameRecordingOptions(restored, quality) {
+		t.Fatal("清晰度变化应使取流版本失效")
+	}
+	config.Cookies["live.bilibili.com"] = "session=second"
+	cookie := update()
+	if live.SameRecordingOptions(quality, cookie) {
+		t.Fatal("Cookie 变化应使取流版本失效")
+	}
+}
 
 func TestBaseLiveOptionsAreAtomicSnapshots(t *testing.T) {
 	u, err := url.Parse("https://live.bilibili.com/123")

@@ -111,10 +111,11 @@ func (p InitializingFinishedParam) GetLiveId() types.LiveID {
 }
 
 type Options struct {
-	Cookies   *cookiejar.Jar
-	Quality   int
-	AudioOnly bool
-	NickName  string
+	Cookies          *cookiejar.Jar
+	Quality          int
+	AudioOnly        bool
+	NickName         string
+	recordingVersion *byte
 }
 
 func NewOptions(opts ...Option) (*Options, error) {
@@ -122,11 +123,49 @@ func NewOptions(opts ...Option) (*Options, error) {
 	if err != nil {
 		return nil, err
 	}
-	options := &Options{Cookies: cookieJar, Quality: 0}
+	options := &Options{Cookies: cookieJar, Quality: 0, recordingVersion: new(byte)}
 	for _, opt := range opts {
 		opt(options)
 	}
 	return options, nil
+}
+
+func (options *Options) RetainRecordingVersion(previous *Options, roomURL *url.URL) {
+	if previous == nil || previous.recordingVersion == nil || previous.AudioOnly != options.AudioOnly || previous.Quality != options.Quality || previous.Cookies == nil || options.Cookies == nil {
+		options.recordingVersion = new(byte)
+		return
+	}
+	previousCookies := previous.Cookies.Cookies(roomURL)
+	nextCookies := options.Cookies.Cookies(roomURL)
+	if len(previousCookies) != len(nextCookies) {
+		options.recordingVersion = new(byte)
+		return
+	}
+	for index := range previousCookies {
+		if previousCookies[index].Name != nextCookies[index].Name || previousCookies[index].Value != nextCookies[index].Value {
+			options.recordingVersion = new(byte)
+			return
+		}
+	}
+	options.recordingVersion = previous.recordingVersion
+}
+
+func SameRecordingOptions(first, second *Options) bool {
+	if first == second {
+		return true
+	}
+	return first != nil && second != nil && first.recordingVersion != nil && first.recordingVersion == second.recordingVersion
+}
+
+type forcedAuthRefreshKey struct{}
+
+func WithForcedAuthRefresh(ctx context.Context) context.Context {
+	return context.WithValue(ctx, forcedAuthRefreshKey{}, true)
+}
+
+func IsForcedAuthRefresh(ctx context.Context) bool {
+	forced, _ := ctx.Value(forcedAuthRefreshKey{}).(bool)
+	return forced
 }
 
 func MustNewOptions(opts ...Option) *Options {

@@ -878,6 +878,75 @@ func TestUpdateLiveOptionsbyConfigClearsRuntimeState(t *testing.T) {
 	assert.Equal(t, "new", cookieMap["AUTH"])
 }
 
+func TestUpdateLiveOptionsPreservesRuntimeStateUntilForcedRefresh(t *testing.T) {
+	previousConfig := configs.GetCurrentConfig()
+	t.Cleanup(func() { configs.SetCurrentConfig(previousConfig) })
+	config := configs.NewConfig()
+	configs.SetCurrentConfig(config)
+	u, err := url.Parse("https://play.sooplive.com/mbntv")
+	assert.NoError(t, err)
+	l := &Live{BaseLive: internal.NewBaseLive(u)}
+	room := &configs.LiveRoom{Url: u.String()}
+	assert.NoError(t, l.UpdateLiveOptionsbyConfig(context.Background(), room))
+	l.setRuntimeState("runtime-cookie", true)
+	before := l.GetOptions()
+	room.NickName = "新昵称"
+	assert.NoError(t, l.UpdateLiveOptionsbyConfig(context.Background(), room))
+	cookie, ignoreStoredCookie := l.getRuntimeState()
+	assert.Equal(t, "runtime-cookie", cookie)
+	assert.True(t, ignoreStoredCookie)
+	assert.True(t, livepkg.SameRecordingOptions(before, l.GetOptions()))
+
+	before = l.GetOptions()
+	assert.NoError(t, l.UpdateLiveOptionsbyConfig(livepkg.WithForcedAuthRefresh(context.Background()), room))
+	cookie, ignoreStoredCookie = l.getRuntimeState()
+	assert.Empty(t, cookie)
+	assert.False(t, ignoreStoredCookie)
+	assert.False(t, livepkg.SameRecordingOptions(before, l.GetOptions()))
+}
+
+func TestOptionsSnapshotWaitsForRuntimeStateReset(t *testing.T) {
+	previousConfig := configs.GetCurrentConfig()
+	t.Cleanup(func() { configs.SetCurrentConfig(previousConfig) })
+	configs.SetCurrentConfig(configs.NewConfig())
+	u, err := url.Parse("https://play.sooplive.com/mbntv")
+	assert.NoError(t, err)
+	l := &Live{BaseLive: internal.NewBaseLive(u)}
+	room := &configs.LiveRoom{Url: u.String()}
+	assert.NoError(t, l.UpdateLiveOptionsbyConfig(context.Background(), room))
+	l.setRuntimeState("old-cookie", true)
+	previous := l.GetOptions()
+
+	l.stateMu.Lock()
+	updateDone := make(chan error, 1)
+	go func() {
+		updateDone <- l.UpdateLiveOptionsbyConfig(livepkg.WithForcedAuthRefresh(context.Background()), room)
+	}()
+	if !assert.Eventually(t, func() bool { return l.BaseLive.GetOptions() != previous }, time.Second, time.Millisecond) {
+		l.stateMu.Unlock()
+		<-updateDone
+		return
+	}
+	snapshotDone := make(chan *livepkg.Options, 1)
+	go func() { snapshotDone <- l.GetOptions() }()
+	select {
+	case <-snapshotDone:
+		t.Error("运行态重置完成前不应暴露新选项")
+	case <-time.After(30 * time.Millisecond):
+	}
+	l.stateMu.Unlock()
+	assert.NoError(t, <-updateDone)
+	select {
+	case snapshot := <-snapshotDone:
+		assert.False(t, livepkg.SameRecordingOptions(previous, snapshot))
+	case <-time.After(time.Second):
+		t.Fatal("运行态重置完成后选项读取仍被阻塞")
+	}
+	cookie, ignoreStoredCookie := l.getRuntimeState()
+	assert.Empty(t, cookie)
+	assert.False(t, ignoreStoredCookie)
+}
+
 func TestUpdateLiveOptionsbyConfigKeepsClearActionEffective(t *testing.T) {
 	cfg := configs.NewConfig()
 	cfg.Cookies = map[string]string{}

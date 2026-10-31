@@ -64,6 +64,7 @@ type Live struct {
 	runtimeCookie      string
 	ignoreStoredCookie bool
 	stateMu            sync.RWMutex
+	optionsMu          sync.RWMutex
 	// reuseMu 保护下面两个短期复用缓存，监控线程与录制线程会同时读写它们。
 	// 只缓存播放页与频道信息：aid 这类播放凭证一旦跨尝试复用，
 	// 平台拒绝旧凭证时本地无从得知，会把几秒的恢复拖成缓存窗口那么长的停录。
@@ -409,12 +410,23 @@ func (l *Live) GetPlatformCNName() string {
 }
 
 func (l *Live) UpdateLiveOptionsbyConfig(ctx context.Context, room *configs.LiveRoom) error {
+	l.optionsMu.Lock()
+	defer l.optionsMu.Unlock()
+	previousOptions := l.BaseLive.GetOptions()
 	if err := l.BaseLive.UpdateLiveOptionsbyConfig(ctx, room); err != nil {
 		return err
 	}
 
-	l.resetRuntimeState()
+	if !live.SameRecordingOptions(previousOptions, l.BaseLive.GetOptions()) || live.IsForcedAuthRefresh(ctx) {
+		l.resetRuntimeState()
+	}
 	return nil
+}
+
+func (l *Live) GetOptions() *live.Options {
+	l.optionsMu.RLock()
+	defer l.optionsMu.RUnlock()
+	return l.BaseLive.GetOptions()
 }
 
 // fetchPageMeta 从播放页 HTML 中提取频道名、bno、主播名、标题等基础信息。

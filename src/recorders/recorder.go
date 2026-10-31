@@ -424,7 +424,7 @@ func (r *recorder) tryRecord(ctx context.Context) {
 	// 上面的解析顺序按两套偏好算，选中根本没解析过 Url 的候选。
 	preference := resolvedConfig.StreamPreference
 	// Bilibili/Soop 的取流结果会受 AudioOnly 影响。先固定一份不可变的 Options
-	// 快照，取流结束后再核对指针：若期间发布过新快照，本轮流地址属于哪个模式
+	// 快照，取流结束后再核对录制相关选项的版本：若期间发生过变化，本轮流地址属于哪个模式
 	// 已无法可靠判断，必须丢弃后重取，不能再和另一版本的解析参数混用。
 	optionsControlAudioMode := live.RoomOptionsControlAudioMode(platformKey)
 	var recordingOptions *live.Options
@@ -450,7 +450,7 @@ func (r *recorder) tryRecord(ctx context.Context) {
 		r.logStreamURLRetry(err, r.pendingRetryInterval())
 		return
 	}
-	if optionsControlAudioMode && recordingOptions != r.Live.GetOptions() {
+	if optionsControlAudioMode && !live.SameRecordingOptions(recordingOptions, r.Live.GetOptions()) {
 		r.logStreamURLRetry(errors.New("直播间选项在取流期间发生变化"), r.pendingRetryInterval())
 		return
 	}
