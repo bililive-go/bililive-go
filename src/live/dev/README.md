@@ -40,7 +40,7 @@ go test ./src/recorders -run "TestTryRecord(NativeHTTPOutput|FFmpegMediaOutput)"
 
 TestTryRecordFFmpegMediaOutput 使用两秒合成视频经过真实 bgo recorder 和 FFmpeg parser，验证请求头、输出时长以及完整解码。只替换平台元信息，未替换 parser。此测试仍不覆盖监听管理器、UI、故障重连或后处理。
 
-单元测试中的子进程助手仅验证 runner 控制逻辑，不算真实媒体录制。CI 已安装 FFmpeg，并以 `BGO_REQUIRE_MEDIA_TESTS=1` 单独执行 dev 包，因为 `make test` 只使用 release 标签。
+单元测试中的子进程助手仅验证 runner 控制逻辑，不算真实媒体录制。CI 已安装 FFmpeg，整个 test job 设置 `BGO_REQUIRE_MEDIA_TESTS=1`：`make test` 以 release 标签执行 recorder 媒体测试并计入覆盖率，再单独运行仅在 dev 标签下可用的 dev 包。缺少媒体工具时两处都明确失败，recorders 不再整包重复执行。
 
 ## 使用外部流服务器
 
@@ -66,6 +66,8 @@ if !result.Success {
 - `GET /hls/{name}.m3u8`
 
 流请求携带 `codec`、`quality`、`duration` 查询参数。可以用 `FFmpegPath`、`FFprobePath` 指定工具，否则从 PATH 查找。
+
+录制与产物验证各有独立超时预算，默认均为场景录制时长加 30 秒。验证阶段从录制完成后开始，包含 ffprobe 与完整解码；可用正数 `ValidationTimeout` 调整验证预算，零值使用默认值。两个阶段仍受调用方的 context 约束。取消或任一阶段超时会返回可通过 `errors.Is` 判断的 context 错误，并停止 `RunAllScenarios`；普通媒体验证失败仍记录在 `TestResult` 中。
 
 每次运行在输出目录下创建独立子目录，避免残留文件导致假阳性。录制进程非零退出、取消或超时都算失败；ffprobe 缺失、返回错误、没有音视频流、时长无效、时长不足或 FFmpeg 完整解码失败、未解码出任何音视频内容也都算失败。最小时长目前比较 ffprobe 报告的容器时长，不等于独立统计已解码帧的时间跨度。
 

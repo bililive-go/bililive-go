@@ -32,6 +32,8 @@ jobs:
   test:
     needs: go-cache
     runs-on: ubuntu-latest
+    env:
+      BGO_REQUIRE_MEDIA_TESTS: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -54,9 +56,7 @@ jobs:
         run: make build-web test
       # make test 使用 release 标签，必须单独运行 dev 媒体回归测试。
       - name: Test dev media smoke
-        env:
-          BGO_REQUIRE_MEDIA_TESTS: "1"
-        run: go test -tags dev ./src/live/dev ./src/recorders -count=1 -timeout=120s
+        run: go test -tags dev ./src/live/dev -count=1 -timeout=120s
       - name: Codecov
         uses: codecov/codecov-action@v2
   lint:

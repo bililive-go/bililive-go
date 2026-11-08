@@ -47,6 +47,19 @@ func (l *Live) GetPlatformCNName() string {
 	return cnName
 }
 
+// parseRoomName 统一解析房间入口和直接流地址中的房间名。
+func parseRoomName(path string) string {
+	roomName := strings.TrimPrefix(path, "/")
+	for _, prefix := range []string{"live/", "files/", "hls/"} {
+		if strings.HasPrefix(roomName, prefix) {
+			roomName = strings.TrimPrefix(roomName, prefix)
+			break
+		}
+	}
+	roomName = strings.TrimSuffix(roomName, ".flv")
+	return strings.TrimSuffix(roomName, ".m3u8")
+}
+
 // GetInfo 获取直播间信息
 // 从测试服务器的 API 获取当前状态
 func (l *Live) GetInfo() (*live.Info, error) {
@@ -56,10 +69,7 @@ func (l *Live) GetInfo() (*live.Info, error) {
 	}
 
 	// 从URL路径解析房间名
-	roomName := strings.TrimPrefix(l.Url.Path, "/live/")
-	roomName = strings.TrimPrefix(roomName, "/files/")
-	roomName = strings.TrimSuffix(roomName, ".flv")
-	roomName = strings.TrimSuffix(roomName, ".m3u8")
+	roomName := parseRoomName(l.Url.Path)
 
 	info.RoomName = roomName
 	info.HostName = "测试主播"
@@ -152,8 +162,7 @@ func (l *Live) GetStreamInfos() ([]*live.StreamUrlInfo, error) {
 		infos = append(infos, info)
 	} else {
 		// 尝试从API获取所有可用流
-		roomName := strings.TrimPrefix(path, "/live/")
-		roomName = strings.TrimPrefix(roomName, "/")
+		roomName := parseRoomName(path)
 
 		apiStreams, err := l.fetchAvailableStreams(roomName)
 		if err == nil && len(apiStreams) > 0 {
@@ -234,7 +243,7 @@ func (l *Live) fetchAvailableStreams(roomName string) ([]*live.StreamUrlInfo, er
 // generateTestStreams 生成标准测试流列表
 // 用于当API不可用时提供默认的多流测试
 func (l *Live) generateTestStreams(roomName string) []*live.StreamUrlInfo {
-	baseURL := fmt.Sprintf("http://%s/live/", l.Url.Host)
+	baseURL := fmt.Sprintf("http://%s", l.Url.Host)
 
 	testConfigs := []struct {
 		quality string
@@ -261,13 +270,13 @@ func (l *Live) generateTestStreams(roomName string) []*live.StreamUrlInfo {
 	infos := make([]*live.StreamUrlInfo, 0, len(testConfigs))
 
 	for _, cfg := range testConfigs {
-		ext := ".flv"
+		prefix, ext := "/live/", ".flv"
 		if cfg.format == "hls" {
-			ext = ".m3u8"
+			prefix, ext = "/hls/", ".m3u8"
 		}
 
-		streamURL := fmt.Sprintf("%s%s%s?codec=%s&quality=%s",
-			baseURL, roomName, ext, cfg.codec, cfg.quality)
+		streamURL := fmt.Sprintf("%s%s%s%s?codec=%s&quality=%s",
+			baseURL, prefix, roomName, ext, cfg.codec, cfg.quality)
 
 		u, _ := url.Parse(streamURL)
 

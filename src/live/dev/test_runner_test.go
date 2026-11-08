@@ -83,6 +83,7 @@ func TestRunScenarioRejectsUnsupportedAssertions(t *testing.T) {
 		{"unplayable", func(r *TestRunner, s *TestScenario) { s.Expected.OutputPlayable = false }},
 		{"path", func(r *TestRunner, s *TestScenario) { s.Name = "../escape" }},
 		{"duration", func(r *TestRunner, s *TestScenario) { s.Stream.Duration = 0 }},
+		{"validation_timeout", func(r *TestRunner, s *TestScenario) { r.ValidationTimeout = -time.Second }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -328,6 +329,115 @@ func TestRunScenarioCancelsValidationProcesses(t *testing.T) {
 				}
 			case <-time.After(3 * time.Second):
 				t.Fatal("取消后验证子进程仍未退出")
+			}
+		})
+	}
+}
+
+// 直接调用验证器时，探测与解码阶段都必须保留可判断的 context 错误。
+func TestValidateOutputPreservesContextErrors(t *testing.T) {
+	for _, stage := range []string{"TEST_PROBE_WAIT", "TEST_DECODE_WAIT"} {
+		for _, mode := range []string{"cancel", "deadline"} {
+			t.Run(stage+"/"+mode, func(t *testing.T) {
+				marker := filepath.Join(t.TempDir(), "started")
+				t.Setenv(stage, "1")
+				t.Setenv("TEST_STARTED_PATH", marker)
+				r := helperRunner(t, "")
+				path := filepath.Join(t.TempDir(), "output.flv")
+				if err := os.WriteFile(path, []byte("test data"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				ctx, cancel := context.WithCancel(context.Background())
+				want := context.Canceled
+				if mode == "deadline" {
+					cancel()
+					ctx, cancel = context.WithTimeout(context.Background(), time.Second)
+					want = context.DeadlineExceeded
+				}
+				defer cancel()
+				result := &TestResult{}
+				done := make(chan error, 1)
+				go func() { done <- r.validateOutput(ctx, path, validScenario().Expected, result) }()
+				waitForRunnerProcess(t, marker)
+				if mode == "cancel" {
+					cancel()
+				}
+				select {
+				case err := <-done:
+					if !errors.Is(err, want) || result.OutputPlayable {
+						t.Fatalf("验证取消错误丢失: result=%+v err=%v want=%v", result, err, want)
+					}
+				case <-time.After(3 * time.Second):
+					t.Fatal("验证子进程未及时退出")
+				}
+			})
+		}
+	}
+}
+
+func waitForRunnerProcess(t *testing.T, marker string) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("验证子进程未启动")
+		case <-ticker.C:
+			if _, err := os.Stat(marker); err == nil {
+				return
+			}
+		}
+	}
+}
+
+func TestRunScenarioValidationHasFreshBudget(t *testing.T) {
+	r := helperRunner(t, healthServer(t).URL)
+	command := r.commandContext
+	var recordCtx, validationCtx context.Context
+	r.commandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		if recordCtx == nil {
+			recordCtx = ctx
+		} else {
+			if recordCtx.Err() != context.Canceled || ctx == recordCtx {
+				t.Error("验证仍复用了录制上下文")
+			}
+			if validationCtx == nil {
+				validationCtx = ctx
+				recordDeadline, _ := recordCtx.Deadline()
+				validationDeadline, ok := ctx.Deadline()
+				if !ok || !validationDeadline.After(recordDeadline) {
+					t.Error("验证未获得新的完整超时预算")
+				}
+			} else if ctx != validationCtx {
+				t.Error("探测与完整解码必须共用同一验证预算")
+			}
+		}
+		return command(ctx, name, args...)
+	}
+	got, err := r.RunScenario(context.Background(), validScenario())
+	if err != nil || !got.Success || validationCtx == nil {
+		t.Fatalf("独立预算场景未成功: %+v err=%v", got, err)
+	}
+}
+
+func TestRunScenarioReturnsValidationDeadline(t *testing.T) {
+	for _, stage := range []string{"TEST_PROBE_WAIT", "TEST_DECODE_WAIT"} {
+		t.Run(stage, func(t *testing.T) {
+			marker := filepath.Join(t.TempDir(), "started")
+			t.Setenv(stage, "1")
+			t.Setenv("TEST_STARTED_PATH", marker)
+			r := helperRunner(t, healthServer(t).URL)
+			r.ValidationTimeout = time.Second
+			parent := context.Background()
+			got, err := r.RunScenario(parent, validScenario())
+			if parent.Err() != nil || !errors.Is(err, context.DeadlineExceeded) || got.Success || got.OutputPlayable ||
+				!strings.Contains(got.ErrorMessage, context.DeadlineExceeded.Error()) || strings.Contains(got.ErrorMessage, "signal: killed") {
+				t.Fatalf("内部验证超时被吞掉: %+v err=%v", got, err)
+			}
+			if _, err := os.Stat(marker); err != nil {
+				t.Fatalf("目标验证子进程未运行: %v", err)
 			}
 		})
 	}

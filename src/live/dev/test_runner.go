@@ -26,6 +26,9 @@ type TestRunner struct {
 	FFprobePath string
 	Verbose     bool
 
+	// ValidationTimeout 独立限制探测和完整解码；零值使用录制时长加 30 秒。
+	ValidationTimeout time.Duration
+
 	// commandContext 允许测试隔离外部进程；正常运行使用 exec.CommandContext。
 	commandContext func(context.Context, string, ...string) *exec.Cmd
 }
@@ -78,15 +81,24 @@ func (tr *TestRunner) RunScenario(ctx context.Context, scenario TestScenario) (*
 			err = recordCtx.Err()
 		}
 		result.ErrorMessage = fmt.Sprintf("录制失败: %v", err)
-		return result, ctx.Err()
+		return result, recordCtx.Err()
 	}
 	if err := recordCtx.Err(); err != nil {
 		result.ErrorMessage = fmt.Sprintf("录制未正常完成: %v", err)
-		return result, ctx.Err()
+		return result, err
 	}
-	if err := tr.validateOutput(recordCtx, result.OutputPath, scenario.Expected, result); err != nil {
+	cancel()
+
+	// 验证预算从录制完成后开始，仍受调用方的截止时间与取消约束。
+	validationTimeout := tr.ValidationTimeout
+	if validationTimeout == 0 {
+		validationTimeout = scenario.Stream.Duration + 30*time.Second
+	}
+	validationCtx, cancelValidation := context.WithTimeout(ctx, validationTimeout)
+	defer cancelValidation()
+	if err := tr.validateOutput(validationCtx, result.OutputPath, scenario.Expected, result); err != nil {
 		result.ErrorMessage = fmt.Sprintf("验证失败: %v", err)
-		return result, ctx.Err()
+		return result, validationCtx.Err()
 	}
 	result.Success = true
 	tr.log("  媒体冒烟测试通过，时长 %.3f 秒", result.OutputDuration.Seconds())
@@ -94,6 +106,9 @@ func (tr *TestRunner) RunScenario(ctx context.Context, scenario TestScenario) (*
 }
 
 func (tr *TestRunner) validateScenario(s TestScenario) error {
+	if tr.ValidationTimeout < 0 {
+		return fmt.Errorf("验证超时不能为负数")
+	}
 	if tr.BGOPath != "" || s.RequiresBGO {
 		return fmt.Errorf("不支持 bgo 端到端测试：此运行器只调用 FFmpeg")
 	}
@@ -180,6 +195,9 @@ func (tr *TestRunner) validateOutput(ctx context.Context, outputPath string, exp
 	result.OutputPlayable = false
 	result.OutputDuration = 0
 	result.OutputFileSize = 0
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	info, err := os.Stat(outputPath)
 	if err != nil {
 		return fmt.Errorf("输出文件不存在: %w", err)
@@ -201,6 +219,9 @@ func (tr *TestRunner) validateOutput(ctx context.Context, outputPath string, exp
 		"-nostdin", "-v", "error", "-xerror", "-abort_on", "empty_output", "-i", outputPath,
 		"-map", "0:v?", "-map", "0:a?", "-f", "null", "-")
 	if output, err := cmd.CombinedOutput(); err != nil {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
 		return fmt.Errorf("媒体解码失败: %w (%s)", err, strings.TrimSpace(string(output)))
 	}
 	if err := ctx.Err(); err != nil {
@@ -214,6 +235,9 @@ func (tr *TestRunner) getMediaDuration(ctx context.Context, filePath string) (ti
 	cmd := tr.command(ctx, toolPath(tr.FFprobePath, "ffprobe"),
 		"-v", "error", "-show_entries", "format=duration:stream=codec_type", "-of", "json", filePath)
 	output, err := cmd.Output()
+	if ctx.Err() != nil {
+		return 0, ctx.Err()
+	}
 	if err != nil {
 		return 0, err
 	}

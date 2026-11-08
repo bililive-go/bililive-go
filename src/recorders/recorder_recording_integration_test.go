@@ -70,9 +70,10 @@ func TestTryRecordNativeHTTPOutput(t *testing.T) {
 			wantError: "EOF",
 		},
 		{
-			name:  "音频标签中途断流仅保留完整标签并报告错误",
+			name:  "探测阶段音频标签截断保留第一标签并报告错误",
 			input: fixture[:len(fixture)-12],
-			// 探测代理丢弃未收全的第二个标签，只把第一个完整标签交给 parser。
+			// 探测代理转发第二标签头，但丢弃截断的标签体；原生 parser 读音频头遇到 EOF，
+			// 尚未写出该标签头，输出止于第一标签体末尾。这不保证探测后的标签原子落盘。
 			want:      fixture[:41],
 			wantError: "EOF",
 		},
