@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -27,6 +28,7 @@ import (
 	livemock "github.com/bililive-go/bililive-go/src/live/mock"
 	"github.com/bililive-go/bililive-go/src/pkg/events"
 	"github.com/bililive-go/bililive-go/src/pkg/livelogger"
+	"github.com/bililive-go/bililive-go/src/pkg/parser"
 	"github.com/bililive-go/bililive-go/src/pkg/parser/ffmpeg"
 	"github.com/bililive-go/bililive-go/src/pkg/parser/native/flv"
 	"github.com/bililive-go/bililive-go/src/types"
@@ -131,7 +133,7 @@ func TestTryRecordNativeHTTPOutput(t *testing.T) {
 				t.Fatal(err)
 			}
 			r := rec.(*recorder)
-			defer r.setAndCloseParser(nil)
+			defer stopRecordingTestParser(t, r)
 			r.tryRecord(ctx)
 			if ctx.Err() != nil {
 				t.Fatalf("本地有限流未及时结束: %v", ctx.Err())
@@ -235,7 +237,7 @@ func TestTryRecordFFmpegMediaOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := rec.(*recorder)
-	defer r.setAndCloseParser(nil)
+	defer stopRecordingTestParser(t, r)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -247,7 +249,7 @@ func TestTryRecordFFmpegMediaOutput(t *testing.T) {
 		// FFmpeg parser 的 Wait 不监听 context，必须显式 Stop。
 		// 先关闭 stop，防止超时时 parser 还没安装导致漏停。
 		close(r.stop)
-		r.setAndCloseParser(nil)
+		stopRecordingTestParser(t, r)
 		select {
 		case <-done:
 		case <-time.After(5 * time.Second):
@@ -277,4 +279,37 @@ func TestTryRecordFFmpegMediaOutput(t *testing.T) {
 	}
 	runTool(ffmpegPath, "-nostdin", "-v", "error", "-xerror", "-i", output,
 		"-map", "0:v:0", "-abort_on", "empty_output", "-f", "null", "-")
+}
+
+// stopRecordingTestParser 仅停止下载器，不替换录制协程仍可能读取的 parser 引用。
+func stopRecordingTestParser(t *testing.T, r *recorder) {
+	t.Helper()
+	if p := r.getParser(); p != nil {
+		if err := p.Stop(); err != nil {
+			t.Errorf("停止测试 parser 失败: %v", err)
+		}
+	}
+}
+
+func TestStopRecordingTestParserKeepsInstalledReference(t *testing.T) {
+	p, err := parser.New(ffmpeg.Name, nil, livelogger.New(0, logrus.Fields{"test": t.Name()}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &recorder{parser: p, parserLock: new(sync.RWMutex), stop: make(chan struct{})}
+	// 模拟 tryRecord 已安装 parser，但还没有读取 r.parser 调用 ParseLiveStream。
+	close(r.stop)
+	stopRecordingTestParser(t, r)
+	if r.getParser() != p {
+		t.Fatal("超时清理清空了录制协程仍需读取的 parser")
+	}
+	// 使用真实 FFmpeg parser：停止后应在查找工具和访问流参数前返回，不启动子进程。
+	if err := r.parser.ParseLiveStream(context.Background(), nil, nil, ""); err == nil || !strings.Contains(err.Error(), "parser stopped") {
+		t.Fatalf("停止后不应继续启动录制: %v", err)
+	}
+	// 超时分支之后的 defer 也不能替换 parser 引用。
+	stopRecordingTestParser(t, r)
+	if r.getParser() != p {
+		t.Fatal("defer 清理替换了 parser 引用")
+	}
 }
