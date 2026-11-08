@@ -15,6 +15,8 @@ import (
 
 // TestScenario 测试场景定义
 type TestScenario struct {
+	// RequiresBGO 表示必须经过真实 bgo 链路，不能使用 FFmpeg 冒烟运行器。
+	RequiresBGO bool          `yaml:"requires_bgo,omitempty" json:"requires_bgo,omitempty"`
 	Name        string        `yaml:"name" json:"name"`
 	Description string        `yaml:"description" json:"description"`
 	Stream      StreamConfig  `yaml:"stream" json:"stream"`
@@ -172,7 +174,7 @@ func (ts *TestServer) StopStream(ctx context.Context, streamID string) error {
 	return nil
 }
 
-// GetAvailableScenarios 获取可用的测试场景
+// GetAvailableScenarios 列出测试场景需求；故障和 bgo 专属能力尚不能由 TestRunner 执行。
 func GetAvailableScenarios() []TestScenario {
 	return []TestScenario{
 		// 基础功能测试
@@ -397,6 +399,7 @@ func GetAvailableScenarios() []TestScenario {
 		// 多流选择测试
 		{
 			Name:        "multi_stream_selection",
+			RequiresBGO: true,
 			Description: "测试多流选择功能",
 			Stream: StreamConfig{
 				Format:   "flv",

@@ -4,240 +4,254 @@ package dev
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"math"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
 
-// TestRunner bgo自动化测试运行器
+// TestRunner 仅运行 FFmpeg 媒体冒烟测试，不经过 bgo 的 recorder、选流和重连逻辑。
 type TestRunner struct {
-	// 测试服务器地址
 	ServerURL string
-
-	// 输出目录
 	OutputDir string
+	// BGOPath 为兼容旧调用保留；非空时明确报错，不能静默忽略。
+	BGOPath     string
+	FFmpegPath  string
+	FFprobePath string
+	Verbose     bool
 
-	// bgo可执行路径
-	BGOPath string
-
-	// 日志
-	Verbose bool
+	// commandContext 允许测试隔离外部进程；正常运行使用 exec.CommandContext。
+	commandContext func(context.Context, string, ...string) *exec.Cmd
 }
 
-// NewTestRunner 创建测试运行器
+// NewTestRunner 创建 FFmpeg 媒体冒烟运行器。
 func NewTestRunner(serverURL, outputDir string) *TestRunner {
-	return &TestRunner{
-		ServerURL: serverURL,
-		OutputDir: outputDir,
-		BGOPath:   "", // 使用默认
-		Verbose:   true,
-	}
+	return &TestRunner{ServerURL: serverURL, OutputDir: outputDir, Verbose: true}
 }
 
-// RunScenario 运行单个测试场景
+// RunScenario 只验证支持的媒体冒烟场景，未实现的能力必须失败，不能报告通过。
 func (tr *TestRunner) RunScenario(ctx context.Context, scenario TestScenario) (*TestResult, error) {
 	startTime := time.Now()
-
-	result := &TestResult{
-		ScenarioName: scenario.Name,
-		Success:      false,
-	}
-
-	tr.log("开始测试场景: %s", scenario.Name)
-	tr.log("  描述: %s", scenario.Description)
-
-	// 1. 检查测试服务器
-	ts := NewTestServer(tr.ServerURL)
-	if err := ts.HealthCheck(ctx); err != nil {
-		result.ErrorMessage = fmt.Sprintf("测试服务器不可用: %v", err)
+	result := &TestResult{ScenarioName: scenario.Name}
+	defer func() { result.Duration = time.Since(startTime) }()
+	if err := tr.validateScenario(scenario); err != nil {
+		result.ErrorMessage = err.Error()
 		return result, nil
 	}
-	tr.log("  测试服务器: 正常")
-
-	// 2. 构建流URL
-	streamURL := tr.buildStreamURL(scenario)
-	tr.log("  流URL: %s", streamURL)
-
-	// 3. 准备输出文件
-	ext := ".flv"
-	if scenario.Stream.Format == "hls" {
-		ext = ".ts"
+	if err := ctx.Err(); err != nil {
+		result.ErrorMessage = fmt.Sprintf("测试已取消: %v", err)
+		return result, err
 	}
-	outputPath := filepath.Join(tr.OutputDir, scenario.Name+ext)
-	result.OutputPath = outputPath
 
-	// 确保输出目录存在
+	tr.log("FFmpeg 媒体冒烟场景: %s（不验证 bgo 录制链路）", scenario.Name)
+	serverURL := normalizeServerURL(tr.ServerURL)
+	if err := NewTestServer(serverURL).HealthCheck(ctx); err != nil {
+		result.ErrorMessage = fmt.Sprintf("测试服务器不可用: %v", err)
+		return result, ctx.Err()
+	}
 	if err := os.MkdirAll(tr.OutputDir, 0755); err != nil {
 		result.ErrorMessage = fmt.Sprintf("创建输出目录失败: %v", err)
 		return result, nil
 	}
-
-	// 4. 启动录制
-	tr.log("  开始录制...")
-
+	// 每次运行使用独立目录，失败或没有产物时不能误读上一次的成功文件。
+	runDir, err := os.MkdirTemp(tr.OutputDir, scenario.Name+"-")
+	if err != nil {
+		result.ErrorMessage = fmt.Sprintf("创建本次测试目录失败: %v", err)
+		return result, nil
+	}
+	ext := ".flv"
+	if scenario.Stream.Format == "hls" {
+		ext = ".ts"
+	}
+	result.OutputPath = filepath.Join(runDir, scenario.Name+ext)
 	recordCtx, cancel := context.WithTimeout(ctx, scenario.Stream.Duration+30*time.Second)
 	defer cancel()
 
-	err := tr.runFFmpeg(recordCtx, streamURL, outputPath, scenario.Stream.Duration)
-	if err != nil {
-		// 检查是否只是超时（正常情况）
-		if !strings.Contains(err.Error(), "killed") && !strings.Contains(err.Error(), "signal") {
-			result.ErrorMessage = fmt.Sprintf("录制失败: %v", err)
-			result.Duration = time.Since(startTime)
-			return result, nil
+	if err := tr.runFFmpeg(recordCtx, tr.buildStreamURL(scenario), result.OutputPath, scenario.Stream.Duration); err != nil {
+		if recordCtx.Err() != nil {
+			err = recordCtx.Err()
 		}
+		result.ErrorMessage = fmt.Sprintf("录制失败: %v", err)
+		return result, ctx.Err()
 	}
-
-	result.Duration = time.Since(startTime)
-	tr.log("  录制完成，用时 %.1f秒", result.Duration.Seconds())
-
-	// 5. 验证输出文件
-	if err := tr.validateOutput(outputPath, scenario.Expected, result); err != nil {
+	if err := recordCtx.Err(); err != nil {
+		result.ErrorMessage = fmt.Sprintf("录制未正常完成: %v", err)
+		return result, ctx.Err()
+	}
+	if err := tr.validateOutput(recordCtx, result.OutputPath, scenario.Expected, result); err != nil {
 		result.ErrorMessage = fmt.Sprintf("验证失败: %v", err)
-		return result, nil
+		return result, ctx.Err()
 	}
-
-	// 6. 判断是否成功
-	if result.OutputPlayable && result.OutputDuration >= scenario.Expected.MinDuration {
-		result.Success = true
-		tr.log("  ✅ 测试通过")
-	} else {
-		tr.log("  ❌ 测试失败")
-		if !result.OutputPlayable {
-			result.ErrorMessage = "输出文件不可播放"
-		} else {
-			result.ErrorMessage = fmt.Sprintf("输出时长 %.1fs 小于预期 %.1fs",
-				result.OutputDuration.Seconds(), scenario.Expected.MinDuration.Seconds())
-		}
-	}
-
+	result.Success = true
+	tr.log("  媒体冒烟测试通过，时长 %.3f 秒", result.OutputDuration.Seconds())
 	return result, nil
 }
 
-// RunAllScenarios 运行所有场景
-func (tr *TestRunner) RunAllScenarios(ctx context.Context) ([]*TestResult, error) {
-	scenarios := GetAvailableScenarios()
-	results := make([]*TestResult, 0, len(scenarios))
-
-	tr.log("开始运行 %d 个测试场景", len(scenarios))
-	tr.log(strings.Repeat("=", 50))
-
-	for i, scenario := range scenarios {
-		tr.log("\n[%d/%d] 场景: %s", i+1, len(scenarios), scenario.Name)
-		tr.log(strings.Repeat("-", 50))
-
-		result, err := tr.RunScenario(ctx, scenario)
-		if err != nil {
-			tr.log("  运行错误: %v", err)
-		}
-		results = append(results, result)
+func (tr *TestRunner) validateScenario(s TestScenario) error {
+	if tr.BGOPath != "" || s.RequiresBGO {
+		return fmt.Errorf("不支持 bgo 端到端测试：此运行器只调用 FFmpeg")
 	}
-
-	tr.log(strings.Repeat("=", 50))
-	tr.log("测试完成")
-
-	return results, nil
-}
-
-// buildStreamURL 构建流URL
-func (tr *TestRunner) buildStreamURL(scenario TestScenario) string {
-	ext := ".flv"
-	if scenario.Stream.Format == "hls" {
-		ext = ".m3u8"
+	if len(s.Faults) != 0 {
+		return fmt.Errorf("不支持故障注入：Faults 尚未接入执行，不能验证此场景")
 	}
-
-	baseURL := tr.ServerURL
-	if !strings.HasPrefix(baseURL, "http") {
-		baseURL = "http://" + baseURL
+	if s.Expected.DownloaderReconnects || len(s.Expected.ComplianceWarnings) != 0 || s.Expected.MaxFileSizeDiff != 0 {
+		return fmt.Errorf("不支持重连、合规警告或文件大小差异断言")
 	}
-
-	return fmt.Sprintf("%s/live/%s%s?codec=%s&quality=%s&duration=%d",
-		baseURL,
-		scenario.Name,
-		ext,
-		scenario.Stream.Codec,
-		scenario.Stream.Quality,
-		int(scenario.Stream.Duration.Seconds()))
-}
-
-// runFFmpeg 使用FFmpeg录制
-func (tr *TestRunner) runFFmpeg(ctx context.Context, inputURL, outputPath string, duration time.Duration) error {
-	args := []string{
-		"-y", // 覆盖输出
-		"-i", inputURL,
-		"-c", "copy", // 不重编码
-		"-t", fmt.Sprintf("%.0f", duration.Seconds()),
-		outputPath,
+	if !s.Expected.OutputPlayable {
+		return fmt.Errorf("不支持预期不可播放的场景，请显式设置 OutputPlayable")
 	}
-
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-
-	if tr.Verbose {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+	if s.Name == "" || s.Name == "." || s.Name == ".." || strings.ContainsAny(s.Name, "/\\") {
+		return fmt.Errorf("场景名称必须是单个安全的文件名")
 	}
-
-	return cmd.Run()
-}
-
-// validateOutput 验证输出文件
-func (tr *TestRunner) validateOutput(outputPath string, expected Expected, result *TestResult) error {
-	// 检查文件是否存在
-	info, err := os.Stat(outputPath)
-	if err != nil {
-		return fmt.Errorf("输出文件不存在: %v", err)
+	if s.Stream.Format != "flv" && s.Stream.Format != "hls" {
+		return fmt.Errorf("不支持流格式 %q", s.Stream.Format)
 	}
-
-	result.OutputFileSize = info.Size()
-
-	if info.Size() == 0 {
-		return fmt.Errorf("输出文件为空")
+	if s.Stream.Duration <= 0 || s.Stream.Duration > time.Duration(math.MaxInt64)-30*time.Second || s.Expected.MinDuration < 0 {
+		return fmt.Errorf("录制时长必须为正数且不能溢出，预期最小时长不能为负数")
 	}
-
-	tr.log("  输出文件大小: %.2f MB", float64(info.Size())/1024/1024)
-
-	// 使用ffprobe获取时长
-	duration, err := tr.getMediaDuration(outputPath)
-	if err != nil {
-		tr.log("  ⚠ 无法获取媒体信息: %v", err)
-		// 文件存在且有大小，假设可播放
-		result.OutputPlayable = true
-		result.OutputDuration = 0
-	} else {
-		result.OutputPlayable = true
-		result.OutputDuration = duration
-		tr.log("  输出时长: %.1f秒", duration.Seconds())
-	}
-
 	return nil
 }
 
-// getMediaDuration 获取媒体时长
-func (tr *TestRunner) getMediaDuration(filePath string) (time.Duration, error) {
-	cmd := exec.Command("ffprobe",
-		"-v", "quiet",
-		"-show_entries", "format=duration",
-		"-of", "csv=p=0",
-		filePath)
+func (tr *TestRunner) RunAllScenarios(ctx context.Context) ([]*TestResult, error) {
+	scenarios := GetAvailableScenarios()
+	results := make([]*TestResult, 0, len(scenarios))
+	for _, scenario := range scenarios {
+		result, err := tr.RunScenario(ctx, scenario)
+		results = append(results, result)
+		if err != nil {
+			return results, err
+		}
+	}
+	return results, nil
+}
 
+func normalizeServerURL(raw string) string {
+	raw = strings.TrimRight(raw, "/")
+	if !strings.Contains(raw, "://") {
+		raw = "http://" + raw
+	}
+	return raw
+}
+
+func (tr *TestRunner) buildStreamURL(scenario TestScenario) string {
+	prefix, ext := "/live/", ".flv"
+	if scenario.Stream.Format == "hls" {
+		prefix, ext = "/hls/", ".m3u8"
+	}
+	query := url.Values{
+		"codec":    {scenario.Stream.Codec},
+		"quality":  {scenario.Stream.Quality},
+		"duration": {strconv.FormatFloat(scenario.Stream.Duration.Seconds(), 'f', -1, 64)},
+	}
+	return normalizeServerURL(tr.ServerURL) + prefix + url.PathEscape(scenario.Name) + ext + "?" + query.Encode()
+}
+
+func (tr *TestRunner) command(ctx context.Context, name string, args ...string) *exec.Cmd {
+	if tr.commandContext != nil {
+		return tr.commandContext(ctx, name, args...)
+	}
+	return exec.CommandContext(ctx, name, args...)
+}
+
+func toolPath(configured, fallback string) string {
+	if configured != "" {
+		return configured
+	}
+	return fallback
+}
+
+func (tr *TestRunner) runFFmpeg(ctx context.Context, inputURL, outputPath string, duration time.Duration) error {
+	cmd := tr.command(ctx, toolPath(tr.FFmpegPath, "ffmpeg"),
+		"-nostdin", "-y", "-i", inputURL, "-c", "copy",
+		"-t", strconv.FormatFloat(duration.Seconds(), 'f', -1, 64), outputPath)
+	if tr.Verbose {
+		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	}
+	return cmd.Run()
+}
+
+func (tr *TestRunner) validateOutput(ctx context.Context, outputPath string, expected Expected, result *TestResult) error {
+	result.OutputPlayable = false
+	result.OutputDuration = 0
+	result.OutputFileSize = 0
+	info, err := os.Stat(outputPath)
+	if err != nil {
+		return fmt.Errorf("输出文件不存在: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Size() == 0 {
+		return fmt.Errorf("输出必须是非空普通文件")
+	}
+	result.OutputFileSize = info.Size()
+	duration, err := tr.getMediaDuration(ctx, outputPath)
+	if err != nil {
+		return fmt.Errorf("无法验证媒体信息: %w", err)
+	}
+	result.OutputDuration = duration
+	if duration < expected.MinDuration {
+		return fmt.Errorf("输出时长 %.3fs 小于预期 %.3fs", duration.Seconds(), expected.MinDuration.Seconds())
+	}
+	// ffprobe 读到元数据不等于媒体可解码，完整解码音视频流后才标记可播放。
+	cmd := tr.command(ctx, toolPath(tr.FFmpegPath, "ffmpeg"),
+		"-nostdin", "-v", "error", "-xerror", "-abort_on", "empty_output", "-i", outputPath,
+		"-map", "0:v?", "-map", "0:a?", "-f", "null", "-")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("媒体解码失败: %w (%s)", err, strings.TrimSpace(string(output)))
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	result.OutputPlayable = true
+	return nil
+}
+
+func (tr *TestRunner) getMediaDuration(ctx context.Context, filePath string) (time.Duration, error) {
+	cmd := tr.command(ctx, toolPath(tr.FFprobePath, "ffprobe"),
+		"-v", "error", "-show_entries", "format=duration:stream=codec_type", "-of", "json", filePath)
 	output, err := cmd.Output()
 	if err != nil {
 		return 0, err
 	}
-
-	var seconds float64
-	_, err = fmt.Sscanf(strings.TrimSpace(string(output)), "%f", &seconds)
-	if err != nil {
-		return 0, err
-	}
-
-	return time.Duration(seconds * float64(time.Second)), nil
+	return parseMediaDuration(output)
 }
 
-// log 日志输出
+func parseMediaDuration(output []byte) (time.Duration, error) {
+	var probe struct {
+		Format struct {
+			Duration string `json:"duration"`
+		} `json:"format"`
+		Streams []struct {
+			CodecType string `json:"codec_type"`
+		} `json:"streams"`
+	}
+	if err := json.Unmarshal(output, &probe); err != nil {
+		return 0, fmt.Errorf("无效的 ffprobe 响应: %w", err)
+	}
+	hasMedia := false
+	for _, stream := range probe.Streams {
+		if stream.CodecType == "video" || stream.CodecType == "audio" {
+			hasMedia = true
+		}
+	}
+	if !hasMedia {
+		return 0, fmt.Errorf("没有音视频流")
+	}
+	seconds, err := strconv.ParseFloat(probe.Format.Duration, 64)
+	if err != nil || math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds <= 0 || seconds >= float64(math.MaxInt64)/float64(time.Second) {
+		return 0, fmt.Errorf("无效的媒体时长 %q", probe.Format.Duration)
+	}
+	duration := time.Duration(seconds * float64(time.Second))
+	if duration <= 0 {
+		return 0, fmt.Errorf("媒体时长不足 1 纳秒")
+	}
+	return duration, nil
+}
+
 func (tr *TestRunner) log(format string, args ...interface{}) {
 	if tr.Verbose {
 		fmt.Printf(format+"\n", args...)
