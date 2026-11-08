@@ -31,6 +31,7 @@ import (
 	"github.com/bililive-go/bililive-go/src/pkg/parser"
 	"github.com/bililive-go/bililive-go/src/pkg/parser/ffmpeg"
 	"github.com/bililive-go/bililive-go/src/pkg/parser/native/flv"
+	"github.com/bililive-go/bililive-go/src/pkg/proxy"
 	"github.com/bililive-go/bililive-go/src/types"
 )
 
@@ -52,6 +53,7 @@ func recordingFLVFixture() []byte {
 // 仅平台元信息使用 mock，不替换 newParser，也不依赖 FFmpeg 或外部直播站点。
 // 原生 parser 把有限流 EOF 作为断流错误上报；完整标签已落盘不代表正常停止或重连成功。
 func TestTryRecordNativeHTTPOutput(t *testing.T) {
+	isolateRecordingTestProxyEnv(t)
 	fixture := recordingFLVFixture()
 	// 最后的 PreviousTagSize 只有读取下一标签时才会被原生 parser 写出。
 	completeOutput := fixture[:len(fixture)-4]
@@ -165,6 +167,7 @@ func TestTryRecordNativeHTTPOutput(t *testing.T) {
 // TestTryRecordFFmpegMediaOutput 验证真实 recorder 与 FFmpeg parser 的媒体产物。
 // 工具缺失时明确跳过；CI 可用 BGO_REQUIRE_MEDIA_TESTS=1 禁止静默跳过。
 func TestTryRecordFFmpegMediaOutput(t *testing.T) {
+	isolateRecordingTestProxyEnv(t)
 	ffmpegPath, ffmpegErr := exec.LookPath("ffmpeg")
 	ffprobePath, ffprobeErr := exec.LookPath("ffprobe")
 	if ffmpegErr != nil || ffprobeErr != nil {
@@ -311,5 +314,39 @@ func TestStopRecordingTestParserKeepsInstalledReference(t *testing.T) {
 	stopRecordingTestParser(t, r)
 	if r.getParser() != p {
 		t.Fatal("defer 清理替换了 parser 引用")
+	}
+}
+
+// isolateRecordingTestProxyEnv 让本地合成流只走回环连接；t.Setenv 会在测试结束后还原环境。
+func isolateRecordingTestProxyEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"} {
+		t.Setenv(key, "")
+	}
+}
+
+func TestRecordingProxyEnvironmentIsolation(t *testing.T) {
+	restore := swapTestConfig(t)
+	defer restore()
+	keys := []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"}
+	const proxyURL = "http://127.0.0.1:9"
+	for _, key := range keys {
+		t.Setenv(key, proxyURL)
+	}
+	t.Run("清空所有代理变量", func(t *testing.T) {
+		isolateRecordingTestProxyEnv(t)
+		for _, key := range keys {
+			if got := os.Getenv(key); got != "" {
+				t.Errorf("%s 未隔离: %q", key, got)
+			}
+		}
+		if got := proxy.GetDownloadProxyURL(); got != "" {
+			t.Fatalf("下载器仍继承代理: %q", got)
+		}
+	})
+	for _, key := range keys {
+		if got := os.Getenv(key); got != proxyURL {
+			t.Errorf("子测试结束后 %s 未还原: %q", key, got)
+		}
 	}
 }

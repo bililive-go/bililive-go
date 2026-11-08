@@ -15,6 +15,10 @@ import (
 
 // TestFFmpegMediaSmoke 使用真实 FFmpeg/ffprobe 和本机合成流；不是 bgo 端到端测试。
 func TestFFmpegMediaSmoke(t *testing.T) {
+	// 合成媒体只访问回环服务器，避免 FFmpeg 子进程继承宿主机代理。
+	for _, key := range []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"} {
+		t.Setenv(key, "")
+	}
 	ffmpeg, ffmpegErr := exec.LookPath("ffmpeg")
 	ffprobe, ffprobeErr := exec.LookPath("ffprobe")
 	if ffmpegErr != nil || ffprobeErr != nil {
