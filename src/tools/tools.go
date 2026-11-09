@@ -497,8 +497,20 @@ func SyncBuiltInTools(targetToolFolder string) (err error) {
 		"biliLive-tools",
 	} {
 		var tool tools.Tool
-		tool, err = api.GetTool(toolName)
+		if toolName == "node" {
+			var btools tools.Tool
+			btools, err = api.GetTool("biliLive-tools")
+			if err == nil {
+				tool, err = getBToolsNode(api, btools.GetVersion())
+			}
+		} else {
+			tool, err = api.GetTool(toolName)
+		}
 		if err != nil {
+			// 配对失败时立即中止，避免后续清理删除仍需使用的 Node。
+			if toolName == "node" {
+				return err
+			}
 			blog.GetLogger().WithError(err).Warn("failed to get built-in tool:", toolName)
 			continue
 		}
@@ -661,41 +673,28 @@ func startBTools() error {
 	// 设置状态为正在启动
 	currentBToolsStatus.Store(int32(BToolsStatusStarting))
 
-	// bililive-tools 依赖 node 环境
-	err := DownloadIfNecessary("node")
-	if err != nil {
-		currentBToolsStatus.Store(int32(BToolsStatusFailed))
-		return fmt.Errorf("failed to install node: %w", err)
-	}
 	api := tools.Get()
 	if api == nil {
 		currentBToolsStatus.Store(int32(BToolsStatusFailed))
 		return errors.New("failed to get remotetools API instance")
 	}
-
-	node, err := api.GetTool("node")
-	if err != nil {
-		currentBToolsStatus.Store(int32(BToolsStatusFailed))
-		return err
-	}
-	if !node.DoesToolExist() {
-		err = node.Install()
-		if err != nil {
-			currentBToolsStatus.Store(int32(BToolsStatusFailed))
-			return err
-		}
-	}
-
 	btools, err := api.GetTool("biliLive-tools")
 	if err != nil {
 		currentBToolsStatus.Store(int32(BToolsStatusFailed))
 		return err
 	}
-	if !btools.DoesToolExist() {
-		err = btools.Install()
-		if err != nil {
-			currentBToolsStatus.Store(int32(BToolsStatusFailed))
-			return err
+	// 先按实际选中的工具版本匹配 Node，避免缓存或固定版本导致原生模块 ABI 错配。
+	node, err := getBToolsNode(api, btools.GetVersion())
+	if err != nil {
+		currentBToolsStatus.Store(int32(BToolsStatusFailed))
+		return err
+	}
+	for _, tool := range []tools.Tool{node, btools} {
+		if !tool.DoesToolExist() {
+			if err = tool.Install(); err != nil {
+				currentBToolsStatus.Store(int32(BToolsStatusFailed))
+				return err
+			}
 		}
 	}
 
