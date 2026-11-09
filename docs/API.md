@@ -234,3 +234,33 @@
         "data": "OK"
     }
     ```
+
+## 平台与房间的视频分片策略
+
+以下更新入口支持 `video_split_strategies`：
+
+- `PATCH /api/config/platforms/{platform}`：平台覆盖。
+- `PATCH /api/config/rooms/id/{id}`：按直播间 ID 更新。
+- `PATCH /api/config/rooms/{url}`：按 URL 更新，URL 需要编码。
+
+```json
+{
+  "video_split_strategies": {
+    "on_room_name_changed": true,
+    "max_duration": 600000000000,
+    "max_file_size": "1GB"
+  }
+}
+```
+
+`max_duration` 在 JSON API 中以纳秒为单位（上例为 10 分钟），在 YAML 中使用 `10m` 等时长格式；WebUI 以秒显示。`max_file_size` 支持字节数或 `1GB`、`500MB` 等字符串。
+
+三个字段作为一组，按“全局 → 平台 → 房间”覆盖。首次设置覆盖时，未提供的字段为零值；更新已有覆盖时，未提供的字段保留原值。显式 `false` 或 `0` 可禁用对应策略；省略整个 `video_split_strategies` 不修改当前设置。非零最大时长至少为 1 分钟。未知字段、类型错误、无效文件大小或负数限制会返回 HTTP 400，且不会提交配置。发送以下内容清除当前层的整组覆盖，恢复继承上一级配置：
+
+```json
+{"video_split_strategies": null}
+```
+
+WebUI 的平台和房间配置提供“覆盖视频分片策略”开关，关闭并保存即恢复继承。运行中的下载器不会立即重建，文件大小等启动参数从下一次录制启动起使用新值。
+
+原生 FLV 下载器不支持按最大时长和最大文件大小分片，需要这两种策略时应使用 FFmpeg 或录播姬。原生 FLV 的限制提示也按房间最终配置判断。

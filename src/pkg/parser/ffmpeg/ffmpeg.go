@@ -246,16 +246,7 @@ func (p *Parser) ParseLiveStream(ctx context.Context, streamUrlInfo *live.Stream
 
 	args = append(args, "-c", "copy")
 
-	cfg := configs.GetCurrentConfig()
-	var maxFileSize int64
-	if cfg != nil {
-		maxFileSize = cfg.VideoSplitStrategies.MaxFileSize.Bytes()
-	}
-	if maxFileSize < 0 {
-		p.logger.Infof("Invalid MaxFileSize: %d", maxFileSize)
-	} else if maxFileSize > 0 {
-		args = append(args, "-fs", strconv.FormatInt(maxFileSize, 10))
-	}
+	args = append(args, p.videoSplitArgs(live)...)
 
 	args = append(args, file)
 
@@ -479,4 +470,21 @@ func (p *Parser) HasFlvProxy() bool {
 	p.flvProxyMu.Lock()
 	defer p.flvProxyMu.Unlock()
 	return p.flvProxy != nil
+}
+
+func (p *Parser) videoSplitArgs(room live.Live) []string {
+	cfg := configs.GetCurrentConfig()
+	var maxFileSize int64
+	if cfg != nil {
+		maxFileSize = cfg.GetEffectiveConfigForRoom(room.GetRawUrl()).VideoSplitStrategies.MaxFileSize.Bytes()
+	}
+	if maxFileSize < 0 {
+		if p.logger != nil {
+			p.logger.Infof("Invalid MaxFileSize: %d", maxFileSize)
+		}
+	} else if maxFileSize > 0 {
+		return []string{"-fs", strconv.FormatInt(maxFileSize, 10)}
+	}
+
+	return nil
 }

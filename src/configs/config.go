@@ -397,6 +397,17 @@ type VideoSplitStrategies struct {
 	MaxFileSize       ByteSize      `yaml:"max_file_size" json:"max_file_size"`
 }
 
+// Validate 校验各层级共用的视频分片限制，0 表示关闭限制。
+func (s VideoSplitStrategies) Validate() error {
+	if s.MaxDuration < 0 || s.MaxFileSize.Bytes() < 0 {
+		return fmt.Errorf("最大时长和文件大小不能为负数")
+	}
+	if s.MaxDuration > 0 && s.MaxDuration < time.Minute {
+		return fmt.Errorf("单个视频的最大录制时长最小值为 1 分钟")
+	}
+	return nil
+}
+
 // UploadTiming 上传时机
 type UploadTiming string
 
@@ -1354,8 +1365,8 @@ func (c *Config) Verify() error {
 	if _, err := os.Stat(c.OutPutPath); err != nil {
 		return fmt.Errorf(`输出路径 "%s" 不存在`, c.OutPutPath)
 	}
-	if maxDur := c.VideoSplitStrategies.MaxDuration; maxDur > 0 && maxDur < time.Minute {
-		return fmt.Errorf("单个视频的最大录制时长最小值为 1 分钟")
+	if err := c.VideoSplitStrategies.Validate(); err != nil {
+		return err
 	}
 	if !c.RPC.Enable && len(c.LiveRooms) == 0 {
 		return fmt.Errorf("RPC 服务已禁用且未配置直播间，程序无任务可执行")
@@ -1364,6 +1375,14 @@ func (c *Config) Verify() error {
 	// 验证平台配置
 	if err := c.ValidatePlatformConfigs(); err != nil {
 		return err
+	}
+
+	for _, room := range c.LiveRooms {
+		if room.VideoSplitStrategies != nil {
+			if err := room.VideoSplitStrategies.Validate(); err != nil {
+				return fmt.Errorf("直播间 '%s': 分片策略无效: %w", room.Url, err)
+			}
+		}
 	}
 
 	// 验证弹幕配置
@@ -2026,6 +2045,11 @@ func (c *Config) GetEffectiveConfigForRoom(roomUrl string) ResolvedConfig {
 // ValidatePlatformConfigs 验证平台配置的一致性
 func (c *Config) ValidatePlatformConfigs() error {
 	for platformKey, platformConfig := range c.PlatformConfigs {
+		if platformConfig.VideoSplitStrategies != nil {
+			if err := platformConfig.VideoSplitStrategies.Validate(); err != nil {
+				return fmt.Errorf("平台 '%s': 分片策略无效: %w", platformKey, err)
+			}
+		}
 		// 验证间隔值
 		if platformConfig.Interval != nil && *platformConfig.Interval <= 0 {
 			return fmt.Errorf("平台 '%s': 检测间隔必须大于 0", platformKey)

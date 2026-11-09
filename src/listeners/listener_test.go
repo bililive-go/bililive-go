@@ -167,3 +167,31 @@ func TestListenerCloseSyncWaitsForStopHandlers(t *testing.T) {
 	l.CloseSync()
 	assert.True(t, l.isStopped())
 }
+
+func TestRoomNameSplitUsesRoomOverride(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	cfg := configs.NewConfig()
+	cfg.VideoSplitStrategies.OnRoomNameChanged = false
+	cfg.LiveRooms = []configs.LiveRoom{
+		{Url: "https://live.bilibili.com/1", OverridableConfig: configs.OverridableConfig{VideoSplitStrategies: &configs.VideoSplitStrategies{OnRoomNameChanged: true}}},
+		{Url: "https://live.bilibili.com/2"},
+	}
+	previous := configs.GetCurrentConfig()
+	configs.SetCurrentConfig(cfg)
+	t.Cleanup(func() { configs.SetCurrentConfig(previous) })
+	for i, room := range cfg.LiveRooms {
+		ed := evtmock.NewMockDispatcher(ctrl)
+		ctx := context.WithValue(context.Background(), instance.Key, &instance.Instance{EventDispatcher: ed})
+		log.New(ctx)
+		l := livemock.NewMockLive(ctrl)
+		l.EXPECT().GetRawUrl().Return(room.Url).AnyTimes()
+		l.EXPECT().GetLogger().Return(livelogger.New(1024, nil)).AnyTimes()
+		l.EXPECT().GetPlatformCNName().Return("哔哩哔哩").AnyTimes()
+		listener := NewListener(ctx, l).(*listener)
+		listener.status = status{roomStatus: true, roomName: "旧标题"}
+		if i == 0 {
+			ed.EXPECT().DispatchEvent(events.NewEvent(RoomNameChanged, l))
+		}
+		listener.processInfo(&livepkg.Info{Status: true, RoomName: "新标题"})
+	}
+}
