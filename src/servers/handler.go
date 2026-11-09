@@ -1510,12 +1510,13 @@ func getPlatformStats(writer http.ResponseWriter, r *http.Request) {
 		}
 
 		roomInfo := map[string]interface{}{
-			"url":          room.Url,
-			"is_listening": room.IsListening,
-			"quality":      room.Quality,
-			"audio_only":   room.AudioOnly,
-			"nick_name":    room.NickName,
-			"live_id":      liveId,
+			"url":                    room.Url,
+			"is_listening":           room.IsListening,
+			"quality":                room.Quality,
+			"audio_only":             room.AudioOnly,
+			"nick_name":              room.NickName,
+			"live_id":                liveId,
+			"video_split_strategies": room.VideoSplitStrategies,
 			"room_config": map[string]interface{}{
 				"danmaku_enable": room.DanmakuEnable,
 				"danmaku":        room.Danmaku,
@@ -1592,6 +1593,7 @@ func getPlatformStats(writer http.ResponseWriter, r *http.Request) {
 			"warning_message":         warningMessage,
 			"out_put_path":            platformConfig.OutPutPath,
 			"ffmpeg_path":             platformConfig.FfmpegPath,
+			"video_split_strategies":  platformConfig.VideoSplitStrategies,
 		})
 		processedPlatforms[platformKey] = true
 	}
@@ -1639,6 +1641,7 @@ func getPlatformStats(writer http.ResponseWriter, r *http.Request) {
 			"interval":                platformConfig.Interval,
 			"out_put_path":            platformConfig.OutPutPath,
 			"ffmpeg_path":             platformConfig.FfmpegPath,
+			"video_split_strategies":  platformConfig.VideoSplitStrategies,
 		})
 		processedPlatforms[platformKey] = true
 	}
@@ -2443,6 +2446,23 @@ func updateRoomConfigById(writer http.ResponseWriter, r *http.Request) {
 
 // applyOverridableConfigUpdates 统一处理可覆盖配置的更新
 func applyOverridableConfigUpdates(oc *configs.OverridableConfig, updates map[string]interface{}) {
+	// 分片策略作为整体覆盖；显式 null 清除覆盖并恢复平台/全局继承。
+	if value, exists := updates["video_split_strategies"]; exists {
+		if value == nil {
+			oc.VideoSplitStrategies = nil
+		} else if fields, ok := value.(map[string]interface{}); ok {
+			strategies := configs.VideoSplitStrategies{}
+			if oc.VideoSplitStrategies != nil {
+				strategies = *oc.VideoSplitStrategies
+			}
+			if data, err := json.Marshal(fields); err == nil {
+				if err := json.Unmarshal(data, &strategies); err == nil {
+					oc.VideoSplitStrategies = &strategies
+				}
+			}
+		}
+	}
+
 	if interval, ok := updates["interval"].(float64); ok {
 		val := int(interval)
 		oc.Interval = &val

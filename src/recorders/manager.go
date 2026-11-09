@@ -203,12 +203,6 @@ func (m *manager) addRecorderLocked(ctx context.Context, live live.Live) error {
 	}
 	m.savers[live.GetLiveId()] = rec
 
-	cfg := configs.GetCurrentConfig()
-	if cfg != nil {
-		if maxDur := cfg.VideoSplitStrategies.MaxDuration; maxDur != 0 {
-			bilisentry.GoWithContext(ctx, func(ctx context.Context) { m.cronRestart(ctx, live) })
-		}
-	}
 	if err := rec.Start(ctx); err != nil {
 		// Start 失败时从 map 删除并异步 Close 新 recorder，防止泄漏/僵尸实例
 		// 使用异步 Close 避免在持锁时执行耗时操作（如等待 ffmpeg 进程退出），
@@ -216,6 +210,12 @@ func (m *manager) addRecorderLocked(ctx context.Context, live live.Live) error {
 		delete(m.savers, live.GetLiveId())
 		bilisentry.Go(rec.Close)
 		return err
+	}
+	cfg := configs.GetCurrentConfig()
+	if cfg != nil {
+		if maxDur := cfg.GetEffectiveConfigForRoom(live.GetRawUrl()).VideoSplitStrategies.MaxDuration; maxDur > 0 {
+			bilisentry.GoWithContext(ctx, func(ctx context.Context) { m.cronRestart(ctx, live) })
+		}
 	}
 	return nil
 }
@@ -229,7 +229,11 @@ func (m *manager) cronRestart(ctx context.Context, live live.Live) {
 	if cfg == nil {
 		return
 	}
-	if time.Since(recorder.StartTime()) < cfg.VideoSplitStrategies.MaxDuration {
+	maxDuration := cfg.GetEffectiveConfigForRoom(live.GetRawUrl()).VideoSplitStrategies.MaxDuration
+	if maxDuration <= 0 {
+		return
+	}
+	if time.Since(recorder.StartTime()) < maxDuration {
 		time.AfterFunc(time.Minute/4, func() {
 			m.cronRestart(ctx, live)
 		})

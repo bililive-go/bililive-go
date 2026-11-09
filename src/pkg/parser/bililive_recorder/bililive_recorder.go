@@ -140,17 +140,7 @@ func (p *Parser) ParseLiveStream(ctx context.Context, streamUrlInfo *live.Stream
 	// 从配置获取分段设置
 	cfg := configs.GetCurrentConfig()
 	if cfg != nil {
-		// 最大文件大小 (字节 -> MB)
-		if maxFileSize := cfg.VideoSplitStrategies.MaxFileSize.Bytes(); maxFileSize > 0 {
-			maxSizeMB := float64(maxFileSize) / 1024.0 / 1024.0
-			args = append(args, "--max-size", strconv.FormatFloat(maxSizeMB, 'f', 2, 64))
-		}
-
-		// 最大时长 (纳秒 -> 分钟)
-		if maxDuration := cfg.VideoSplitStrategies.MaxDuration; maxDuration > 0 {
-			maxDurationMinutes := float64(maxDuration) / 1e9 / 60.0
-			args = append(args, "--max-duration", strconv.FormatFloat(maxDurationMinutes, 'f', 2, 64))
-		}
+		args = append(args, videoSplitArgs(live)...)
 
 		// 超时设置 (微秒 -> 毫秒)
 		if timeoutUs := cfg.TimeoutInUs; timeoutUs > 0 {
@@ -257,4 +247,26 @@ func (p *Parser) GetPID() int {
 // BililiveRecorder CLI 支持所有 FLV 流
 func CanHandle(urlPath string) bool {
 	return strings.Contains(urlPath, ".flv")
+}
+
+func videoSplitArgs(room live.Live) []string {
+	cfg := configs.GetCurrentConfig()
+	if cfg == nil {
+		return nil
+	}
+	var args []string
+	strategies := cfg.GetEffectiveConfigForRoom(room.GetRawUrl()).VideoSplitStrategies
+	// 最大文件大小 (字节 -> MB)
+	if maxFileSize := strategies.MaxFileSize.Bytes(); maxFileSize > 0 {
+		maxSizeMB := float64(maxFileSize) / 1024.0 / 1024.0
+		args = append(args, "--max-size", strconv.FormatFloat(maxSizeMB, 'f', 2, 64))
+	}
+
+	// 最大时长 (纳秒 -> 分钟)
+	if maxDuration := strategies.MaxDuration; maxDuration > 0 {
+		maxDurationMinutes := float64(maxDuration) / 1e9 / 60.0
+		args = append(args, "--max-duration", strconv.FormatFloat(maxDurationMinutes, 'f', 2, 64))
+	}
+
+	return args
 }

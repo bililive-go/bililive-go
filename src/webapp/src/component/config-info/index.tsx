@@ -24,6 +24,8 @@ import {
   OutputTemplatePreview, getFFmpegInheritance, getFFmpegDisplayValue,
 } from './shared-fields';
 import CloudUploadSettings from './CloudUploadSettings';
+import VideoSplitFields from './VideoSplitFields';
+import { videoSplitFormValues, videoSplitUpdates } from './video-split';
 
 const api = new API();
 const { TextArea } = Input;
@@ -1282,6 +1284,7 @@ const PlatformConfigForm: React.FC<{
       // 转换 attributes: map -> array
       const displayPlatform = {
         ...platform,
+        ...videoSplitFormValues((platform as any).video_split_strategies, globalConfig?.video_split_strategies),
         stream_preference: (platform as any).stream_preference ? {
           ...(platform as any).stream_preference,
           attributes: (platform as any).stream_preference.attributes
@@ -1291,7 +1294,7 @@ const PlatformConfigForm: React.FC<{
       };
       form.setFieldsValue(displayPlatform);
     }
-  }, [platform, form]);
+  }, [platform, form, globalConfig]);
 
 
   const handleSubmit = async () => {
@@ -1306,7 +1309,7 @@ const PlatformConfigForm: React.FC<{
         }
       }
       const updatedValues = {
-        ...values,
+        ...videoSplitUpdates(values),
         stream_preference: values.stream_preference ? {
           quality: values.stream_preference.quality || undefined,
           attributes: Object.keys(attributesMap).length > 0 ? attributesMap : undefined
@@ -1329,6 +1332,7 @@ const PlatformConfigForm: React.FC<{
   return (
     <div id={`platforms-${platformKey}`}>
       <Form form={form} layout="vertical">
+        <VideoSplitFields form={form} source="全局" />
         <ConfigField
           label="检测间隔 (秒)"
           description={`当前平台有 ${platform.listening_count} 个直播间正在监控`}
@@ -1633,12 +1637,15 @@ export const RoomConfigForm: React.FC<{
   platformId?: string; // New prop for explicit platform ID
 }> = ({ room, globalConfig, onSave, loading, onRefresh, platformId }) => {
   const [form] = Form.useForm();
+  const platformKey = platformId || room.address || '';
+  const platformConfig = (globalConfig?.platform_configs as any)?.[platformKey];
 
   useEffect(() => {
     if (room) {
       // 转换 attributes: map -> array
       const displayRoom = {
         ...room,
+        ...videoSplitFormValues(room.video_split_strategies, platformConfig?.video_split_strategies ?? globalConfig?.video_split_strategies),
         stream_preference: room.stream_preference ? {
           ...room.stream_preference,
           attributes: room.stream_preference.attributes
@@ -1648,7 +1655,7 @@ export const RoomConfigForm: React.FC<{
       };
       form.setFieldsValue(displayRoom);
     }
-  }, [room, form]);
+  }, [room, form, platformConfig, globalConfig]);
 
   const handleSubmit = async () => {
     try {
@@ -1662,7 +1669,7 @@ export const RoomConfigForm: React.FC<{
         }
       }
       const updatedValues = {
-        ...values,
+        ...videoSplitUpdates(values),
         stream_preference: values.stream_preference ? {
           quality: values.stream_preference.quality || undefined,
           attributes: Object.keys(attributesMap).length > 0 ? attributesMap : undefined
@@ -1682,14 +1689,9 @@ export const RoomConfigForm: React.FC<{
     }
   };
 
-
-  // Use platformId if provided, derived from backend using raw URL usually
-  // Fallback to room.address (CN Name) only if platformId is missing, but that usually fails for config lookup
-  const platformKey = platformId || room.address || '';
-  const platformConfig = (globalConfig?.platform_configs as any)?.[platformKey];
-
   return (
     <Form form={form} layout="vertical">
+      <VideoSplitFields form={form} source={platformConfig?.video_split_strategies != null ? "平台" : "全局"} />
       <ConfigField
         label="别名"
         description="在列表中显示的名称"

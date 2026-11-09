@@ -2,10 +2,13 @@ package recorders
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	gomock "go.uber.org/mock/gomock"
 
 	"github.com/bililive-go/bililive-go/src/configs"
@@ -42,6 +45,7 @@ func TestManagerAddAndRemoveRecorder(t *testing.T) {
 	defer func() { newRecorder = backup }()
 	l := livemock.NewMockLive(ctrl)
 	l.EXPECT().GetLiveId().Return(types.LiveID("test")).AnyTimes()
+	l.EXPECT().GetRawUrl().Return("https://live.bilibili.com/1").AnyTimes()
 	l.EXPECT().GetLogger().Return(livelogger.New(0, nil)).AnyTimes()
 	assert.NoError(t, m.AddRecorder(context.Background(), l))
 	assert.Equal(t, ErrRecorderExist, m.AddRecorder(context.Background(), l))
@@ -67,6 +71,7 @@ func TestRecorderStopRequestedRemovesOnlyRecorder(t *testing.T) {
 	ed := events.NewDispatcher(ctx)
 	l := livemock.NewMockLive(ctrl)
 	l.EXPECT().GetLiveId().Return(types.LiveID("test")).AnyTimes()
+	l.EXPECT().GetRawUrl().Return("https://live.bilibili.com/1").AnyTimes()
 
 	r := NewMockRecorder(ctrl)
 	r.EXPECT().Close()
@@ -126,6 +131,7 @@ func TestRestartRecorderRaceWithLiveEnd(t *testing.T) {
 
 	l := livemock.NewMockLive(ctrl)
 	l.EXPECT().GetLiveId().Return(types.LiveID("test")).AnyTimes()
+	l.EXPECT().GetRawUrl().Return("https://live.bilibili.com/1").AnyTimes()
 	l.EXPECT().GetLogger().Return(livelogger.New(0, nil)).AnyTimes()
 
 	// 先正常添加一个录制器
@@ -170,4 +176,79 @@ func TestRestartRecorderRaceWithLiveEnd(t *testing.T) {
 	// 验证 HasRecorder 在锁释放后应返回 true（说明它等到了 restart 完成，而不是看到中间状态 false）
 	assert.True(t, hasRecorderResult,
 		"HasRecorder 应在 RestartRecorder 完成后返回 true，说明锁正确阻止了中间状态暴露")
+}
+
+func TestCronRestartUsesRoomVideoSplitStrategies(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	cfg := configs.NewConfig()
+	cfg.VideoSplitStrategies.MaxDuration = time.Hour
+	cfg.LiveRooms = []configs.LiveRoom{
+		{Url: "https://live.bilibili.com/1", OverridableConfig: configs.OverridableConfig{VideoSplitStrategies: &configs.VideoSplitStrategies{MaxDuration: time.Minute}}},
+		{Url: "https://live.bilibili.com/2", OverridableConfig: configs.OverridableConfig{VideoSplitStrategies: &configs.VideoSplitStrategies{}}},
+	}
+	previous := configs.GetCurrentConfig()
+	configs.SetCurrentConfig(cfg)
+	t.Cleanup(func() { configs.SetCurrentConfig(previous) })
+	backup := newRecorder
+	t.Cleanup(func() { newRecorder = backup })
+	restarted := 0
+	newRecorder = func(context.Context, live.Live) (Recorder, error) {
+		restarted++
+		return nil, errors.New("测试中终止重启")
+	}
+	m := &manager{savers: make(map[types.LiveID]Recorder)}
+	for i, room := range cfg.LiveRooms {
+		l := livemock.NewMockLive(ctrl)
+		id := types.LiveID(room.Url)
+		l.EXPECT().GetRawUrl().Return(room.Url).AnyTimes()
+		l.EXPECT().GetLiveId().Return(id).AnyTimes()
+		r := NewMockRecorder(ctrl)
+		if i == 0 {
+			r.EXPECT().StartTime().Return(time.Now().Add(-2 * time.Minute))
+		}
+		m.savers[id] = r
+		m.cronRestart(context.Background(), l)
+	}
+	assert.Equal(t, 1, restarted)
+}
+
+func TestAddRecorderSchedulesRoomVideoSplit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	cfg := configs.NewConfig()
+	cfg.VideoSplitStrategies.MaxDuration = 0
+	cfg.LiveRooms = []configs.LiveRoom{{
+		Url:               "https://live.bilibili.com/1",
+		OverridableConfig: configs.OverridableConfig{VideoSplitStrategies: &configs.VideoSplitStrategies{MaxDuration: time.Minute}},
+	}}
+	previous := configs.GetCurrentConfig()
+	configs.SetCurrentConfig(cfg)
+	t.Cleanup(func() { configs.SetCurrentConfig(previous) })
+	l := livemock.NewMockLive(ctrl)
+	l.EXPECT().GetRawUrl().Return(cfg.LiveRooms[0].Url).AnyTimes()
+	l.EXPECT().GetLiveId().Return(types.LiveID("test")).AnyTimes()
+	r := NewMockRecorder(ctrl)
+	r.EXPECT().Start(gomock.Any()).Return(nil)
+	r.EXPECT().StartTime().Return(time.Now().Add(-2 * time.Minute))
+	backup := newRecorder
+	t.Cleanup(func() { newRecorder = backup })
+	restarted := make(chan struct{})
+	calls := 0
+	newRecorder = func(context.Context, live.Live) (Recorder, error) {
+		calls++
+		if calls == 1 {
+			return r, nil
+		}
+		close(restarted)
+		return nil, errors.New("测试中终止重启")
+	}
+	m := &manager{savers: make(map[types.LiveID]Recorder)}
+	require.NoError(t, m.AddRecorder(context.Background(), l))
+	select {
+	case <-restarted:
+		// 等待重启释放锁，避免测试清理与调度协程并发。
+		_, err := m.GetRecorder(context.Background(), "test")
+		require.NoError(t, err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("全局关闭分片时，房间时长覆盖未启动调度")
+	}
 }

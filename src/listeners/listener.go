@@ -237,7 +237,7 @@ func (l *listener) processInfo(info *live.Info) {
 		if cfg == nil {
 			return
 		}
-		if !cfg.VideoSplitStrategies.OnRoomNameChanged {
+		if !cfg.GetEffectiveConfigForRoom(l.Live.GetRawUrl()).VideoSplitStrategies.OnRoomNameChanged {
 			return
 		}
 		evtTyp = RoomNameChanged
