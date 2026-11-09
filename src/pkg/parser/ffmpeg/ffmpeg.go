@@ -479,7 +479,9 @@ func (p *Parser) videoSplitArgs(room live.Live) []string {
 		maxFileSize = cfg.GetEffectiveConfigForRoom(room.GetRawUrl()).VideoSplitStrategies.MaxFileSize.Bytes()
 	}
 	if maxFileSize < 0 {
-		p.logger.Infof("Invalid MaxFileSize: %d", maxFileSize)
+		if p.logger != nil {
+			p.logger.Infof("Invalid MaxFileSize: %d", maxFileSize)
+		}
 	} else if maxFileSize > 0 {
 		return []string{"-fs", strconv.FormatInt(maxFileSize, 10)}
 	}

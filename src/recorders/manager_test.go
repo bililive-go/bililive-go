@@ -305,4 +305,5 @@ func TestCronRestartStopsOnCanceledContext(t *testing.T) {
 	m := &manager{}
 	m.cronRestart(ctx, l, r)
 	require.ErrorIs(t, m.restartRecorder(ctx, l, r), context.Canceled)
+	require.ErrorIs(t, m.RestartRecorder(ctx, l), context.Canceled)
 }

@@ -256,7 +256,7 @@ func (m *manager) restartRecorder(ctx context.Context, live live.Live, expected 
 	// 1. 在锁内完成 map 操作：取出旧 recorder，创建并放入新 recorder
 	// 这样外部观察者（如 LiveEnd 事件处理器）始终能看到录制器存在，不会出现中间状态
 	m.lock.Lock()
-	if expected != nil && ctx.Err() != nil {
+	if ctx.Err() != nil {
 		m.lock.Unlock()
 		return ctx.Err()
 	}

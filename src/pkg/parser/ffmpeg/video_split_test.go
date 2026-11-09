@@ -34,3 +34,15 @@ func TestVideoSplitArgsUsesRoomConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestVideoSplitArgsWithInvalidSizeAndNoLogger(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	cfg := configs.NewConfig()
+	cfg.VideoSplitStrategies.MaxFileSize = -1
+	previous := configs.GetCurrentConfig()
+	configs.SetCurrentConfig(cfg)
+	t.Cleanup(func() { configs.SetCurrentConfig(previous) })
+	room := livemock.NewMockLive(ctrl)
+	room.EXPECT().GetRawUrl().Return("https://live.bilibili.com/1")
+	assert.NotPanics(t, func() { assert.Empty(t, (&Parser{}).videoSplitArgs(room)) })
+}
