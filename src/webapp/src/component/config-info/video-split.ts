@@ -25,3 +25,15 @@ export function videoSplitUpdates(values: any) {
 
 // 裸字节数必须为整数，带单位时允许小数，与 ParseByteSize 保持一致。
 export const videoSplitFileSizePattern = /^\s*(?:\d+|\d+(?:\.\d+)?\s*(?:B|KB|MB|GB|TB))\s*$/i;
+
+export function validateVideoSplitDuration(_: unknown, value: number | null) {
+  if (value != null && (value < 0 || (value > 0 && value < 60))) {
+    return Promise.reject(new Error('时长应为 0（不限）或至少 60 秒'));
+  }
+  return Promise.resolve();
+}
+
+export const videoSplitFileSizeRules = [
+  { required: true, message: '请输入有效的文件大小' },
+  { pattern: videoSplitFileSizePattern, message: '请输入有效的文件大小' },
+];

@@ -4,6 +4,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/bililive-go/bililive-go/src/pkg/ratelimit"
 	"github.com/bililive-go/bililive-go/src/types"
@@ -430,4 +431,31 @@ func intPtr(i int) *int {
 
 func stringPtr(s string) *string {
 	return &s
+}
+
+func TestVideoSplitValidationAtAllConfigLevels(t *testing.T) {
+	for _, strategies := range []VideoSplitStrategies{
+		{MaxDuration: -1},
+		{MaxDuration: 200 * time.Millisecond},
+		{MaxDuration: 59 * time.Second},
+		{MaxFileSize: -1},
+	} {
+		for _, level := range []string{"全局", "平台", "房间"} {
+			t.Run(level+"/"+strategies.MaxDuration.String()+"/"+strategies.MaxFileSize.String(), func(t *testing.T) {
+				cfg := NewConfig()
+				switch level {
+				case "全局":
+					cfg.VideoSplitStrategies = strategies
+				case "平台":
+					cfg.PlatformConfigs["bilibili"] = PlatformConfig{OverridableConfig: OverridableConfig{VideoSplitStrategies: &strategies}}
+					assert.Error(t, cfg.ValidatePlatformConfigs())
+				case "房间":
+					cfg.LiveRooms = []LiveRoom{{Url: "https://live.bilibili.com/1", OverridableConfig: OverridableConfig{VideoSplitStrategies: &strategies}}}
+				}
+				assert.Error(t, cfg.Verify())
+			})
+		}
+	}
+	assert.NoError(t, (VideoSplitStrategies{}).Validate())
+	assert.NoError(t, (VideoSplitStrategies{MaxDuration: time.Minute}).Validate())
 }

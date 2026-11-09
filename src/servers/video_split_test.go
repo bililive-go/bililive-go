@@ -21,22 +21,22 @@ func TestVideoSplitOverridesSetUpdateAndClear(t *testing.T) {
 	cfg := configs.NewConfig()
 	cfg.VideoSplitStrategies = configs.VideoSplitStrategies{OnRoomNameChanged: true, MaxDuration: time.Hour, MaxFileSize: 2 * configs.GB}
 	room := configs.LiveRoom{Url: "https://live.bilibili.com/1"}
-	applyOverridableConfigUpdates(&room.OverridableConfig, map[string]interface{}{
+	require.NoError(t, applyOverridableConfigUpdates(&room.OverridableConfig, map[string]interface{}{
 		"video_split_strategies": map[string]interface{}{"on_room_name_changed": false, "max_duration": float64(10 * time.Minute), "max_file_size": "1GB"},
-	})
+	}))
 	require.NotNil(t, room.VideoSplitStrategies)
 	require.Equal(t, configs.VideoSplitStrategies{MaxDuration: 10 * time.Minute, MaxFileSize: configs.GB}, cfg.ResolveConfigForRoom(&room, "bilibili").VideoSplitStrategies)
-	applyOverridableConfigUpdates(&room.OverridableConfig, map[string]interface{}{
+	require.NoError(t, applyOverridableConfigUpdates(&room.OverridableConfig, map[string]interface{}{
 		"video_split_strategies": map[string]interface{}{"max_file_size": float64(0), "max_duration": float64(0)},
-	})
+	}))
 	require.Equal(t, configs.VideoSplitStrategies{}, *room.VideoSplitStrategies)
-	applyOverridableConfigUpdates(&room.OverridableConfig, map[string]interface{}{})
+	require.NoError(t, applyOverridableConfigUpdates(&room.OverridableConfig, map[string]interface{}{}))
 	require.NotNil(t, room.VideoSplitStrategies)
-	applyOverridableConfigUpdates(&room.OverridableConfig, map[string]interface{}{"video_split_strategies": nil})
+	require.NoError(t, applyOverridableConfigUpdates(&room.OverridableConfig, map[string]interface{}{"video_split_strategies": nil}))
 	require.Nil(t, room.VideoSplitStrategies)
 	require.Equal(t, cfg.VideoSplitStrategies, cfg.ResolveConfigForRoom(&room, "bilibili").VideoSplitStrategies)
 	platform := configs.PlatformConfig{}
-	applyOverridableConfigUpdates(&platform.OverridableConfig, map[string]interface{}{"video_split_strategies": map[string]interface{}{"max_file_size": "500MB"}})
+	require.NoError(t, applyOverridableConfigUpdates(&platform.OverridableConfig, map[string]interface{}{"video_split_strategies": map[string]interface{}{"max_file_size": "500MB"}}))
 	cfg.PlatformConfigs = map[string]configs.PlatformConfig{"bilibili": platform}
 	require.Equal(t, 500*configs.MB, cfg.ResolveConfigForRoom(&room, "bilibili").VideoSplitStrategies.MaxFileSize)
 }
@@ -110,6 +110,9 @@ func TestInvalidVideoSplitUpdatesReturnBadRequestWithoutSaving(t *testing.T) {
 		`{"on_room_name_changed":"true"}`,
 		`{"max_file_size":null}`,
 		`{"max_duration":-1}`,
+		`{"max_duration":200000000}`,
+		`{"max_duration":59000000000}`,
+		`{"max_size":"1GB"}`,
 		`{"max_file_size":-1}`,
 		`"1GB"`,
 		`[]`,

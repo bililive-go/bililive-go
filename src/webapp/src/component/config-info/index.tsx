@@ -1332,7 +1332,7 @@ const PlatformConfigForm: React.FC<{
   return (
     <div id={`platforms-${platformKey}`}>
       <Form form={form} layout="vertical">
-        <VideoSplitFields form={form} source="全局" />
+        <VideoSplitFields form={form} source="全局" inherited={globalConfig?.video_split_strategies} />
         <ConfigField
           label="检测间隔 (秒)"
           description={`当前平台有 ${platform.listening_count} 个直播间正在监控`}
@@ -1691,7 +1691,8 @@ export const RoomConfigForm: React.FC<{
 
   return (
     <Form form={form} layout="vertical">
-      <VideoSplitFields form={form} source={platformConfig?.video_split_strategies != null ? "平台" : "全局"} />
+      <VideoSplitFields form={form} source={platformConfig?.video_split_strategies != null ? "平台" : "全局"}
+        inherited={platformConfig?.video_split_strategies ?? globalConfig?.video_split_strategies} />
       <ConfigField
         label="别名"
         description="在列表中显示的名称"

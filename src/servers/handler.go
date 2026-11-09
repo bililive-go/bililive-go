@@ -2482,11 +2482,13 @@ func applyOverridableConfigUpdates(oc *configs.OverridableConfig, updates map[st
 			if err != nil {
 				return fmt.Errorf("%w: %v", errInvalidVideoSplitStrategies, err)
 			}
-			if err := json.Unmarshal(data, &strategies); err != nil {
+			decoder := json.NewDecoder(bytes.NewReader(data))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&strategies); err != nil {
 				return fmt.Errorf("%w: %v", errInvalidVideoSplitStrategies, err)
 			}
-			if strategies.MaxDuration < 0 || strategies.MaxFileSize.Bytes() < 0 {
-				return fmt.Errorf("%w: 最大时长和文件大小不能为负数", errInvalidVideoSplitStrategies)
+			if err := strategies.Validate(); err != nil {
+				return fmt.Errorf("%w: %v", errInvalidVideoSplitStrategies, err)
 			}
 			oc.VideoSplitStrategies = &strategies
 		}

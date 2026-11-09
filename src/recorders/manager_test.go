@@ -207,7 +207,7 @@ func TestCronRestartUsesRoomVideoSplitStrategies(t *testing.T) {
 			r.EXPECT().StartTime().Return(time.Now().Add(-2 * time.Minute))
 		}
 		m.savers[id] = r
-		m.cronRestart(context.Background(), l)
+		m.cronRestart(context.Background(), l, r)
 	}
 	assert.Equal(t, 1, restarted)
 }
@@ -251,4 +251,58 @@ func TestAddRecorderSchedulesRoomVideoSplit(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("全局关闭分片时，房间时长覆盖未启动调度")
 	}
+}
+
+func TestCronRestartStopsForReplacedRecorder(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	l := livemock.NewMockLive(ctrl)
+	l.EXPECT().GetLiveId().Return(types.LiveID("test"))
+	old := NewMockRecorder(ctrl)
+	current := NewMockRecorder(ctrl)
+	m := &manager{savers: map[types.LiveID]Recorder{"test": current}}
+	// 旧任务不得读取新录制器的开始时间，也不得再次调度。
+	m.cronRestart(context.Background(), l, old)
+}
+
+func TestCronRestartRechecksRecorderUnderRestartLock(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	previous := configs.GetCurrentConfig()
+	cfg := configs.NewConfig()
+	cfg.VideoSplitStrategies.MaxDuration = time.Minute
+	configs.SetCurrentConfig(cfg)
+	t.Cleanup(func() { configs.SetCurrentConfig(previous) })
+	l := livemock.NewMockLive(ctrl)
+	l.EXPECT().GetLiveId().Return(types.LiveID("test")).AnyTimes()
+	l.EXPECT().GetRawUrl().Return("https://live.bilibili.com/1")
+	old := NewMockRecorder(ctrl)
+	current := NewMockRecorder(ctrl)
+	m := &manager{savers: map[types.LiveID]Recorder{"test": old}}
+	old.EXPECT().StartTime().DoAndReturn(func() time.Time {
+		// 精确模拟标题分片在定时任务已取得旧实例、但尚未拿到重启锁时完成替换。
+		m.lock.Lock()
+		m.savers["test"] = current
+		m.lock.Unlock()
+		return time.Now().Add(-2 * time.Minute)
+	})
+	backup := newRecorder
+	t.Cleanup(func() { newRecorder = backup })
+	newRecorder = func(context.Context, live.Live) (Recorder, error) {
+		t.Fatal("旧定时任务不应重启刚替换的新实例")
+		return nil, nil
+	}
+	m.cronRestart(context.Background(), l, old)
+	rec, err := m.GetRecorder(context.Background(), "test")
+	require.NoError(t, err)
+	require.Same(t, current, rec)
+}
+
+func TestCronRestartStopsOnCanceledContext(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	l := livemock.NewMockLive(ctrl)
+	r := NewMockRecorder(ctrl)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	m := &manager{}
+	m.cronRestart(ctx, l, r)
+	require.ErrorIs(t, m.restartRecorder(ctx, l, r), context.Canceled)
 }

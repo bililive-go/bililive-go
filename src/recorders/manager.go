@@ -214,15 +214,18 @@ func (m *manager) addRecorderLocked(ctx context.Context, live live.Live) error {
 	cfg := configs.GetCurrentConfig()
 	if cfg != nil {
 		if maxDur := cfg.GetEffectiveConfigForRoom(live.GetRawUrl()).VideoSplitStrategies.MaxDuration; maxDur > 0 {
-			bilisentry.GoWithContext(ctx, func(ctx context.Context) { m.cronRestart(ctx, live) })
+			bilisentry.GoWithContext(ctx, func(ctx context.Context) { m.cronRestart(ctx, live, rec) })
 		}
 	}
 	return nil
 }
 
-func (m *manager) cronRestart(ctx context.Context, live live.Live) {
+func (m *manager) cronRestart(ctx context.Context, live live.Live, expected Recorder) {
+	if ctx.Err() != nil {
+		return
+	}
 	recorder, err := m.GetRecorder(ctx, live.GetLiveId())
-	if err != nil {
+	if err != nil || recorder != expected {
 		return
 	}
 	cfg := configs.GetCurrentConfig()
@@ -235,23 +238,36 @@ func (m *manager) cronRestart(ctx context.Context, live live.Live) {
 	}
 	if time.Since(recorder.StartTime()) < maxDuration {
 		time.AfterFunc(time.Minute/4, func() {
-			m.cronRestart(ctx, live)
+			m.cronRestart(ctx, live, expected)
 		})
 		return
 	}
-	if err := m.RestartRecorder(ctx, live); err != nil {
+	if err := m.restartRecorder(ctx, live, expected); err != nil {
 		return
 	}
 }
 
 func (m *manager) RestartRecorder(ctx context.Context, live live.Live) error {
+	return m.restartRecorder(ctx, live, nil)
+}
+
+// expected 非空时，只重启启动该定时任务的录制器；比较和替换必须在同一把锁内。
+func (m *manager) restartRecorder(ctx context.Context, live live.Live, expected Recorder) error {
 	// 1. 在锁内完成 map 操作：取出旧 recorder，创建并放入新 recorder
 	// 这样外部观察者（如 LiveEnd 事件处理器）始终能看到录制器存在，不会出现中间状态
 	m.lock.Lock()
+	if expected != nil && ctx.Err() != nil {
+		m.lock.Unlock()
+		return ctx.Err()
+	}
 	oldRecorder, ok := m.savers[live.GetLiveId()]
 	if !ok {
 		m.lock.Unlock()
 		return ErrRecorderNotExist
+	}
+	if expected != nil && oldRecorder != expected {
+		m.lock.Unlock()
+		return nil
 	}
 	// 从 map 中移除旧 recorder 并立即添加新 recorder，保持锁贯穿整个替换操作
 	delete(m.savers, live.GetLiveId())
