@@ -1,6 +1,7 @@
 import React from 'react';
 import { Alert, Form, Input, InputNumber, Switch } from 'antd';
 import type { FormInstance } from 'antd';
+import { videoSplitFileSizePattern } from './video-split';
 
 const VideoSplitFields: React.FC<{ form: FormInstance; source: string }> = ({ form, source }) => {
   const enabled = Form.useWatch('video_split_override', form);
@@ -18,7 +19,7 @@ const VideoSplitFields: React.FC<{ form: FormInstance; source: string }> = ({ fo
         <InputNumber min={0} disabled={!enabled} />
       </Form.Item>
       <Form.Item label="最大分片大小（如 1GB、500MB，0 为不限）" name={['video_split_strategies', 'max_file_size']}
-        rules={enabled ? [{ pattern: /^\s*\d+(\.\d+)?\s*(B|KB|MB|GB|TB)?\s*$/i, message: '请输入有效的文件大小' }] : []}>
+        rules={enabled ? [{ pattern: videoSplitFileSizePattern, message: '请输入有效的文件大小' }] : []}>
         <Input disabled={!enabled} style={{ maxWidth: 300 }} />
       </Form.Item>
       <Alert type="info" showIcon style={{ marginBottom: 16 }}

@@ -17,8 +17,11 @@ export function videoSplitUpdates(values: any) {
     ...updates,
     video_split_strategies: video_split_override ? {
       ...values.video_split_strategies,
-      max_duration: (values.video_split_strategies?.max_duration ?? 0) * 1e9,
+      max_duration: Math.round((values.video_split_strategies?.max_duration ?? 0) * 1e9),
     } : null,
   };
 }
 
+
+// 裸字节数必须为整数，带单位时允许小数，与 ParseByteSize 保持一致。
+export const videoSplitFileSizePattern = /^\s*(?:\d+|\d+(?:\.\d+)?\s*(?:B|KB|MB|GB|TB))\s*$/i;

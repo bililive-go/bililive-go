@@ -2247,7 +2247,9 @@ func updatePlatformConfig(writer http.ResponseWriter, r *http.Request) {
 			pc.MinAccessIntervalSec = int(minInterval)
 		}
 		// 使用助手函数更新可覆盖配置
-		applyOverridableConfigUpdates(&pc.OverridableConfig, updates)
+		if err := applyOverridableConfigUpdates(&pc.OverridableConfig, updates); err != nil {
+			return err
+		}
 
 		// 验证弹幕配置有效性
 		if pc.Danmaku != nil {
@@ -2261,8 +2263,12 @@ func updatePlatformConfig(writer http.ResponseWriter, r *http.Request) {
 	}, 3, 10*time.Millisecond)
 
 	if err != nil {
-		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
-			ErrNo:  http.StatusInternalServerError,
+		status := http.StatusInternalServerError
+		if errors.Is(err, errInvalidVideoSplitStrategies) {
+			status = http.StatusBadRequest
+		}
+		writeJsonWithStatusCode(writer, status, commonResp{
+			ErrNo:  status,
 			ErrMsg: "更新平台配置失败: " + err.Error(),
 		})
 		return
@@ -2380,7 +2386,9 @@ func updateRoomConfigById(writer http.ResponseWriter, r *http.Request) {
 		}
 
 		// 更新可覆盖配置
-		applyOverridableConfigUpdates(&room.OverridableConfig, updates)
+		if err := applyOverridableConfigUpdates(&room.OverridableConfig, updates); err != nil {
+			return err
+		}
 
 		// 验证弹幕配置有效性（同时根据平台清理不适用的字段）
 		if room.Danmaku != nil {
@@ -2395,8 +2403,12 @@ func updateRoomConfigById(writer http.ResponseWriter, r *http.Request) {
 	}, 3, 10*time.Millisecond)
 
 	if err != nil {
-		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
-			ErrNo:  http.StatusInternalServerError,
+		status := http.StatusInternalServerError
+		if errors.Is(err, errInvalidVideoSplitStrategies) {
+			status = http.StatusBadRequest
+		}
+		writeJsonWithStatusCode(writer, status, commonResp{
+			ErrNo:  status,
 			ErrMsg: "更新直播间配置失败: " + err.Error(),
 		})
 		return
@@ -2444,22 +2456,39 @@ func updateRoomConfigById(writer http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// applyOverridableConfigUpdates 统一处理可覆盖配置的更新
-func applyOverridableConfigUpdates(oc *configs.OverridableConfig, updates map[string]interface{}) {
+var errInvalidVideoSplitStrategies = errors.New("video_split_strategies 无效")
+
+// applyOverridableConfigUpdates 统一处理可覆盖配置的更新，并向调用方返回分片策略校验错误。
+func applyOverridableConfigUpdates(oc *configs.OverridableConfig, updates map[string]interface{}) error {
 	// 分片策略作为整体覆盖；显式 null 清除覆盖并恢复平台/全局继承。
 	if value, exists := updates["video_split_strategies"]; exists {
 		if value == nil {
 			oc.VideoSplitStrategies = nil
-		} else if fields, ok := value.(map[string]interface{}); ok {
+		} else {
+			fields, ok := value.(map[string]interface{})
+			if !ok {
+				return fmt.Errorf("%w: 必须是对象或 null", errInvalidVideoSplitStrategies)
+			}
+			for _, field := range []string{"on_room_name_changed", "max_duration", "max_file_size"} {
+				if value, exists := fields[field]; exists && value == nil {
+					return fmt.Errorf("%w: %s 不能是 null", errInvalidVideoSplitStrategies, field)
+				}
+			}
 			strategies := configs.VideoSplitStrategies{}
 			if oc.VideoSplitStrategies != nil {
 				strategies = *oc.VideoSplitStrategies
 			}
-			if data, err := json.Marshal(fields); err == nil {
-				if err := json.Unmarshal(data, &strategies); err == nil {
-					oc.VideoSplitStrategies = &strategies
-				}
+			data, err := json.Marshal(fields)
+			if err != nil {
+				return fmt.Errorf("%w: %v", errInvalidVideoSplitStrategies, err)
 			}
+			if err := json.Unmarshal(data, &strategies); err != nil {
+				return fmt.Errorf("%w: %v", errInvalidVideoSplitStrategies, err)
+			}
+			if strategies.MaxDuration < 0 || strategies.MaxFileSize.Bytes() < 0 {
+				return fmt.Errorf("%w: 最大时长和文件大小不能为负数", errInvalidVideoSplitStrategies)
+			}
+			oc.VideoSplitStrategies = &strategies
 		}
 	}
 
@@ -2633,6 +2662,7 @@ func applyOverridableConfigUpdates(oc *configs.OverridableConfig, updates map[st
 		// 显式 null → 清除覆盖，恢复继承
 		oc.Danmaku = nil
 	}
+	return nil
 }
 
 type roomLiveOptionsLockEntry struct {
@@ -2841,7 +2871,9 @@ func updateRoomConfig(writer http.ResponseWriter, r *http.Request) {
 		}
 
 		// 处理可覆盖配置（弹幕、interval、outPutPath、ffmpegPath 等）
-		applyOverridableConfigUpdates(&room.OverridableConfig, updates)
+		if err := applyOverridableConfigUpdates(&room.OverridableConfig, updates); err != nil {
+			return err
+		}
 
 		// 验证弹幕配置（同时根据平台清理不适用的字段）
 		if room.Danmaku != nil {
@@ -2856,8 +2888,12 @@ func updateRoomConfig(writer http.ResponseWriter, r *http.Request) {
 	}, 3, 10*time.Millisecond)
 
 	if err != nil {
-		writeJsonWithStatusCode(writer, http.StatusInternalServerError, commonResp{
-			ErrNo:  http.StatusInternalServerError,
+		status := http.StatusInternalServerError
+		if errors.Is(err, errInvalidVideoSplitStrategies) {
+			status = http.StatusBadRequest
+		}
+		writeJsonWithStatusCode(writer, status, commonResp{
+			ErrNo:  status,
 			ErrMsg: "更新直播间配置失败: " + err.Error(),
 		})
 		return

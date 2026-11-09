@@ -6,11 +6,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/bililive-go/bililive-go/src/configs"
 	"github.com/bililive-go/bililive-go/src/instance"
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
@@ -96,4 +98,45 @@ func TestPlatformStatsIncludesVideoSplitOverrides(t *testing.T) {
 	require.Equal(t, platformSplit, response.Platforms[0].VideoSplitStrategies)
 	require.Len(t, response.Platforms[0].Rooms, 1)
 	require.Equal(t, roomSplit, response.Platforms[0].Rooms[0].VideoSplitStrategies)
+}
+
+func TestInvalidVideoSplitUpdatesReturnBadRequestWithoutSaving(t *testing.T) {
+	invalidValues := []string{
+		`{"max_file_size":"1GiB"}`,
+		`{"max_file_size":"1.5"}`,
+		`{"max_file_size":true}`,
+		`{"max_duration":64001000000.00001}`,
+		`{"max_duration":"10m"}`,
+		`{"on_room_name_changed":"true"}`,
+		`{"max_file_size":null}`,
+		`{"max_duration":-1}`,
+		`{"max_file_size":-1}`,
+		`"1GB"`,
+		`[]`,
+	}
+	for _, endpoint := range []string{"平台", "房间ID", "房间URL"} {
+		for _, value := range invalidValues {
+			t.Run(endpoint+"/"+value, func(t *testing.T) {
+				cfg, inst, active, _ := newRoomConfigTestLive(t, false, false)
+				before, err := os.ReadFile(cfg.File)
+				require.NoError(t, err)
+				body := `{"nick_name":"不应保存","name":"不应保存","video_split_strategies":` + value + `}`
+				var rec *httptest.ResponseRecorder
+				if endpoint == "平台" {
+					req := httptest.NewRequest(http.MethodPatch, "/api/config/platforms/bilibili", strings.NewReader(body)).WithContext(ctxWithInstance(inst))
+					req = mux.SetURLVars(req, map[string]string{"platform": "bilibili"})
+					rec = httptest.NewRecorder()
+					updatePlatformConfig(rec, req)
+				} else {
+					rec = patchRoomConfig(t, inst, active, endpoint == "房间ID", body)
+				}
+				require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+				require.Contains(t, rec.Body.String(), "video_split_strategies")
+				require.Same(t, cfg, configs.GetCurrentConfig(), "无效请求不得提交内存配置")
+				after, err := os.ReadFile(cfg.File)
+				require.NoError(t, err)
+				require.Equal(t, before, after, "无效请求不得写盘")
+			})
+		}
+	}
 }
