@@ -41,7 +41,13 @@ func getBTools(api btoolsNodeAPI) (remotetools.Tool, error) {
 	if api.GetToolGroupPinnedVersion("biliLive-tools") == "" {
 		switch tool.GetVersion() {
 		case "3.1.2-bgo.1", "3.1.2-bgo.2":
-			return api.GetToolWithVersion("biliLive-tools", "4.1.0-bgo.1")
+			tool, err = api.GetToolWithVersion("biliLive-tools", "4.1.0-bgo.1")
+			if err != nil {
+				return nil, err
+			}
+			if tool == nil {
+				return nil, fmt.Errorf("未获取到 biliLive-tools 4.1.0-bgo.1 实例")
+			}
 		}
 	}
 	return tool, nil
@@ -52,12 +58,21 @@ func getBToolsNode(api btoolsNodeAPI, version string) (remotetools.Tool, error) 
 	if err != nil {
 		return nil, err
 	}
+	var tool remotetools.Tool
 	if required == "" {
-		return api.GetTool("node")
+		tool, err = api.GetTool("node")
+	} else {
+		// 开发覆盖不会经过 GetToolWithVersion，不能静默忽略用户的显式覆盖。
+		if remotetools.GetDevToolOverride("node") != "" {
+			return nil, fmt.Errorf("biliLive-tools %s 需要 Node %s，请先移除 Node 开发路径覆盖或使用自定义工具版本", version, required)
+		}
+		tool, err = api.GetToolWithVersion("node", required)
 	}
-	// 开发覆盖不会经过 GetToolWithVersion，不能静默忽略用户的显式覆盖。
-	if remotetools.GetDevToolOverride("node") != "" {
-		return nil, fmt.Errorf("biliLive-tools %s 需要 Node %s，请先移除 Node 开发路径覆盖或使用自定义工具版本", version, required)
+	if err != nil {
+		return nil, err
 	}
-	return api.GetToolWithVersion("node", required)
+	if tool == nil {
+		return nil, fmt.Errorf("未获取到 node 实例")
+	}
+	return tool, nil
 }

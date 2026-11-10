@@ -2,6 +2,7 @@ package tools
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -37,15 +38,34 @@ func TestBToolsNodeVersion(t *testing.T) {
 // 节点缓存选择与精确版本选择必须分开，避免旧安装或较新缓存抢占匹配的 ABI。
 type fakeBToolsNodeAPI struct {
 	pinned, selected, selectedVersion string
+	tool                              remotetools.Tool
+	err                               error
+	returnNil                         bool
 }
+
+type fakeBToolsRuntimeTool struct {
+	remotetools.Tool
+	version string
+}
+
+func (t *fakeBToolsRuntimeTool) GetVersion() string { return t.version }
 
 func (a *fakeBToolsNodeAPI) GetTool(name string) (remotetools.Tool, error) {
 	a.selected = name
-	return nil, nil
+	if a.returnNil || a.err != nil {
+		return nil, a.err
+	}
+	if a.tool != nil {
+		return a.tool, nil
+	}
+	return &fakeBToolsRuntimeTool{}, nil
 }
 func (a *fakeBToolsNodeAPI) GetToolWithVersion(name, version string) (remotetools.Tool, error) {
 	a.selected, a.selectedVersion = name, version
-	return nil, nil
+	if a.returnNil || a.err != nil {
+		return nil, a.err
+	}
+	return &fakeBToolsRuntimeTool{}, nil
 }
 func (a *fakeBToolsNodeAPI) GetToolGroupPinnedVersion(string) string { return a.pinned }
 
@@ -248,6 +268,9 @@ func TestBToolsUpgradeFromInstalledOldRelease(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			api := setupBToolsSelectionTest(t)
+			if api.GetConfig().ToolConfigs["biliLive-tools@"+tt.oldVersion] == nil {
+				t.Skipf("当前平台 %s/%s 不提供旧版本 %s", runtime.GOOS, runtime.GOARCH, tt.oldVersion)
+			}
 			root := remotetools.GetRootFolder()
 			if tt.readOnly {
 				root = t.TempDir()
@@ -332,5 +355,49 @@ func TestBToolsSelectionPreservesCustomAndDevelopmentVersions(t *testing.T) {
 	}
 	if err := api.LoadConfigFromBytes(data); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// 异常 API 返回值必须在选择器边界转成错误，不能传给调用方触发空指针。
+func TestBToolsRuntimeRejectsNil(t *testing.T) {
+	for _, version := range []string{"4.1.0-bgo.1", "custom"} {
+		api := &fakeBToolsNodeAPI{returnNil: true}
+		if tool, err := getBToolsNode(api, version); tool != nil || err == nil {
+			t.Fatalf("%s: 空 Node 应返回错误，实际 %v, %v", version, tool, err)
+		}
+	}
+	if tool, err := getBTools(&fakeBToolsNodeAPI{returnNil: true}); tool != nil || err == nil {
+		t.Fatalf("空工具应返回错误，实际 %v, %v", tool, err)
+	}
+	for _, version := range []string{"3.1.2-bgo.1", "3.1.2-bgo.2"} {
+		api := &nilUpgradeBToolsAPI{fakeBToolsNodeAPI: fakeBToolsNodeAPI{tool: &fakeBToolsRuntimeTool{version: version}}}
+		if tool, err := getBTools(api); tool != nil || err == nil {
+			t.Fatalf("%s: 空升级工具应返回错误，实际 %v, %v", version, tool, err)
+		}
+	}
+}
+
+type nilUpgradeBToolsAPI struct {
+	fakeBToolsNodeAPI
+	upgradeErr error
+}
+
+func (a *nilUpgradeBToolsAPI) GetToolWithVersion(string, string) (remotetools.Tool, error) {
+	return nil, a.upgradeErr
+}
+
+func TestBToolsRuntimePreservesAPIErrors(t *testing.T) {
+	want := errors.New("测试 API 错误")
+	api := &nilUpgradeBToolsAPI{fakeBToolsNodeAPI: fakeBToolsNodeAPI{tool: &fakeBToolsRuntimeTool{version: "3.1.2-bgo.2"}}, upgradeErr: want}
+	if tool, err := getBTools(api); tool != nil || !errors.Is(err, want) {
+		t.Fatalf("升级应保留 API 错误，实际 %v, %v", tool, err)
+	}
+	for _, version := range []string{"4.1.0-bgo.1", "custom"} {
+		if tool, err := getBToolsNode(&fakeBToolsNodeAPI{err: want}, version); tool != nil || !errors.Is(err, want) {
+			t.Fatalf("Node 应保留 API 错误，实际 %v, %v", tool, err)
+		}
+	}
+	if tool, err := getBTools(&fakeBToolsNodeAPI{err: want}); tool != nil || !errors.Is(err, want) {
+		t.Fatalf("工具应保留 API 错误，实际 %v, %v", tool, err)
 	}
 }
