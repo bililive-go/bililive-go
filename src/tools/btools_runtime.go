@@ -28,6 +28,25 @@ type btoolsNodeAPI interface {
 	GetToolGroupPinnedVersion(string) string
 }
 
+// getBTools 升级未固定的已知旧包，避免“优先已安装版本”一直选择旧版本。
+// 保留显式固定版本，以及自定义工具包和开发覆盖的原有选择行为。
+func getBTools(api btoolsNodeAPI) (remotetools.Tool, error) {
+	tool, err := api.GetTool("biliLive-tools")
+	if err != nil {
+		return nil, err
+	}
+	if tool == nil {
+		return nil, fmt.Errorf("未获取到 biliLive-tools 实例")
+	}
+	if api.GetToolGroupPinnedVersion("biliLive-tools") == "" {
+		switch tool.GetVersion() {
+		case "3.1.2-bgo.1", "3.1.2-bgo.2":
+			return api.GetToolWithVersion("biliLive-tools", "4.1.0-bgo.1")
+		}
+	}
+	return tool, nil
+}
+
 func getBToolsNode(api btoolsNodeAPI, version string) (remotetools.Tool, error) {
 	required, err := btoolsNodeVersion(version, api.GetToolGroupPinnedVersion("node"))
 	if err != nil {

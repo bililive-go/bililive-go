@@ -497,13 +497,16 @@ func SyncBuiltInTools(targetToolFolder string) (err error) {
 		"biliLive-tools",
 	} {
 		var tool tools.Tool
-		if toolName == "node" {
+		switch toolName {
+		case "node":
 			var btools tools.Tool
-			btools, err = api.GetTool("biliLive-tools")
+			btools, err = getBTools(api)
 			if err == nil {
 				tool, err = getBToolsNode(api, btools.GetVersion())
 			}
-		} else {
+		case "biliLive-tools":
+			tool, err = getBTools(api)
+		default:
 			tool, err = api.GetTool(toolName)
 		}
 		if err != nil {
@@ -678,7 +681,7 @@ func startBTools() error {
 		currentBToolsStatus.Store(int32(BToolsStatusFailed))
 		return errors.New("failed to get remotetools API instance")
 	}
-	btools, err := api.GetTool("biliLive-tools")
+	btools, err := getBTools(api)
 	if err != nil {
 		currentBToolsStatus.Store(int32(BToolsStatusFailed))
 		return err
