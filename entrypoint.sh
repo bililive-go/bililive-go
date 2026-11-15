@@ -1,6 +1,6 @@
 #!/bin/sh
 
-HOME=/srv/bililive
+export HOME=/srv/bililive
 
 chown -R ${PUID}:${PGID} ${HOME}
 chown -R ${PUID}:${PGID} /etc/bililive-go
