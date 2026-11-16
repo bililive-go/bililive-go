@@ -663,6 +663,8 @@ func superviseBTools() {
 // passwd 查询并抛出 uv_os_homedir ENOENT，导致 bililive-tools 反复崩溃重启（#1241）。
 // 但会改变 node 或 bililive-tools 行为的变量（NODE_*、BILILIVE_TOOLS_*）不传递，
 // 例如 BILILIVE_TOOLS_PASSKEY 会覆盖 appConfig.json 中的 passKey，导致与 BToolsAuthToken 不匹配。
+// Docker 镜像中的 IS_DOCKER、PORT 也会被继承：前者只影响 bililive-tools 未使用的录制/webhook 默认路径，
+// 后者不会被读取（端口来自 appConfig.json）。
 func buildBToolsEnv(base []string, nodeFolder, goos string) []string {
 	isPathKey := func(key string) bool { return key == "PATH" }
 	if goos == "windows" {

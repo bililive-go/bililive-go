@@ -57,6 +57,12 @@ func TestBuildBToolsEnv(t *testing.T) {
 			goos: "windows",
 			want: []string{"USERPROFILE=C:\\Users\\kira", "PATH=/opt/node/bin" + sep + "C:\\Windows"},
 		},
+		{
+			name: "Windows 上小写 path 与 node_options 同样处理，保留 =C: 这类空键条目",
+			base: []string{"=C:=C:\\work", "path=C:\\Windows", "node_options=--inspect"},
+			goos: "windows",
+			want: []string{"=C:=C:\\work", "PATH=/opt/node/bin" + sep + "C:\\Windows"},
+		},
 	}
 
 	for _, tt := range tests {
