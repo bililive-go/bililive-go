@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -657,6 +658,42 @@ func superviseBTools() {
 	}
 }
 
+// buildBToolsEnv 基于 base 构造 bililive-tools 的环境变量，并把 node 目录加到 PATH 最前面。
+// 必须继承 HOME 等变量：Docker 中以不在 /etc/passwd 里的 PUID 运行时，node 缺少 HOME 会回退到
+// passwd 查询并抛出 uv_os_homedir ENOENT，导致 bililive-tools 反复崩溃重启（#1241）。
+// 但会改变 node 或 bililive-tools 行为的变量（NODE_*、BILILIVE_TOOLS_*）不传递，
+// 例如 BILILIVE_TOOLS_PASSKEY 会覆盖 appConfig.json 中的 passKey，导致与 BToolsAuthToken 不匹配。
+// Docker 镜像中的 IS_DOCKER、PORT 也会被继承：前者只影响 bililive-tools 未使用的录制/webhook 默认路径，
+// 后者不会被读取（端口来自 appConfig.json）。
+func buildBToolsEnv(base []string, nodeFolder, goos string) []string {
+	isPathKey := func(key string) bool { return key == "PATH" }
+	if goos == "windows" {
+		// Windows 环境变量名不区分大小写，通常写作 Path
+		isPathKey = func(key string) bool { return strings.EqualFold(key, "PATH") }
+	}
+
+	env := make([]string, 0, len(base)+1)
+	var basePath string
+	for _, kv := range base {
+		key, value, _ := strings.Cut(kv, "=")
+		if isPathKey(key) {
+			basePath = value
+			continue
+		}
+		upperKey := strings.ToUpper(key)
+		if strings.HasPrefix(upperKey, "NODE_") || strings.HasPrefix(upperKey, "BILILIVE_TOOLS_") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	path := nodeFolder
+	if basePath != "" {
+		// 原 PATH 为空时不追加分隔符，避免产生空路径段（等价于把当前目录加入搜索路径）
+		path += string(os.PathListSeparator) + basePath
+	}
+	return append(env, "PATH="+path)
+}
+
 func startBTools() error {
 	// 设置状态为正在启动
 	currentBToolsStatus.Store(int32(BToolsStatusStarting))
@@ -701,9 +738,7 @@ func startBTools() error {
 
 	nodeFolder := filepath.Dir(node.GetToolPath())
 	btoolsFolder := filepath.Dir(btools.GetToolPath())
-	env := []string{
-		"PATH=" + nodeFolder + string(os.PathListSeparator) + os.Getenv("PATH"),
-	}
+	env := buildBToolsEnv(os.Environ(), nodeFolder, runtime.GOOS)
 	nodePath, err := filepath.Abs(node.GetToolPath())
 	if err != nil {
 		currentBToolsStatus.Store(int32(BToolsStatusFailed))
