@@ -657,6 +657,21 @@ func superviseBTools() {
 	}
 }
 
+// buildBToolsEnv 基于当前进程环境变量构造 bililive-tools 的环境变量，并把 node 目录加到 PATH 最前面。
+// 必须继承 HOME 等变量：Docker 中以不在 /etc/passwd 里的 PUID 运行时，node 缺少 HOME 会回退到
+// passwd 查询并抛出 uv_os_homedir ENOENT，导致 bililive-tools 反复崩溃重启（#1241）。
+func buildBToolsEnv(base []string, nodeFolder string) []string {
+	env := make([]string, 0, len(base)+1)
+	for _, kv := range base {
+		key, _, _ := strings.Cut(kv, "=")
+		if strings.EqualFold(key, "PATH") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return append(env, "PATH="+nodeFolder+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
 func startBTools() error {
 	// 设置状态为正在启动
 	currentBToolsStatus.Store(int32(BToolsStatusStarting))
@@ -701,9 +716,7 @@ func startBTools() error {
 
 	nodeFolder := filepath.Dir(node.GetToolPath())
 	btoolsFolder := filepath.Dir(btools.GetToolPath())
-	env := []string{
-		"PATH=" + nodeFolder + string(os.PathListSeparator) + os.Getenv("PATH"),
-	}
+	env := buildBToolsEnv(os.Environ(), nodeFolder)
 	nodePath, err := filepath.Abs(node.GetToolPath())
 	if err != nil {
 		currentBToolsStatus.Store(int32(BToolsStatusFailed))

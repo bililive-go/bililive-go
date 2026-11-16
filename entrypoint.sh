@@ -18,6 +18,12 @@ case "${ARCH_UNAME}:${ARCH_DPKG}" in
 		exec /usr/bin/bililive-go -c /etc/bililive-go/config.yml
 		;;
 	*)
-		exec gosu ${PUID}:${PGID} /usr/bin/bililive-go -c /etc/bililive-go/config.yml
+		# PUID 不在 /etc/passwd 中时，gosu 会把 HOME 设为不可写的 "/"，
+		# 这里改为数据目录，避免子进程（如 node）找不到可用的主目录（#1241）
+		if getent passwd "${PUID}" >/dev/null 2>&1; then
+			exec gosu ${PUID}:${PGID} /usr/bin/bililive-go -c /etc/bililive-go/config.yml
+		else
+			exec gosu ${PUID}:${PGID} env HOME="${HOME}" /usr/bin/bililive-go -c /etc/bililive-go/config.yml
+		fi
 		;;
 esac
