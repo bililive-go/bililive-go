@@ -178,6 +178,7 @@ coverage.txt
 
 # 本地自动升级测试配置（不提交到仓库，使用 .example.json 作为模板）
 test/launcher-config-local.json
+/test/update-mock-server.env
 
 # Playwright E2E 测试
 /test-results/
